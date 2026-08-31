@@ -216,3 +216,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project data, secrets, and generated research artifacts
+data/
+outputs/
+checkpoints/
+runs/
+wandb/
+scripts/log/
+scripts/save/
+*.ckpt
+*.npy
+*.npz
+*.pt
+*.pth
+*.tar
+.env.*

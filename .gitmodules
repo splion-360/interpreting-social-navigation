@@ -1,0 +1,3 @@
+[submodule "socialAttention"]
+	path = socialAttention
+	url = git@github.com:cmubig/socialAttention.git
