@@ -199,7 +199,7 @@ cython_debug/
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
@@ -218,13 +218,13 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project data, secrets, and generated research artifacts
-data/
-outputs/
-checkpoints/
-runs/
-wandb/
-scripts/log/
-scripts/save/
+/data/
+/outputs/
+/checkpoints/
+/runs/
+/wandb/
+/scripts/log/
+/scripts/save/
 *.ckpt
 *.npy
 *.npz

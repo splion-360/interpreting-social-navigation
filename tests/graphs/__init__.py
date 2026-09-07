@@ -1,1 +1,1 @@
-"""Tests for graph construction variants."""
+"""File description: Tests for graph construction variants."""

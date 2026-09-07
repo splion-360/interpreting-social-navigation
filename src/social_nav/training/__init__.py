@@ -1,1 +1,1 @@
-"""Training loops, device selection, seeds, checkpoints, and debug runs."""
+"""File description: Training loops, device selection, checkpoints, and debug runs."""

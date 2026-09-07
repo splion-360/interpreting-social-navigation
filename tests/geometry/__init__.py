@@ -1,1 +1,1 @@
-"""Tests for pose geometry and anatomical metrics."""
+"""File description: Tests for pose geometry and anatomical metrics."""

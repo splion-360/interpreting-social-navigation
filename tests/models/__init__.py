@@ -1,1 +1,1 @@
-"""Tests for model tensor contracts."""
+"""File description: Tests for model tensor contracts."""

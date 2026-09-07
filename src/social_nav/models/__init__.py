@@ -1,1 +1,1 @@
-"""Flat and hierarchical Social Attention trajectory models."""
+"""File description: Flat and hierarchical trajectory models."""

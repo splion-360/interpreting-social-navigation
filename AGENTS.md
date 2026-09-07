@@ -15,6 +15,12 @@ Use this directory tree as the intended project shape:
 ├── AGENTS.md
 ├── README.md
 ├── pyproject.toml
+├── docs/
+│   ├── PLAN.md
+│   ├── data/
+│   │   ├── data__preparation.runme
+│   │   └── data__visualize_mabe.runme
+│   └── social-attention.pdf
 ├── scripts/
 │   ├── train.py
 │   ├── sample.py
@@ -48,6 +54,8 @@ Use this directory tree as the intended project shape:
 ```
 
 `scripts/` is the historical runnable implementation to audit and migrate. `src/social_nav/` is the new first-party package for reusable research code. `socialAttention/` is the upstream reference submodule; keep it read-only unless intentionally updating the submodule pointer. Keep `scripts/` runnable while migrating logic into `src/social_nav/`; over time, scripts should shrink to CLI adapters that parse arguments and call package interfaces.
+
+Use Runme-compatible notebooks for ADRs, PRDs, design-decision records, workflow docs, and data/model/train/test walkthroughs. Store them under `docs/{category}/` and name them `{category}__{task}.runme`, for example `docs/data/data__preparation.runme`.
 
 Migration map:
 
@@ -102,7 +110,16 @@ The scripts expect log/save directories to exist. Submodule tests are legacy scr
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`. No formatter or linter is configured, so avoid unrelated formatting churn. Preserve command-line names when compatibility matters.
+Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep dataset and experiment constants in `src/social_nav/config/`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
+
+Use Google-style docstrings for every non-trivial function, class, and method. Keep research code concise: avoid production-grade defensive layers unless they protect a known research invariant, prevent silent data leakage, or make tensor contracts clear. Prefer DRY, SOLID code with focused modules over broad utility files.
+
+Start every new source and test file with a one-line module docstring in this exact format: `"""File description: {one line summary}"""`.
+
+Run Ruff lint and formatting checks after code changes:
+
+- `python -m ruff check src tests`
+- `python -m ruff format --check src tests`
 
 ## Testing Guidelines
 

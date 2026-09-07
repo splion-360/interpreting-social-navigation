@@ -1,1 +1,1 @@
-"""Spatio-temporal graph builders with explicit node and edge contracts."""
+"""File description: Spatio-temporal graph builders with node and edge contracts."""

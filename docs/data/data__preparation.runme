@@ -1,0 +1,146 @@
+---
+cwd: ../..
+---
+
+# MABe Data Preparation
+
+This Runme notebook documents the local data-loading decisions for the MABe22 Mouse Triplets work.
+
+## Check Local Data
+
+```bash
+ls -lh data/MaBe
+```
+
+```bash
+md5sum data/MaBe/mouse_triplet_train.npy
+```
+
+Expected training-file checksum:
+
+```text
+76a48f3a1679a219a0e7e8a87871cc74
+```
+
+## Inspect Dataset Structure
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+print("vocabulary:", dataset.vocabulary)
+print("num sequences:", len(dataset.sequences))
+
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+print("first sequence:", sequence.sequence_id)
+print("keypoints:", sequence.keypoints.shape, sequence.keypoints.dtype)
+print("annotations:", sequence.annotations.shape, sequence.annotations.dtype)
+```
+
+## Build Deterministic Splits
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset
+from social_nav.data import split_sequence_ids
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+train_ids, validation_ids = split_sequence_ids(
+    dataset.sequence_ids,
+    validation_fraction=0.2,
+    seed=42,
+)
+
+print("train sequences:", len(train_ids))
+print("validation sequences:", len(validation_ids))
+print("first train id:", train_ids[0])
+print("first validation id:", validation_ids[0])
+```
+
+## Create Forecasting Windows
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, split_sequence_ids
+from social_nav.data import MabeWindowDataset, WindowSpec
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)
+spec = WindowSpec(
+    length=20,
+    observation_length=8,
+    prediction_length=12,
+    stride=10,
+)
+
+windows = MabeWindowDataset(
+    dataset.select(train_ids[:4]),
+    spec=spec,
+    max_windows=8,
+)
+
+window = windows.first()
+print("num windows:", len(windows))
+print("window sequence:", window.sequence_id)
+print("start frame:", window.start_frame)
+print("window:", window.keypoints.shape)
+print("observed:", window.observed_keypoints.shape)
+print("future:", window.future_keypoints.shape)
+print("annotations:", None if window.annotations is None else window.annotations.shape)
+```
+
+## Fit Normalizer on Training Sequences
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec, split_sequence_ids
+from social_nav.data import PoseNormalizer
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)
+windows = MabeWindowDataset(
+    dataset.select(train_ids[:4]),
+    spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=10),
+    max_windows=8,
+)
+window = windows.first()
+normalizer = PoseNormalizer.fit(dataset.select(train_ids[:16]))
+print("mean:", normalizer.mean)
+print("std:", normalizer.std)
+
+normalized = normalizer.transform(window.keypoints)
+restored = normalizer.inverse_transform(normalized)
+print("max round-trip error:", abs(restored - window.keypoints).max())
+```
+
+## Data Decisions
+
+- Source format: keep the MABe dictionary structure at the loader seam, then expose `MabeSequence` and `Window` objects to callers.
+- Shape contract: pose tensors use `[frames, mice, keypoints, coordinates]`; batched tensors should use `[batch, time, mice, keypoints, coordinates]`.
+- Sequence split: split by sequence ID, not frame, to avoid train/validation leakage across windows from the same 1800-frame clip.
+- Windowing: default to 20 frames, with 8 observed frames and 12 forecast frames, matching `docs/PLAN.md`.
+- Missing keypoints: treat a keypoint as missing only when both x and y are zero, matching the AIcrowd notebook convention. Fill holes by forward fill; if the first frame is missing, seed it from the first later observed frame.
+- Normalization: fit mean and standard deviation on training sequences only. Keep raw pixel coordinates available for visualization and invert normalized predictions before plotting.
+- Chopping: create contiguous windows with configurable stride. Use larger stride and `max_windows` for debug notebooks; use full stride policy only for actual experiments.
+- Concatenation: do not concatenate train and validation sequences before fitting splits, metrics, or normalizers.

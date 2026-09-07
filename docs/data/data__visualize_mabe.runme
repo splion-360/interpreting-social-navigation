@@ -1,0 +1,180 @@
+---
+cwd: ../..
+---
+
+# Visualize MABe Mouse Triplets
+
+This Runme notebook uses the `social_nav.data` loader and visualization helpers to inspect raw sequences and future model rollouts.
+
+## Load One Window
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec, fill_missing_keypoints
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+
+clean_keypoints = fill_missing_keypoints(sequence.keypoints)
+print("sequence:", sequence.sequence_id)
+print("keypoints:", clean_keypoints.shape)
+print("annotations:", sequence.annotations.shape)
+
+windows = MabeWindowDataset(
+    [sequence],
+    spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),
+    max_windows=1,
+)
+window = windows.first()
+print("window:", window.keypoints.shape)
+```
+
+## Animate a Raw Sequence Segment
+
+In notebook environments, display the returned animation object. In terminal runs, use the save step below.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, fill_missing_keypoints
+from matplotlib import rc
+
+from social_nav.data.visualization import animate_pose_sequence
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+clean_keypoints = fill_missing_keypoints(sequence.keypoints)
+rc("animation", html="jshtml")
+
+animation_obj = animate_pose_sequence(
+    clean_keypoints,
+    sequence_id=sequence.sequence_id,
+    start_frame=0,
+    stop_frame=240,
+    step=6,
+    interval_ms=80,
+)
+
+animation_obj
+```
+
+## Save a Raw Sequence Animation
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, fill_missing_keypoints
+from social_nav.data.visualization import animate_pose_sequence
+from social_nav.data.visualization import save_animation
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+clean_keypoints = fill_missing_keypoints(sequence.keypoints)
+animation_obj = animate_pose_sequence(
+    clean_keypoints,
+    sequence_id=sequence.sequence_id,
+    start_frame=0,
+    stop_frame=240,
+    step=6,
+    interval_ms=80,
+)
+save_animation(animation_obj, repo_root / "outputs/visualizations/mabe_sequence_sample.mp4", fps=10)
+```
+
+## Compare a Future Trajectory Prediction
+
+This cell uses a persistence baseline as a placeholder. Replace `predicted_future` with model output after converting Gaussian predictions back to pixel-space keypoints shaped `[future, 3, 12, 2]`.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+import numpy as np
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec
+from social_nav.data.visualization import animate_prediction_comparison
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+windows = MabeWindowDataset(
+    [sequence],
+    spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),
+    max_windows=1,
+)
+window = windows.first()
+observed = window.observed_keypoints
+future = window.future_keypoints
+predicted_future = np.repeat(observed[-1:,...], repeats=future.shape[0], axis=0)
+
+comparison_animation = animate_prediction_comparison(
+    window.keypoints,
+    predicted_future,
+    observation_length=8,
+    sequence_id=window.sequence_id,
+    step=1,
+    interval_ms=120,
+)
+
+comparison_animation
+```
+
+## Save Prediction Comparison
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+from pathlib import Path
+import sys
+
+import numpy as np
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec
+from social_nav.data.visualization import animate_prediction_comparison, save_animation
+
+dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+sequence = dataset.sequences[dataset.sequence_ids[0]]
+windows = MabeWindowDataset(
+    [sequence],
+    spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),
+    max_windows=1,
+)
+window = windows.first()
+predicted_future = np.repeat(
+    window.observed_keypoints[-1:, ...],
+    repeats=window.future_keypoints.shape[0],
+    axis=0,
+)
+comparison_animation = animate_prediction_comparison(
+    window.keypoints,
+    predicted_future,
+    observation_length=8,
+    sequence_id=window.sequence_id,
+    step=1,
+    interval_ms=120,
+)
+save_animation(comparison_animation, repo_root / "outputs/visualizations/persistence_baseline.mp4", fps=8)
+```
+
+## Interpretation Notes
+
+- Solid skeletons show observed or ground-truth keypoints.
+- Dashed skeletons and `x` markers show predicted future keypoints.
+- Always inverse-transform normalized predictions before using this notebook.
+- Use short clips first; rendering all 1800 frames is slow and rarely useful for debugging.

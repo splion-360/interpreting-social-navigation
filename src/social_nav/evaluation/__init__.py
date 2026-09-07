@@ -1,1 +1,1 @@
-"""Trajectory, representation, behavior-probe, and efficiency evaluation."""
+"""File description: Trajectory, representation, behavior-probe, and efficiency evaluation."""

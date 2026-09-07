@@ -1,1 +1,1 @@
-"""Trajectory losses and Gaussian parameter validation."""
+"""File description: Trajectory losses and Gaussian parameter validation."""

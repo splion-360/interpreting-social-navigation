@@ -1,1 +1,1 @@
-"""Logging adapters for local files and optional experiment trackers."""
+"""File description: Logging adapters for local files and experiment trackers."""

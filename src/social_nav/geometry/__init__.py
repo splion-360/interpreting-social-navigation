@@ -1,1 +1,1 @@
-"""Pose geometry, coordinate transforms, velocities, and anatomical metrics."""
+"""File description: Pose geometry, coordinate transforms, and anatomical metrics."""
