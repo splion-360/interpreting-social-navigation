@@ -67,9 +67,15 @@ animation_obj = animate_pose_sequence(
 animation_obj
 ```
 
+```python
+
+```
+
 ## Save a Raw Sequence Animation
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+SEQ_ID = 1
+
 from pathlib import Path
 import sys
 
@@ -81,7 +87,7 @@ from social_nav.data.visualization import animate_pose_sequence
 from social_nav.data.visualization import save_animation
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
-sequence = dataset.sequences[dataset.sequence_ids[0]]
+sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 clean_keypoints = fill_missing_keypoints(sequence.keypoints)
 animation_obj = animate_pose_sequence(
     clean_keypoints,
@@ -99,6 +105,7 @@ save_animation(animation_obj, repo_root / "outputs/visualizations/mabe_sequence_
 This cell uses a persistence baseline as a placeholder. Replace `predicted_future` with model output after converting Gaussian predictions back to pixel-space keypoints shaped `[future, 3, 12, 2]`.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+SEQ_ID = 1
 from pathlib import Path
 import sys
 
@@ -111,7 +118,7 @@ from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec
 from social_nav.data.visualization import animate_prediction_comparison
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
-sequence = dataset.sequences[dataset.sequence_ids[0]]
+sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 windows = MabeWindowDataset(
     [sequence],
     spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),
@@ -149,7 +156,7 @@ from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec
 from social_nav.data.visualization import animate_prediction_comparison, save_animation
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
-sequence = dataset.sequences[dataset.sequence_ids[0]]
+sequence = dataset.sequences[dataset.sequence_ids[1]]
 windows = MabeWindowDataset(
     [sequence],
     spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),

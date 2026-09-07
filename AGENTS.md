@@ -57,6 +57,10 @@ Use this directory tree as the intended project shape:
 
 Use Runme-compatible notebooks for ADRs, PRDs, design-decision records, workflow docs, and data/model/train/test walkthroughs. Store them under `docs/{category}/` and name them `{category}__{task}.runme`, for example `docs/data/data__preparation.runme`.
 
+Create and manage project tickets in the relevant GitHub Project when available. Assign created tickets to `splion-360`; also assign to the acting agent only if a real GitHub identity is available. After completing implementation work for a ticket, move the project item to `In review`, not `Done`, so the user can review it.
+
+Tag tickets with broad category labels so the project can be filtered quickly. Use labels such as `data`, `graph`, `model`, `training`, `evaluation`, and `docs-runme`; apply more than one label when a ticket spans categories.
+
 Migration map:
 
 ```text
