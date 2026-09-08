@@ -9,10 +9,10 @@ from pathlib import Path
 import torch
 from torch import Tensor
 
-from social_nav.data import MabeDataset, MabeWindowDataset, PoseNormalizer, WindowSpec
-from social_nav.graphs import build_flat_sparse_keypoint_graph
-from social_nav.losses import bivariate_gaussian_nll
-from social_nav.models import FlatSocialAttentionModel
+from data import MabeDataset, MabeWindowDataset, PoseNormalizer, WindowSpec
+from graphs import build_flat_sparse_keypoint_graph
+from losses import bivariate_gaussian_nll
+from models import FlatSocialAttentionModel
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@
 
 `scripts/` contains the historical MABe mouse-trajectory implementation: entry points, Structural RNN, graph construction, losses, and data utilities. Treat it as code to audit and migrate, not as the final architecture. `socialAttention/` is the upstream reference submodule. `docs/PLAN.md` records the correctness audit and planned hierarchical model. `docs/` and `misc/` hold research references, experiment notes, and media.
 
-New first-party implementation should live under `src/social_nav/`. Place tests in `tests/`, mirroring the module under test, such as `tests/graphs/test_flat_keypoint_graph.py`. Keep generated checkpoints, logs, downloaded datasets, and plots out of version control.
+New first-party implementation should live directly under `src/`. Place tests in `tests/`, mirroring the module under test, such as `tests/graphs/test_flat_keypoint_graph.py`. Keep generated checkpoints, logs, downloaded datasets, and plots out of version control.
 
 ## Repository Architecture
 
@@ -30,13 +30,12 @@ Use this directory tree as the intended project shape:
 │   ├── helper.py
 │   └── utils.py
 ├── src/
-│   └── social_nav/
-│       ├── config/
-│       ├── data/
-│       ├── graphs/
-│       ├── losses/
-│       ├── models/
-│       └── train.py
+│   ├── config/
+│   ├── data/
+│   ├── graphs/
+│   ├── losses/
+│   ├── models/
+│   └── train.py
 ├── tests/
 │   ├── data/
 │   ├── graphs/
@@ -47,7 +46,7 @@ Use this directory tree as the intended project shape:
 └── data/                 # ignored local dataset storage
 ```
 
-`scripts/` is the historical runnable implementation to audit and migrate. `src/social_nav/` is the new first-party package for reusable research code. `socialAttention/` is the upstream reference submodule; keep it read-only unless intentionally updating the submodule pointer. Keep `scripts/` runnable while migrating logic into `src/social_nav/`; over time, scripts should shrink to CLI adapters that parse arguments and call package interfaces.
+`scripts/` is the historical runnable implementation to audit and migrate. `src/` is the new first-party root for reusable research code. `socialAttention/` is the upstream reference submodule; keep it read-only unless intentionally updating the submodule pointer. Keep `scripts/` runnable while migrating logic into `src/`; over time, scripts should shrink to CLI adapters that parse arguments and call package interfaces.
 
 Use Runme-compatible notebooks for ADRs, PRDs, design-decision records, workflow docs, and data/model/train/test walkthroughs. Store them under `docs/{category}/` and name them `{category}__{task}.runme`, for example `docs/data/data__preparation.runme`.
 
@@ -58,13 +57,13 @@ Tag tickets with broad category labels so the project can be filtered quickly. U
 Migration map:
 
 ```text
-scripts/utils.py      -> src/social_nav/data/
-scripts/st_graph.py   -> src/social_nav/graphs/
-scripts/helper.py     -> src/social_nav/geometry/ or src/social_nav/models/
-scripts/model.py      -> src/social_nav/models/
-scripts/criterion.py  -> src/social_nav/losses/
-scripts/train.py      -> src/social_nav/train.py
-scripts/sample.py     -> src/social_nav/evaluate.py or inference helpers
+scripts/utils.py      -> src/data/
+scripts/st_graph.py   -> src/graphs/
+scripts/helper.py     -> src/geometry.py or src/models/
+scripts/model.py      -> src/models/
+scripts/criterion.py  -> src/losses/
+scripts/train.py      -> src/train.py
+scripts/sample.py     -> src/evaluate.py or inference helpers
 ```
 
 Do not move everything in one edit. Migrate one module at a time, add tests at the new seam, and preserve the historical script path until the replacement is verified.
@@ -83,24 +82,24 @@ Use folders only when a concern has multiple files or a stable internal API. Sta
 
 Use these current modules:
 
-- `src/social_nav/config/`: typed experiment and runtime configuration.
-- `src/social_nav/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
-- `src/social_nav/graphs/`: flat sparse, flat full, and mouse-level graph builders with explicit node/edge-count contracts.
-- `src/social_nav/models/`: flat Social Attention, hierarchical mouse encoder, mouse-level Social Attention, and keypoint decoder.
-- `src/social_nav/losses/`: Gaussian NLL, geodesic/structural loss, and Gaussian parameter validation.
-- `src/social_nav/train.py`: training CLI, device selection, seeds, warm-up smoke runs, and later real experiment entry points.
+- `src/config/`: typed experiment and runtime configuration.
+- `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
+- `src/graphs/`: flat sparse, flat full, and mouse-level graph builders with explicit node/edge-count contracts.
+- `src/models/`: flat Social Attention, hierarchical mouse encoder, mouse-level Social Attention, and keypoint decoder.
+- `src/losses/`: Gaussian NLL, geodesic/structural loss, and Gaussian parameter validation.
+- `src/train.py`: training CLI, device selection, seeds, warm-up smoke runs, and later real experiment entry points.
 
 Add future modules only when needed:
 
-- `src/social_nav/geometry.py` or `src/social_nav/geometry/`: coordinate transforms, velocities, anatomical edge definitions, and bone-length metrics.
-- `src/social_nav/evaluate.py` or `src/social_nav/evaluation/`: ADE, FDE, anatomical consistency, efficiency metrics, representation extraction, and behavior probes.
-- `src/social_nav/experiments.py` or `src/social_nav/experiments/`: named experiment definitions for flat baseline, hierarchical baseline, and ablations.
+- `src/geometry.py` or `src/geometry/`: coordinate transforms, velocities, anatomical edge definitions, and bone-length metrics.
+- `src/evaluate.py` or `src/evaluation/`: ADE, FDE, anatomical consistency, efficiency metrics, representation extraction, and behavior probes.
+- `src/experiments.py` or `src/experiments/`: named experiment definitions for flat baseline, hierarchical baseline, and ablations.
 
 Preferred interfaces include `DatasetAdapter.load_split(config)`, `GraphBuilder.build(sequence)`, `TrajectoryModel.forward(batch_or_graph)`, `TrajectoryLoss(prediction, target, mask)`, `Trainer.run(config)`, and `Evaluator.evaluate(checkpoint, dataset)`. Add a seam only when behavior actually varies, such as graph variants, dataset adapters, model families, losses, or loggers.
 
 ## Build, Test, and Development Commands
 
-Use Python 3.10+ in an isolated environment. Install the package in editable mode before working on the new `src/social_nav/` code.
+Use Python 3.10+ in an isolated environment. Install the package in editable mode before working on the new `src/` code.
 
 - `git submodule update --init --recursive` checks out the upstream reference implementation.
 - `python -m pip install -e ".[dev]"` installs runtime and development dependencies.
@@ -113,7 +112,7 @@ The scripts expect log/save directories to exist. Submodule tests are legacy scr
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep dataset and experiment constants in `src/social_nav/config/`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
+Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep dataset and experiment constants in `src/config/`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
 
 Use Google-style docstrings for every non-trivial function, class, and method. Keep research code concise: avoid production-grade defensive layers unless they protect a known research invariant, prevent silent data leakage, or make tensor contracts clear. Prefer DRY, SOLID code with focused modules over broad utility files.
 

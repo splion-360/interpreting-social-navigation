@@ -1,11 +1,11 @@
 """File description: Dataset loading, splitting, sampling, masking, and normalization."""
 
-from social_nav.config.mabe import (
+from config.mabe import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
     KEYPOINT_NAMES,
 )
-from social_nav.data.mabe import (
+from data.mabe import (
     MabeDataset,
     MabeSequence,
     MabeWindowDataset,

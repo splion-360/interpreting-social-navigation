@@ -1,1 +1,1 @@
-"""File description: First-party tests for social_nav."""
+"""File description: First-party tests for trajectory modeling code."""

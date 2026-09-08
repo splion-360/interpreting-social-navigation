@@ -2,7 +2,7 @@
 
 import torch
 
-from social_nav.losses import bivariate_gaussian_nll, gaussian_2d_parameters
+from losses import bivariate_gaussian_nll, gaussian_2d_parameters
 
 
 def test_bivariate_gaussian_nll_is_finite_and_differentiable() -> None:

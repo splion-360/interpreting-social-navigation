@@ -23,6 +23,9 @@ dev = [
     "wandb",
 ]
 
+[tool.setuptools]
+py-modules = ["train"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

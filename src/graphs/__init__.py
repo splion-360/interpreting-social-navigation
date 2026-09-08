@@ -1,6 +1,6 @@
 """File description: Spatio-temporal graph builders with node and edge contracts."""
 
-from social_nav.graphs.social_attention import (
+from graphs.social_attention import (
     EdgeKind,
     EdgeSpec,
     GraphSequence,

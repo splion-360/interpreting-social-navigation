@@ -28,10 +28,10 @@ Expected training-file checksum:
 from pathlib import Path
 import sys
 
-repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from social_nav.data import MabeDataset
+from data import MabeDataset
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
 print("vocabulary:", dataset.vocabulary)
@@ -49,11 +49,11 @@ print("annotations:", sequence.annotations.shape, sequence.annotations.dtype)
 from pathlib import Path
 import sys
 
-repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from social_nav.data import MabeDataset
-from social_nav.data import split_sequence_ids
+from data import MabeDataset
+from data import split_sequence_ids
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
 train_ids, validation_ids = split_sequence_ids(
@@ -74,11 +74,11 @@ print("first validation id:", validation_ids[0])
 from pathlib import Path
 import sys
 
-repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from social_nav.data import MabeDataset, split_sequence_ids
-from social_nav.data import MabeWindowDataset, WindowSpec
+from data import MabeDataset, split_sequence_ids
+from data import MabeWindowDataset, WindowSpec
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
 train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)
@@ -111,11 +111,11 @@ print("annotations:", None if window.annotations is None else window.annotations
 from pathlib import Path
 import sys
 
-repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/social_nav").exists())
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from social_nav.data import MabeDataset, MabeWindowDataset, WindowSpec, split_sequence_ids
-from social_nav.data import PoseNormalizer
+from data import MabeDataset, MabeWindowDataset, WindowSpec, split_sequence_ids
+from data import PoseNormalizer
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
 train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)

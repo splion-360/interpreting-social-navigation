@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import animation
 
-from social_nav.config.mabe import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
+from config.mabe import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
 
 MOUSE_COLORS = ("lawngreen", "skyblue", "tomato")
 MOUSE_TRACK_COLORS = ("green", "blue", "red")

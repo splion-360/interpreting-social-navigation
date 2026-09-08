@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from social_nav.data import (
+from data import (
     MabeDataset,
     MabeWindowDataset,
     PoseNormalizer,

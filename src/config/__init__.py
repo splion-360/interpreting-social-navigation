@@ -1,6 +1,6 @@
 """File description: Experiment and runtime configuration."""
 
-from social_nav.config.mabe import (
+from config.mabe import (
     COORDINATES,
     DEFAULT_OBSERVATION_LENGTH,
     DEFAULT_PREDICTION_LENGTH,

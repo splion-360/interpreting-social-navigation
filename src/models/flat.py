@@ -9,7 +9,7 @@ from math import sqrt
 import torch
 from torch import Tensor, nn
 
-from social_nav.graphs import EdgeSpec
+from graphs import EdgeSpec
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class FlatSocialAttentionModel(nn.Module):
 
     This module keeps graph construction outside the model. It consumes node
     coordinates, edge coordinate deltas, and the stable edge contract produced
-    by `social_nav.graphs`.
+    by `graphs`.
     """
 
     def __init__(self, config: FlatSocialAttentionConfig | None = None) -> None:
