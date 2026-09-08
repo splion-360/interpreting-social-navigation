@@ -8,7 +8,7 @@ This Runme notebook uses the data loader and visualization helpers to inspect ra
 
 ## Load One Window
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
@@ -38,7 +38,7 @@ print("window:", window.keypoints.shape)
 
 In notebook environments, display the returned animation object. In terminal runs, use the save step below.
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
@@ -67,14 +67,10 @@ animation_obj = animate_pose_sequence(
 animation_obj
 ```
 
-```python
-
-```
-
 ## Save a Raw Sequence Animation
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
-SEQ_ID = 1
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+SEQ_ID = 2
 
 from pathlib import Path
 import sys
@@ -104,8 +100,8 @@ save_animation(animation_obj, repo_root / "outputs/visualizations/mabe_sequence_
 
 This cell uses a persistence baseline as a placeholder. Replace `predicted_future` with model output after converting Gaussian predictions back to pixel-space keypoints shaped `[future, 3, 12, 2]`.
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
-SEQ_ID = 1
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+SEQ_ID = 2
 from pathlib import Path
 import sys
 
@@ -143,7 +139,8 @@ comparison_animation
 
 ## Save Prediction Comparison
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+SEQ_ID = 2
 from pathlib import Path
 import sys
 
@@ -156,7 +153,7 @@ from data import MabeDataset, MabeWindowDataset, WindowSpec
 from data.visualization import animate_prediction_comparison, save_animation
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
-sequence = dataset.sequences[dataset.sequence_ids[1]]
+sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 windows = MabeWindowDataset(
     [sequence],
     spec=WindowSpec(length=20, observation_length=8, prediction_length=12, stride=20),

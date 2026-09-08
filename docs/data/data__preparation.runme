@@ -24,7 +24,7 @@ Expected training-file checksum:
 
 ## Inspect Dataset Structure
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
@@ -45,7 +45,7 @@ print("annotations:", sequence.annotations.shape, sequence.annotations.dtype)
 
 ## Build Deterministic Splits
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
@@ -70,7 +70,7 @@ print("first validation id:", validation_ids[0])
 
 ## Create Forecasting Windows
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
@@ -107,7 +107,7 @@ print("annotations:", None if window.annotations is None else window.annotations
 
 ## Fit Normalizer on Training Sequences
 
-```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.12"}
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from pathlib import Path
 import sys
 
