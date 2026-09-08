@@ -43,9 +43,9 @@ explicit = true
 only-include = [
     "src/config",
     "src/data",
-    "src/flat_model.py",
     "src/loss.py",
-    "src/social_attention.py",
+    "src/models",
+    "src/st_graph.py",
     "src/train.py",
 ]
 sources = ["src"]
@@ -112,7 +112,7 @@ ignore = [
 [tool.ruff.lint.isort]
 force-single-line = false
 lines-after-imports = 2
-known-first-party = ["config", "data", "flat_model", "loss", "social_attention", "train"]
+known-first-party = ["config", "data", "loss", "models", "st_graph", "train"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 known-third-party = [
     "matplotlib",

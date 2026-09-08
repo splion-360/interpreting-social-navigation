@@ -4,7 +4,7 @@
 
 `scripts/` contains the historical MABe mouse-trajectory implementation: entry points, Structural RNN, graph construction, losses, and data utilities. Treat it as code to audit and migrate, not as the final architecture. `socialAttention/` is the upstream reference submodule. `docs/PLAN.md` records the correctness audit and planned hierarchical model. `docs/` and `misc/` hold research references, experiment notes, and media.
 
-New first-party implementation should live directly under `src/`. Keep folders only for concerns that already have multiple files, such as `data/` and `config/`. Place tests in `tests/`, mirroring the module under test, such as `tests/test_social_attention.py`. Keep generated checkpoints, logs, downloaded datasets, and plots out of version control.
+New first-party implementation should live directly under `src/`. Keep folders for concerns that already have multiple files or a near-term reason to grow, such as `data/`, `config/`, and `models/`. Place tests in `tests/`, mirroring the module under test, such as `tests/test_st_graph.py`. Keep generated checkpoints, logs, downloaded datasets, and plots out of version control.
 
 ## Repository Architecture
 
@@ -32,15 +32,16 @@ Use this directory tree as the intended project shape:
 ├── src/
 │   ├── config/
 │   ├── data/
-│   ├── flat_model.py
 │   ├── loss.py
-│   ├── social_attention.py
+│   ├── models/
+│   │   └── flat.py
+│   ├── st_graph.py
 │   └── train.py
 ├── tests/
 │   ├── data/
-│   ├── test_flat_model.py
 │   ├── test_loss.py
-│   ├── test_social_attention.py
+│   ├── test_models_flat.py
+│   ├── test_st_graph.py
 │   └── test_train.py
 ├── socialAttention/
 └── data/                 # ignored local dataset storage
@@ -58,9 +59,9 @@ Migration map:
 
 ```text
 scripts/utils.py      -> src/data/
-scripts/st_graph.py   -> src/social_attention.py
-scripts/helper.py     -> src/geometry.py or src/flat_model.py
-scripts/model.py      -> src/flat_model.py
+scripts/st_graph.py   -> src/st_graph.py
+scripts/helper.py     -> src/geometry.py or src/models/
+scripts/model.py      -> src/models/
 scripts/criterion.py  -> src/loss.py
 scripts/train.py      -> src/train.py
 scripts/sample.py     -> src/evaluate.py or inference helpers
@@ -73,7 +74,7 @@ Do not move everything in one edit. Migrate one module at a time, add tests at t
 Design deep modules: small interfaces with substantial behavior hidden behind them. Prefer this DAG:
 
 ```text
-config -> data -> geometry -> social_attention -> flat_model -> loss -> train -> evaluate -> experiments/scripts
+config -> data -> geometry -> st_graph -> models -> loss -> train -> evaluate -> experiments/scripts
 ```
 
 Lower layers must not import higher layers. For example, geometry helpers must not know about graph builders or training; models must not know where datasets live; losses must not log to W&B or write checkpoints.
@@ -84,8 +85,8 @@ Use these current modules:
 
 - `src/config/`: typed experiment and runtime configuration.
 - `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
-- `src/social_attention.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
-- `src/flat_model.py`: flat Social Attention model and its small config dataclass.
+- `src/st_graph.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
+- `src/models/`: flat model now, hierarchical mouse/keypoint models next.
 - `src/loss.py`: Gaussian NLL, structural losses, and Gaussian parameter validation until losses grow enough to split.
 - `src/train.py`: training CLI, device selection, seeds, warm-up smoke runs, and later real experiment entry points.
 

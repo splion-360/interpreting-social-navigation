@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from social_attention import (
+from st_graph import (
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
     flat_keypoint_node_id,

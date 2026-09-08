@@ -19,9 +19,9 @@ from data import (
     WindowSpec,
     split_sequence_ids,
 )
-from flat_model import FlatSocialAttentionModel
 from loss import bivariate_gaussian_nll
-from social_attention import build_flat_sparse_keypoint_graph
+from models import FlatSocialAttentionModel
+from st_graph import build_flat_sparse_keypoint_graph
 
 
 @dataclass(frozen=True)

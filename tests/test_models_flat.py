@@ -3,9 +3,9 @@
 import numpy as np
 import torch
 
-from flat_model import FlatSocialAttentionModel
 from loss import gaussian_2d_parameters
-from social_attention import build_flat_sparse_keypoint_graph
+from models import FlatSocialAttentionModel
+from st_graph import build_flat_sparse_keypoint_graph
 
 
 def make_keypoints(frames: int = 4) -> np.ndarray:
