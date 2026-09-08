@@ -149,7 +149,7 @@ class EdgeRNN(nn.Module):
 
 
 class EdgeAttention(nn.Module):
-    """Dot-product attention from a node temporal edge to its spatial edges."""
+    """Dot-product attention from a node temporal edge to its outgoing spatial edges."""
 
     def __init__(self, config: FlatSocialAttentionConfig) -> None:
         super().__init__()
@@ -160,7 +160,7 @@ class EdgeAttention(nn.Module):
         self.attention_size = config.attention_size
 
     def forward(self, temporal: Tensor, spatial: Tensor) -> tuple[Tensor, Tensor]:
-        """Attend from one temporal edge state over incoming spatial edge states.
+        """Attend from one temporal edge state over outgoing spatial edge states.
 
         Args:
             temporal: Temporal hidden state shaped `[edge_hidden]`.
