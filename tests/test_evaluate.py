@@ -9,6 +9,7 @@ import torch
 from evaluate import (
     _build_evaluation_windows,
     evaluate_flat_checkpoint,
+    load_test_config,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
 )
@@ -92,7 +93,6 @@ def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     write_mabe_file(test_path, sequence_prefix="test", sequences=2)
     config = FlatFitConfig(
         data_path=train_path,
-        test_data_path=test_path,
         window_length=20,
         observation_length=8,
         prediction_length=12,
@@ -103,14 +103,41 @@ def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     validation = _build_evaluation_windows(
         config=config,
         split="validation",
+        test_data_path=None,
         max_windows=None,
     )
-    test = _build_evaluation_windows(config=config, split="test", max_windows=1)
+    test = _build_evaluation_windows(
+        config=config,
+        split="test",
+        test_data_path=test_path,
+        max_windows=1,
+    )
 
     assert next(iter(validation.sequences)).startswith("train_")
     assert next(iter(test.sequences)).startswith("test_")
     assert len(validation) == 1
     assert len(test) == 1
+
+
+def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
+    config_path = tmp_path / "test.yml"
+    config_path.write_text(
+        "\n".join(
+            [
+                f"data_path: {tmp_path / 'mouse_triplet_test.npy'}",
+                "max_windows: 3",
+                "seed: 7",
+                "sample: false",
+            ]
+        )
+    )
+
+    config = load_test_config(config_path)
+
+    assert config.data_path == tmp_path / "mouse_triplet_test.npy"
+    assert config.max_windows == 3
+    assert config.seed == 7
+    assert config.sample is False
 
 
 def test_mouse_level_checkpoint_evaluation_requires_decoder(tmp_path) -> None:

@@ -36,7 +36,6 @@ from st_graph import (
 DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/dense_keypoint__train.yml")
 PATH_CONFIG_FIELDS = {
     "data_path",
-    "test_data_path",
     "checkpoint_dir",
     "resume_checkpoint",
     "resume_download_dir",
@@ -97,7 +96,6 @@ class FlatFitConfig:
     Attributes:
         model: Model family to train.
         data_path: Path to `mouse_triplet_train.npy`.
-        test_data_path: Optional path to `mouse_triplet_test.npy`.
         epochs: Number of training epochs.
         batch_size: Number of windows per optimizer step.
         window_length: Number of frames per training window.
@@ -126,7 +124,6 @@ class FlatFitConfig:
 
     model: str = "flat"
     data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
-    test_data_path: Path | None = Path("data/MaBe/mouse_triplet_test.npy")
     epochs: int = 100
     batch_size: int = 8
     window_length: int = 20
@@ -1031,7 +1028,6 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
     overrides = {
         "model": args.model,
         "data_path": args.data,
-        "test_data_path": args.test_data,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "window_length": args.window_length,
@@ -1093,7 +1089,6 @@ def main() -> None:
     fit.add_argument("--show-config", action="store_true")
     fit.add_argument("--model", choices=["flat"])
     fit.add_argument("--data", type=Path)
-    fit.add_argument("--test-data", type=Path)
     fit.add_argument("--epochs", type=int)
     fit.add_argument("--batch-size", type=int)
     fit.add_argument("--window-length", type=int)

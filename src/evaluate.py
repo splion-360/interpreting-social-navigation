@@ -10,6 +10,7 @@ from typing import Literal
 
 import numpy as np
 import torch
+import yaml
 from torch import Tensor
 
 from config.mabe import COORDINATES, NUM_KEYPOINTS, NUM_MICE
@@ -33,6 +34,24 @@ from train import (
 
 
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
+DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
+
+
+@dataclass(frozen=True)
+class TestConfig:
+    """Configuration for held-out test evaluation.
+
+    Attributes:
+        data_path: Path to the held-out MABe test file.
+        max_windows: Optional cap on test windows.
+        seed: Optional sampling seed.
+        sample: Whether to sample Gaussian predictions by default.
+    """
+
+    data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
+    max_windows: int | None = None
+    seed: int | None = None
+    sample: bool = True
 
 
 @dataclass(frozen=True)
@@ -195,6 +214,7 @@ def evaluate_flat_checkpoint(
     config: FlatFitConfig,
     checkpoint_path: Path,
     split: Literal["validation", "test"] = "validation",
+    test_data_path: Path | None = None,
     max_windows: int | None = None,
     sample: bool = True,
     seed: int | None = None,
@@ -205,6 +225,7 @@ def evaluate_flat_checkpoint(
         config: Training/evaluation configuration.
         checkpoint_path: Local checkpoint containing model weights.
         split: Evaluation split, either validation from train data or test data.
+        test_data_path: Held-out test file used only when `split` is `test`.
         max_windows: Optional cap on evaluated windows.
         sample: Whether to sample from Gaussian predictions.
         seed: Optional random seed for reproducible sampling.
@@ -220,6 +241,7 @@ def evaluate_flat_checkpoint(
     windows = _build_evaluation_windows(
         config=config,
         split=split,
+        test_data_path=test_data_path,
         max_windows=max_windows,
     )
     build_graph = _graph_builder(config.graph_variant)
@@ -278,6 +300,7 @@ def _build_evaluation_windows(
     *,
     config: FlatFitConfig,
     split: Literal["validation", "test"],
+    test_data_path: Path | None,
     max_windows: int | None,
 ) -> MabeWindowDataset:
     """Build validation or test windows for checkpoint evaluation.
@@ -285,6 +308,7 @@ def _build_evaluation_windows(
     Args:
         config: Training/evaluation configuration.
         split: Evaluation split name.
+        test_data_path: Held-out test file used only when `split` is `test`.
         max_windows: Optional window cap for fast evaluation.
 
     Returns:
@@ -313,15 +337,36 @@ def _build_evaluation_windows(
             max_windows=max_windows or config.max_validation_windows,
         )
 
-    if config.test_data_path is None:
-        raise ValueError("test split requires test_data_path in the training config")
-    test_dataset = MabeDataset.from_file(config.test_data_path)
+    if test_data_path is None:
+        raise ValueError("test split requires --test-data or --test-config")
+    test_dataset = MabeDataset.from_file(test_data_path)
     return MabeWindowDataset(
         test_dataset.select(test_dataset.sequence_ids),
         spec,
         normalizer=normalizer,
         max_windows=max_windows,
     )
+
+
+def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:
+    """Load held-out test evaluation configuration.
+
+    Args:
+        path: YAML configuration file.
+
+    Returns:
+        Fully typed held-out test configuration.
+    """
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    values = {
+        "data_path": raw.get("data_path", TestConfig.data_path),
+        "max_windows": raw.get("max_windows", TestConfig.max_windows),
+        "seed": raw.get("seed", TestConfig.seed),
+        "sample": raw.get("sample", TestConfig.sample),
+    }
+    values["data_path"] = Path(values["data_path"])
+    return TestConfig(**values)
 
 
 def _gaussian_means(outputs: Tensor) -> Tensor:
@@ -342,19 +387,36 @@ def main() -> None:
     )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--split", choices=["validation", "test"], default="validation")
+    parser.add_argument("--test-config", type=Path, default=DEFAULT_TEST_CONFIG_PATH)
+    parser.add_argument("--test-data", type=Path)
     parser.add_argument("--max-validation-windows", type=int)
     parser.add_argument("--max-windows", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--mean", action="store_true")
     args = parser.parse_args()
 
+    test_config = load_test_config(args.test_config) if args.split == "test" else None
+    test_data_path = args.test_data or (
+        test_config.data_path if test_config is not None else None
+    )
+    max_windows = (
+        args.max_windows
+        or args.max_validation_windows
+        or (test_config.max_windows if test_config is not None else None)
+    )
+    seed = args.seed if args.seed is not None else (
+        test_config.seed if test_config is not None else None
+    )
+    sample = (test_config.sample if test_config is not None else True) and not args.mean
+
     result = evaluate_flat_checkpoint(
         config=load_flat_fit_config(args.config),
         checkpoint_path=args.checkpoint,
         split=args.split,
-        max_windows=args.max_windows or args.max_validation_windows,
-        sample=not args.mean,
-        seed=args.seed,
+        test_data_path=test_data_path,
+        max_windows=max_windows,
+        sample=sample,
+        seed=seed,
     )
     print(f"device={result.device}")
     print(f"split={result.split}")

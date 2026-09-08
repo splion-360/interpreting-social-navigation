@@ -1,6 +1,5 @@
 model: flat
 data_path: data/MaBe/mouse_triplet_train.npy
-test_data_path: data/MaBe/mouse_triplet_test.npy
 epochs: 50
 batch_size: 8
 window_length: 20

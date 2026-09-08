@@ -43,7 +43,7 @@ python src/evaluate.py --config src/config/dense_keypoint__train.yml --checkpoin
 Held-out MABe test file:
 
 ```bash
-python src/evaluate.py --config src/config/dense_keypoint__train.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
 ```
 
 Add `--mean` for deterministic Gaussian-mean rollout instead of sampling.

@@ -118,7 +118,6 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
             [
                 "model: flat",
                 f"data_path: {tmp_path / 'data.npy'}",
-                f"test_data_path: {tmp_path / 'test.npy'}",
                 "epochs: 7",
                 "batch_size: 4",
                 "window_length: 6",
@@ -152,7 +151,6 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.epochs == 3
     assert config.batch_size == 4
     assert config.data_path == tmp_path / "data.npy"
-    assert config.test_data_path == tmp_path / "test.npy"
     assert config.observation_length == 4
     assert config.prediction_length == 2
     assert config.graph_variant == "flat_sparse_keypoint"
@@ -175,7 +173,6 @@ def test_variant_train_configs_load_from_src_config() -> None:
         config = train.load_flat_fit_config(path)
 
         assert config.graph_variant == variant
-        assert config.test_data_path == Path("data/MaBe/mouse_triplet_test.npy")
         assert config.window_length == 20
         assert config.observation_length == 8
         assert config.prediction_length == 12
