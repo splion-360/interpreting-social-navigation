@@ -86,6 +86,7 @@ class FlatFitConfig:
         wandb_run_name: Optional Weights & Biases run name.
         checkpoint_dir: Directory for best-checkpoint files.
         save_checkpoints: Whether to save the best validation checkpoint.
+        wandb_artifact_name: W&B artifact name for the best checkpoint.
     """
 
     data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
@@ -105,6 +106,7 @@ class FlatFitConfig:
     wandb_run_name: str | None = None
     checkpoint_dir: Path = Path("checkpoints/flat")
     save_checkpoints: bool = True
+    wandb_artifact_name: str = "flat-best-checkpoint"
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,7 @@ class FlatFitResult:
         final_train_loss: Training loss from the final epoch.
         final_validation_loss: Validation loss from the final epoch.
         checkpoint_path: Best-checkpoint path when checkpointing is enabled.
+        wandb_artifact_name: W&B artifact name when a checkpoint is logged.
         device: Device used for the run.
     """
 
@@ -125,6 +128,7 @@ class FlatFitResult:
     final_train_loss: float
     final_validation_loss: float
     checkpoint_path: Path | None
+    wandb_artifact_name: str | None
     device: str
 
 
@@ -246,6 +250,13 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                     },
                     checkpoint_path,
                 )
+                _wandb_log_checkpoint(
+                    run=run,
+                    checkpoint_path=checkpoint_path,
+                    artifact_name=config.wandb_artifact_name,
+                    epoch=epoch,
+                    validation_loss=final_validation_loss,
+                )
 
     _finish_wandb(run)
     return FlatFitResult(
@@ -254,6 +265,11 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
         final_train_loss=final_train_loss,
         final_validation_loss=final_validation_loss,
         checkpoint_path=checkpoint_path if config.save_checkpoints else None,
+        wandb_artifact_name=(
+            config.wandb_artifact_name
+            if config.wandb and config.save_checkpoints
+            else None
+        ),
         device=str(device),
     )
 
@@ -421,6 +437,38 @@ def _wandb_log(run: Any | None, metrics: dict[str, float | int]) -> None:
         run.log(metrics)
 
 
+def _wandb_log_checkpoint(
+    *,
+    run: Any | None,
+    checkpoint_path: Path,
+    artifact_name: str,
+    epoch: int,
+    validation_loss: float,
+) -> None:
+    """Version a checkpoint as a W&B model artifact when logging is enabled.
+
+    Args:
+        run: Active W&B run, or `None` when W&B is disabled.
+        checkpoint_path: Local checkpoint file to upload.
+        artifact_name: Stable W&B artifact name.
+        epoch: Epoch represented by the checkpoint.
+        validation_loss: Validation loss for the checkpoint.
+    """
+
+    if run is None:
+        return
+
+    import wandb
+
+    artifact = wandb.Artifact(
+        artifact_name,
+        type="model",
+        metadata={"epoch": epoch, "validation_loss": validation_loss},
+    )
+    artifact.add_file(str(checkpoint_path))
+    run.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
+
+
 def _finish_wandb(run: Any | None) -> None:
     """Finish a W&B run when a run exists."""
 
@@ -476,6 +524,7 @@ def main() -> None:
     fit.add_argument("--wandb", action="store_true")
     fit.add_argument("--wandb-project", default=FlatFitConfig.wandb_project)
     fit.add_argument("--wandb-run-name")
+    fit.add_argument("--wandb-artifact-name", default=FlatFitConfig.wandb_artifact_name)
     fit.add_argument(
         "--checkpoint-dir", type=Path, default=FlatFitConfig.checkpoint_dir
     )
@@ -519,6 +568,7 @@ def main() -> None:
             wandb_run_name=args.wandb_run_name,
             checkpoint_dir=args.checkpoint_dir,
             save_checkpoints=not args.no_checkpoint,
+            wandb_artifact_name=args.wandb_artifact_name,
         )
     )
     print(f"device={fit_result.device}")
@@ -528,6 +578,8 @@ def main() -> None:
     print(f"final_validation_loss={fit_result.final_validation_loss:.6f}")
     if fit_result.checkpoint_path is not None:
         print(f"checkpoint={fit_result.checkpoint_path}")
+    if fit_result.wandb_artifact_name is not None:
+        print(f"wandb_artifact={fit_result.wandb_artifact_name}:best")
 
 
 if __name__ == "__main__":

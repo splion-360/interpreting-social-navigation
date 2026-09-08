@@ -112,7 +112,7 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.
 
-Training commands should run locally with visible CLI progress. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging.
+Training commands should run locally with visible CLI progress. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
 
 ## Coding Style & Naming Conventions
 

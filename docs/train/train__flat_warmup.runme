@@ -35,4 +35,6 @@ Use this only when you want an actual local training run.
 python -m train fit --model flat --data data/MaBe/mouse_triplet_train.npy --device cpu --epochs 20 --batch-size 16 --wandb
 ```
 
-The `--wandb` flag is opt-in. Leave it out for local CLI-only logging.
+The `--wandb` flag is opt-in. Leave it out for local CLI-only logging. When
+`--wandb` and checkpointing are enabled, the best checkpoint is also uploaded as
+the `flat-best-checkpoint:best` W&B model artifact.

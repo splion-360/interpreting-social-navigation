@@ -1,6 +1,8 @@
 """File description: Tests for trajectory training commands."""
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -91,3 +93,65 @@ def test_wandb_flag_requires_optional_dependency(
 
     with pytest.raises(RuntimeError, match="optional dependency"):
         train._start_wandb(FlatFitConfig(wandb=True))
+
+
+def test_wandb_checkpoint_logging_is_skipped_without_run(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "flat_best.pt"
+    checkpoint_path.write_text("checkpoint")
+
+    train._wandb_log_checkpoint(
+        run=None,
+        checkpoint_path=checkpoint_path,
+        artifact_name="flat-best-checkpoint",
+        epoch=1,
+        validation_loss=1.5,
+    )
+
+
+def test_wandb_checkpoint_logging_uploads_model_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checkpoint_path = tmp_path / "flat_best.pt"
+    checkpoint_path.write_text("checkpoint")
+    added_files = []
+    logged_artifacts = []
+
+    class FakeArtifact:
+        def __init__(
+            self,
+            name: str,
+            type: str,
+            metadata: dict[str, int | float],
+        ) -> None:
+            self.name = name
+            self.type = type
+            self.metadata = metadata
+
+        def add_file(self, path: str) -> None:
+            added_files.append(path)
+
+    class FakeRun:
+        def log_artifact(self, artifact: FakeArtifact, aliases: list[str]) -> None:
+            logged_artifacts.append((artifact, aliases))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "wandb",
+        SimpleNamespace(Artifact=FakeArtifact),
+    )
+
+    train._wandb_log_checkpoint(
+        run=FakeRun(),
+        checkpoint_path=checkpoint_path,
+        artifact_name="flat-best-checkpoint",
+        epoch=2,
+        validation_loss=0.75,
+    )
+
+    artifact, aliases = logged_artifacts[0]
+    assert artifact.name == "flat-best-checkpoint"
+    assert artifact.type == "model"
+    assert artifact.metadata == {"epoch": 2, "validation_loss": 0.75}
+    assert added_files == [str(checkpoint_path)]
+    assert aliases == ["best", "epoch-2"]
