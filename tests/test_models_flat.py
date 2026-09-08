@@ -5,7 +5,7 @@ import torch
 
 from loss import gaussian_2d_parameters
 from models import EdgeAttention, EdgeRNN, FlatSocialAttentionModel, NodeRNN
-from st_graph import build_flat_sparse_keypoint_graph
+from st_graph import build_dense_keypoint_graph, build_flat_sparse_keypoint_graph
 
 
 def make_keypoints(frames: int = 4) -> np.ndarray:
@@ -59,3 +59,52 @@ def test_flat_social_attention_model_backpropagates_through_recurrent_path() -> 
     assert model.temporal_edge_rnn.cell.weight_hh.grad is not None
     assert model.spatial_edge_rnn.cell.weight_hh.grad is not None
     assert model.edge_attention.temporal_projection.weight.grad is not None
+
+
+def test_flat_social_attention_model_accepts_explicit_srnn_state() -> None:
+    graph = build_dense_keypoint_graph(make_keypoints(frames=3))
+    model = FlatSocialAttentionModel()
+    nodes = torch.from_numpy(graph.nodes)
+    edges = torch.from_numpy(graph.edge_features)
+    state = model.initial_state(
+        node_count=graph.node_count,
+        edge_count=graph.edge_count,
+        device=nodes.device,
+        dtype=nodes.dtype,
+    )
+
+    result = model.forward_with_state(
+        nodes=nodes,
+        edge_features=edges,
+        edge_specs=graph.edge_specs,
+        nodes_present=graph.nodes_present,
+        edges_present=graph.edges_present,
+        state=state,
+    )
+
+    assert result.outputs.shape == (3, 36, 5)
+    assert result.state.node_hidden.shape == (36, model.config.node_rnn_size)
+    assert result.state.edge_hidden.shape == (1296, model.config.edge_rnn_size)
+    assert len(result.attention_weights) == 3
+    assert 0 in result.attention_weights[0]
+
+
+def test_attention_weights_follow_outgoing_dense_spatial_edges() -> None:
+    graph = build_dense_keypoint_graph(make_keypoints(frames=2))
+    model = FlatSocialAttentionModel()
+    nodes = torch.from_numpy(graph.nodes)
+    edges = torch.from_numpy(graph.edge_features)
+
+    result = model.forward_with_state(
+        nodes=nodes,
+        edge_features=edges,
+        edge_specs=graph.edge_specs,
+        nodes_present=graph.nodes_present,
+        edges_present=graph.edges_present,
+        state=None,
+    )
+
+    weights, neighbors = result.attention_weights[0][0]
+    assert weights.shape == (35,)
+    assert 0 not in neighbors
+    assert set(neighbors) == set(range(1, 36))

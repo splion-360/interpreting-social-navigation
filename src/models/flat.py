@@ -38,6 +38,38 @@ class FlatSocialAttentionConfig:
     dropout: float = 0.0
 
 
+@dataclass(frozen=True)
+class SRNNState:
+    """Recurrent state for node and edge RNNs.
+
+    Attributes:
+        node_hidden: Node hidden states shaped `[nodes, node_hidden]`.
+        edge_hidden: Edge hidden states shaped `[edges, edge_hidden]`.
+        node_cell: Node cell states shaped `[nodes, node_hidden]`.
+        edge_cell: Edge cell states shaped `[edges, edge_hidden]`.
+    """
+
+    node_hidden: Tensor
+    edge_hidden: Tensor
+    node_cell: Tensor
+    edge_cell: Tensor
+
+
+@dataclass(frozen=True)
+class SRNNForwardResult:
+    """Outputs from the stateful SRNN forward pass.
+
+    Attributes:
+        outputs: Raw Gaussian predictions shaped `[time, nodes, 5]`.
+        state: Updated recurrent state after the final frame.
+        attention_weights: Per-frame attention weights keyed by node ID.
+    """
+
+    outputs: Tensor
+    state: SRNNState
+    attention_weights: tuple[dict[int, tuple[Tensor, tuple[int, ...]]], ...]
+
+
 class NodeRNN(nn.Module):
     """Node recurrence that combines position, temporal edge, and social context."""
 
@@ -174,69 +206,191 @@ class FlatSocialAttentionModel(nn.Module):
             Raw Gaussian predictions shaped `[time, nodes, 5]`.
         """
 
+        result = self.forward_with_state(
+            nodes=nodes,
+            edge_features=edge_features,
+            edge_specs=edge_specs,
+            nodes_present=None,
+            edges_present=None,
+            state=None,
+        )
+        return result.outputs
+
+    def initial_state(
+        self,
+        *,
+        node_count: int,
+        edge_count: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> SRNNState:
+        """Create zero recurrent state for one graph sequence.
+
+        Args:
+            node_count: Number of graph nodes.
+            edge_count: Number of graph edge slots.
+            device: Device for state tensors.
+            dtype: Tensor dtype for state tensors.
+
+        Returns:
+            Zero-initialized recurrent state.
+        """
+
+        node_hidden = torch.zeros(
+            node_count, self.config.node_rnn_size, device=device, dtype=dtype
+        )
+        edge_hidden = torch.zeros(
+            edge_count, self.config.edge_rnn_size, device=device, dtype=dtype
+        )
+        return SRNNState(
+            node_hidden=node_hidden,
+            edge_hidden=edge_hidden,
+            node_cell=torch.zeros_like(node_hidden),
+            edge_cell=torch.zeros_like(edge_hidden),
+        )
+
+    def forward_with_state(
+        self,
+        *,
+        nodes: Tensor,
+        edge_features: Tensor,
+        edge_specs: Sequence[EdgeSpec],
+        nodes_present: Sequence[Sequence[int]] | None,
+        edges_present: Sequence[Sequence[int]] | None,
+        state: SRNNState | None,
+    ) -> SRNNForwardResult:
+        """Predict Gaussian parameters while carrying explicit recurrent state.
+
+        Args:
+            nodes: Node coordinates shaped `[time, nodes, 2]`.
+            edge_features: Edge deltas shaped `[time, edges, 2]`.
+            edge_specs: Stable edge identities matching `edge_features`.
+            nodes_present: Node IDs available per frame, or all nodes when `None`.
+            edges_present: Edge IDs available per frame, or graph defaults when `None`.
+            state: Previous recurrent state, or zeros when `None`.
+
+        Returns:
+            Predictions, updated recurrent state, and attention weights.
+        """
+
         time_steps, node_count, _ = nodes.shape
         device = nodes.device
         dtype = nodes.dtype
         edge_count = len(edge_specs)
-        node_hidden = torch.zeros(
-            node_count, self.config.node_rnn_size, device=device, dtype=dtype
+        if state is None:
+            state = self.initial_state(
+                node_count=node_count,
+                edge_count=edge_count,
+                device=device,
+                dtype=dtype,
+            )
+
+        node_hidden = state.node_hidden
+        node_cell = state.node_cell
+        edge_hidden = state.edge_hidden
+        edge_cell = state.edge_cell
+        outputs = torch.zeros(
+            time_steps,
+            node_count,
+            self.config.output_size,
+            device=device,
+            dtype=dtype,
         )
-        node_cell = torch.zeros_like(node_hidden)
-        edge_hidden = torch.zeros(
-            edge_count, self.config.edge_rnn_size, device=device, dtype=dtype
-        )
-        edge_cell = torch.zeros_like(edge_hidden)
-        outputs = []
+        attention_weights: list[dict[int, tuple[Tensor, tuple[int, ...]]]] = []
 
         temporal_edge_ids, spatial_edge_ids = _edge_kind_ids(edge_specs)
-        incoming_spatial = _incoming_spatial_edge_ids(edge_specs, node_count)
+        outgoing_spatial = _outgoing_spatial_edge_ids(edge_specs, node_count)
 
         for frame_idx in range(time_steps):
+            frame_nodes = (
+                tuple(range(node_count))
+                if nodes_present is None
+                else tuple(nodes_present[frame_idx])
+            )
+            frame_edges = (
+                _default_edges_present(frame_idx, temporal_edge_ids, spatial_edge_ids)
+                if edges_present is None
+                else tuple(edges_present[frame_idx])
+            )
+            present_edges = set(frame_edges)
+            frame_attention: dict[int, tuple[Tensor, tuple[int, ...]]] = {}
             temporal_context = torch.zeros(
                 node_count, self.config.edge_rnn_size, device=device, dtype=dtype
             )
             social_context = torch.zeros_like(temporal_context)
+            frame_temporal_edges = [
+                edge_id for edge_id in temporal_edge_ids if edge_id in present_edges
+            ]
+            frame_spatial_edges = [
+                edge_id for edge_id in spatial_edge_ids if edge_id in present_edges
+            ]
 
-            if frame_idx > 0:
+            if frame_temporal_edges:
+                temporal_ids = torch.tensor(frame_temporal_edges, device=device)
                 temporal_hidden, temporal_cell = self.temporal_edge_rnn(
-                    edge_features[frame_idx, temporal_edge_ids].float(),
-                    edge_hidden[temporal_edge_ids],
-                    edge_cell[temporal_edge_ids],
+                    edge_features[frame_idx, temporal_ids].float(),
+                    edge_hidden[temporal_ids],
+                    edge_cell[temporal_ids],
                 )
-                edge_hidden[temporal_edge_ids] = temporal_hidden
-                edge_cell[temporal_edge_ids] = temporal_cell
+                edge_hidden[temporal_ids] = temporal_hidden
+                edge_cell[temporal_ids] = temporal_cell
                 temporal_targets = torch.tensor(
-                    [edge_specs[edge_id].target for edge_id in temporal_edge_ids],
+                    [edge_specs[edge_id].target for edge_id in frame_temporal_edges],
                     device=device,
                 )
                 temporal_context[temporal_targets] = temporal_hidden
 
-            spatial_hidden, spatial_cell = self.spatial_edge_rnn(
-                edge_features[frame_idx, spatial_edge_ids].float(),
-                edge_hidden[spatial_edge_ids],
-                edge_cell[spatial_edge_ids],
-            )
-            edge_hidden[spatial_edge_ids] = spatial_hidden
-            edge_cell[spatial_edge_ids] = spatial_cell
+            if frame_spatial_edges:
+                spatial_ids = torch.tensor(frame_spatial_edges, device=device)
+                spatial_hidden, spatial_cell = self.spatial_edge_rnn(
+                    edge_features[frame_idx, spatial_ids].float(),
+                    edge_hidden[spatial_ids],
+                    edge_cell[spatial_ids],
+                )
+                edge_hidden[spatial_ids] = spatial_hidden
+                edge_cell[spatial_ids] = spatial_cell
 
-            for node_id, edge_ids in enumerate(incoming_spatial):
+            for node_id, edge_ids in enumerate(outgoing_spatial):
                 if not edge_ids:
                     continue
-                social_context[node_id], _ = self.edge_attention(
+                available_edge_ids = [
+                    edge_id for edge_id in edge_ids if edge_id in present_edges
+                ]
+                if not available_edge_ids:
+                    continue
+                social_context[node_id], weights = self.edge_attention(
                     temporal_context[node_id],
-                    edge_hidden[torch.tensor(edge_ids, device=device)],
+                    edge_hidden[torch.tensor(available_edge_ids, device=device)],
+                )
+                frame_attention[node_id] = (
+                    weights,
+                    tuple(edge_specs[edge_id].target for edge_id in available_edge_ids),
                 )
 
-            frame_output, node_hidden, node_cell = self.node_rnn(
-                nodes[frame_idx].float(),
-                temporal_context,
-                social_context,
-                node_hidden,
-                node_cell,
-            )
-            outputs.append(frame_output)
+            if frame_nodes:
+                node_ids = torch.tensor(frame_nodes, device=device)
+                frame_output, next_hidden, next_cell = self.node_rnn(
+                    nodes[frame_idx, node_ids].float(),
+                    temporal_context[node_ids],
+                    social_context[node_ids],
+                    node_hidden[node_ids],
+                    node_cell[node_ids],
+                )
+                outputs[frame_idx, node_ids] = frame_output
+                node_hidden[node_ids] = next_hidden
+                node_cell[node_ids] = next_cell
+            attention_weights.append(frame_attention)
 
-        return torch.stack(outputs, dim=0)
+        return SRNNForwardResult(
+            outputs=outputs,
+            state=SRNNState(
+                node_hidden=node_hidden,
+                edge_hidden=edge_hidden,
+                node_cell=node_cell,
+                edge_cell=edge_cell,
+            ),
+            attention_weights=tuple(attention_weights),
+        )
 
 
 def _edge_kind_ids(edge_specs: Sequence[EdgeSpec]) -> tuple[list[int], list[int]]:
@@ -252,14 +406,26 @@ def _edge_kind_ids(edge_specs: Sequence[EdgeSpec]) -> tuple[list[int], list[int]
     return temporal, spatial
 
 
-def _incoming_spatial_edge_ids(
+def _outgoing_spatial_edge_ids(
     edge_specs: Sequence[EdgeSpec],
     node_count: int,
 ) -> list[list[int]]:
-    """Collect incoming spatial edge IDs for each target node."""
+    """Collect outgoing spatial edge IDs for each source node."""
 
-    incoming: list[list[int]] = [[] for _ in range(node_count)]
+    outgoing: list[list[int]] = [[] for _ in range(node_count)]
     for edge_id, edge in enumerate(edge_specs):
         if edge.kind == "spatial":
-            incoming[edge.target].append(edge_id)
-    return incoming
+            outgoing[edge.source].append(edge_id)
+    return outgoing
+
+
+def _default_edges_present(
+    frame_idx: int,
+    temporal_edge_ids: Sequence[int],
+    spatial_edge_ids: Sequence[int],
+) -> tuple[int, ...]:
+    """Return default present edges when graph metadata is not supplied."""
+
+    if frame_idx == 0:
+        return tuple(spatial_edge_ids)
+    return tuple(temporal_edge_ids) + tuple(spatial_edge_ids)

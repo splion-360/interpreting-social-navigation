@@ -443,10 +443,23 @@ def _batch_loss(
         edges = torch.from_numpy(input_graph.edge_features).to(device)
         targets = torch.from_numpy(target_graph.nodes).to(device)
         target_mask = _nodes_present_mask(target_graph).to(device)
-        predictions = model(nodes, edges, input_graph.edge_specs)
+        state = model.initial_state(
+            node_count=input_graph.node_count,
+            edge_count=input_graph.edge_count,
+            device=device,
+            dtype=nodes.dtype,
+        )
+        result = model.forward_with_state(
+            nodes=nodes,
+            edge_features=edges,
+            edge_specs=input_graph.edge_specs,
+            nodes_present=input_graph.nodes_present,
+            edges_present=input_graph.edges_present,
+            state=state,
+        )
         losses.append(
             bivariate_gaussian_horizon_nll(
-                predictions,
+                result.outputs,
                 targets,
                 observation_length=window.observation_length,
                 mask=target_mask,
