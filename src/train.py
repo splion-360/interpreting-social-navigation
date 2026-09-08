@@ -28,7 +28,12 @@ from st_graph import build_flat_sparse_keypoint_graph
 
 
 DEFAULT_TRAIN_CONFIG_PATH = Path("config/train.yml")
-PATH_CONFIG_FIELDS = {"data_path", "checkpoint_dir"}
+PATH_CONFIG_FIELDS = {
+    "data_path",
+    "checkpoint_dir",
+    "resume_checkpoint",
+    "resume_download_dir",
+}
 
 
 @dataclass(frozen=True)
@@ -95,6 +100,9 @@ class FlatFitConfig:
         checkpoint_dir: Directory for best-checkpoint files.
         save_checkpoints: Whether to save the best validation checkpoint.
         wandb_artifact_name: W&B artifact name for the best checkpoint.
+        resume_checkpoint: Optional local checkpoint restored before training.
+        resume_wandb_artifact: Optional W&B artifact restored before training.
+        resume_download_dir: Directory for downloaded W&B artifacts.
     """
 
     model: str = "flat"
@@ -116,6 +124,9 @@ class FlatFitConfig:
     checkpoint_dir: Path = Path("checkpoints/flat")
     save_checkpoints: bool = True
     wandb_artifact_name: str = "flat-best-checkpoint"
+    resume_checkpoint: Path | None = None
+    resume_wandb_artifact: str | None = None
+    resume_download_dir: Path = Path("checkpoints/wandb")
 
 
 @dataclass(frozen=True)
@@ -129,6 +140,7 @@ class FlatFitResult:
         final_validation_loss: Validation loss from the final epoch.
         checkpoint_path: Best-checkpoint path when checkpointing is enabled.
         wandb_artifact_name: W&B artifact name when a checkpoint is logged.
+        resumed_from: Checkpoint source restored before training.
         device: Device used for the run.
     """
 
@@ -138,6 +150,7 @@ class FlatFitResult:
     final_validation_loss: float
     checkpoint_path: Path | None
     wandb_artifact_name: str | None
+    resumed_from: str | None
     device: str
 
 
@@ -202,13 +215,19 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     run = _start_wandb(config)
 
-    best_epoch = 0
-    best_validation_loss = float("inf")
+    start_epoch, best_validation_loss, resumed_from = _restore_training_state(
+        config=config,
+        run=run,
+        model=model,
+        optimizer=optimizer,
+        device=device,
+    )
+    best_epoch = start_epoch - 1
     checkpoint_path = config.checkpoint_dir / "flat_best.pt"
     final_train_loss = 0.0
     final_validation_loss = 0.0
 
-    for epoch in range(1, config.epochs + 1):
+    for epoch in range(start_epoch, config.epochs + 1):
         final_train_loss = _run_epoch(
             model=model,
             windows=train_windows,
@@ -279,6 +298,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             if config.wandb and config.save_checkpoints
             else None
         ),
+        resumed_from=resumed_from,
         device=str(device),
     )
 
@@ -436,6 +456,12 @@ def _start_wandb(config: FlatFitConfig) -> Any | None:
             "grad_clip": config.grad_clip,
             "seed": config.seed,
             "device": config.device,
+            "resume_checkpoint": (
+                str(config.resume_checkpoint)
+                if config.resume_checkpoint is not None
+                else None
+            ),
+            "resume_wandb_artifact": config.resume_wandb_artifact,
         },
     )
 
@@ -476,7 +502,76 @@ def _wandb_log_checkpoint(
         metadata={"epoch": epoch, "validation_loss": validation_loss},
     )
     artifact.add_file(str(checkpoint_path))
-    run.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
+    logged = run.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
+    logged.wait()
+
+
+def _restore_training_state(
+    *,
+    config: FlatFitConfig,
+    run: Any | None,
+    model: FlatSocialAttentionModel,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> tuple[int, float, str | None]:
+    """Restore checkpoint state before training when configured.
+
+    Args:
+        config: Training configuration.
+        run: Active W&B run, or `None` when W&B is disabled.
+        model: Model receiving checkpoint weights.
+        optimizer: Optimizer receiving checkpoint state.
+        device: Device used to map checkpoint tensors.
+
+    Returns:
+        Next epoch number, previous best validation loss, and restore source.
+    """
+
+    checkpoint_path = _resolve_resume_checkpoint(config, run)
+    if checkpoint_path is None:
+        return 1, float("inf"), None
+
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    epoch = int(checkpoint["epoch"])
+    validation_loss = float(checkpoint["validation_loss"])
+    return epoch + 1, validation_loss, str(checkpoint_path)
+
+
+def _resolve_resume_checkpoint(
+    config: FlatFitConfig,
+    run: Any | None,
+) -> Path | None:
+    """Resolve a local or W&B checkpoint source.
+
+    Args:
+        config: Training configuration.
+        run: Active W&B run for artifact download.
+
+    Returns:
+        Local checkpoint path, or `None` when training starts fresh.
+    """
+
+    if config.resume_checkpoint is not None:
+        return config.resume_checkpoint
+    if config.resume_wandb_artifact is None:
+        return None
+    if run is None:
+        raise RuntimeError("resuming from a W&B artifact requires --wandb")
+
+    artifact = run.use_artifact(config.resume_wandb_artifact, type="model")
+    download_dir = Path(artifact.download(root=str(config.resume_download_dir)))
+    checkpoint_path = download_dir / "flat_best.pt"
+    if checkpoint_path.exists():
+        return checkpoint_path
+
+    matches = sorted(download_dir.glob("*.pt"))
+    if not matches:
+        raise FileNotFoundError(
+            f"no .pt checkpoint found in downloaded artifact: {download_dir}"
+        )
+    return matches[0]
 
 
 def _finish_wandb(run: Any | None) -> None:
@@ -593,7 +688,13 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         "checkpointing": {
             "enabled": config.save_checkpoints,
             "best_checkpoint_path": str(config.checkpoint_dir / "flat_best.pt"),
-            "resume_from_checkpoint": None,
+            "resume_checkpoint": (
+                str(config.resume_checkpoint)
+                if config.resume_checkpoint is not None
+                else None
+            ),
+            "resume_wandb_artifact": config.resume_wandb_artifact,
+            "resume_download_dir": str(config.resume_download_dir),
         },
         "wandb": {
             "enabled": config.wandb,
@@ -622,7 +723,7 @@ def _plain_config(config: FlatFitConfig) -> dict[str, Any]:
 
     values = asdict(config)
     for key in PATH_CONFIG_FIELDS:
-        values[key] = str(values[key])
+        values[key] = str(values[key]) if values[key] is not None else None
     return values
 
 
@@ -702,6 +803,9 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "wandb_artifact_name": args.wandb_artifact_name,
         "checkpoint_dir": args.checkpoint_dir,
         "save_checkpoints": args.save_checkpoints,
+        "resume_checkpoint": args.resume_checkpoint,
+        "resume_wandb_artifact": args.resume_wandb_artifact,
+        "resume_download_dir": args.resume_download_dir,
     }
     if args.no_checkpoint:
         overrides["save_checkpoints"] = False
@@ -752,6 +856,9 @@ def main() -> None:
     fit.add_argument("--checkpoint-dir", type=Path)
     fit.add_argument("--save-checkpoints", action=argparse.BooleanOptionalAction)
     fit.add_argument("--no-checkpoint", action="store_true")
+    fit.add_argument("--resume-checkpoint", type=Path)
+    fit.add_argument("--resume-wandb-artifact")
+    fit.add_argument("--resume-download-dir", type=Path)
     args = parser.parse_args()
 
     if args.command == "warmup":
@@ -789,6 +896,8 @@ def main() -> None:
         print(f"checkpoint={fit_result.checkpoint_path}")
     if fit_result.wandb_artifact_name is not None:
         print(f"wandb_artifact={fit_result.wandb_artifact_name}:best")
+    if fit_result.resumed_from is not None:
+        print(f"resumed_from={fit_result.resumed_from}")
 
 
 if __name__ == "__main__":

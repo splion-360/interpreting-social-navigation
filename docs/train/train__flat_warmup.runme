@@ -52,3 +52,15 @@ Override YAML values only when needed:
 ```sh
 python -m train fit --config config/train.yml --device cpu --epochs 5 --batch-size 8 --wandb
 ```
+
+Resume from the local best checkpoint:
+
+```sh
+python -m train fit --resume-checkpoint checkpoints/flat/flat_best.pt --wandb
+```
+
+Resume from the W&B best model artifact:
+
+```sh
+python -m train fit --wandb --resume-wandb-artifact flat-best-checkpoint:best
+```

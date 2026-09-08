@@ -96,6 +96,9 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
                 "checkpoint_dir: checkpoints/test",
                 "save_checkpoints: true",
                 "wandb_artifact_name: test-artifact",
+                "resume_checkpoint:",
+                "resume_wandb_artifact:",
+                "resume_download_dir: checkpoints/wandb",
             ]
         )
     )
@@ -136,7 +139,8 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "validation_windows: 1" in output
     assert "loss: bivariate_gaussian_nll" in output
     assert "optimizer: Adam" in output
-    assert "resume_from_checkpoint: null" in output
+    assert "resume_checkpoint: null" in output
+    assert "resume_wandb_artifact: null" in output
 
 
 def test_wandb_is_not_started_when_flag_is_disabled() -> None:
@@ -195,9 +199,16 @@ def test_wandb_checkpoint_logging_uploads_model_artifact(
         def add_file(self, path: str) -> None:
             added_files.append(path)
 
+    class FakeLoggedArtifact:
+        def wait(self) -> None:
+            return None
+
     class FakeRun:
-        def log_artifact(self, artifact: FakeArtifact, aliases: list[str]) -> None:
+        def log_artifact(
+            self, artifact: FakeArtifact, aliases: list[str]
+        ) -> FakeLoggedArtifact:
             logged_artifacts.append((artifact, aliases))
+            return FakeLoggedArtifact()
 
     monkeypatch.setitem(
         sys.modules,
@@ -219,3 +230,52 @@ def test_wandb_checkpoint_logging_uploads_model_artifact(
     assert artifact.metadata == {"epoch": 2, "validation_loss": 0.75}
     assert added_files == [str(checkpoint_path)]
     assert aliases == ["best", "epoch-2"]
+
+
+def test_resolve_resume_checkpoint_prefers_local_checkpoint(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "flat_best.pt"
+    checkpoint_path.write_text("checkpoint")
+
+    resolved = train._resolve_resume_checkpoint(
+        FlatFitConfig(resume_checkpoint=checkpoint_path),
+        run=None,
+    )
+
+    assert resolved == checkpoint_path
+
+
+def test_resolve_resume_checkpoint_downloads_wandb_artifact(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    checkpoint_path = artifact_dir / "flat_best.pt"
+    checkpoint_path.write_text("checkpoint")
+
+    class FakeArtifact:
+        def download(self, root: str) -> str:
+            assert root == str(tmp_path / "wandb")
+            return str(artifact_dir)
+
+    class FakeRun:
+        def use_artifact(self, name: str, type: str) -> FakeArtifact:
+            assert name == "flat-best-checkpoint:best"
+            assert type == "model"
+            return FakeArtifact()
+
+    resolved = train._resolve_resume_checkpoint(
+        FlatFitConfig(
+            wandb=True,
+            resume_wandb_artifact="flat-best-checkpoint:best",
+            resume_download_dir=tmp_path / "wandb",
+        ),
+        run=FakeRun(),
+    )
+
+    assert resolved == checkpoint_path
+
+
+def test_wandb_resume_requires_wandb_run() -> None:
+    with pytest.raises(RuntimeError, match="requires --wandb"):
+        train._resolve_resume_checkpoint(
+            FlatFitConfig(resume_wandb_artifact="flat-best-checkpoint:best"),
+            run=None,
+        )

@@ -110,6 +110,7 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 - `python -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
 - `python -m train fit --show-config` prints the resolved training setup from `config/train.yml` without training.
 - `python -m train fit --wandb` runs flat-model training with W&B logging using `config/train.yml`.
+- `python -m train fit --wandb --resume-wandb-artifact flat-best-checkpoint:best` resumes from the best W&B model artifact.
 - `python -m pytest tests` runs new first-party tests once pytest is installed.
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.

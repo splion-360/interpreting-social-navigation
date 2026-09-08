@@ -17,3 +17,6 @@ wandb_run_name:
 checkpoint_dir: checkpoints/flat
 save_checkpoints: true
 wandb_artifact_name: flat-best-checkpoint
+resume_checkpoint:
+resume_wandb_artifact:
+resume_download_dir: checkpoints/wandb
