@@ -83,7 +83,7 @@ print("mouse nodes/edges:", mouse_graph.nodes.shape, mouse_graph.edge_features.s
 ## Audit Notes
 
 - Flat graph: 36 nodes, one per mouse keypoint. Temporal self-edges start at frame 1; frame 0 has only spatial edges present.
-- Sparse spatial policy: directed cross-mouse keypoint edges only. Same-mouse anatomical edges are intentionally left to geometry/structural losses until the paper contract requires them in the interaction graph.
+- Sparse spatial policy: directed cross-mouse keypoint edges only. Same-mouse anatomical edges are intentionally left to geometry/structural losses unless a graph experiment explicitly needs them.
 - Mouse-level graph: 3 centroid nodes with directed inter-mouse spatial edges. This is the seam for the future hierarchical model.
 - `scripts/st_graph.py` is kept as migration reference while reusable graph code moves into `src/social_nav/graphs/`.
 
