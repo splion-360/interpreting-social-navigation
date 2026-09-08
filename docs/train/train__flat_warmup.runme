@@ -9,7 +9,7 @@ Use this notebook to verify that the data loader, graph builder, flat model, and
 ## Run CPU Warm-Up
 
 ```sh
-PYTHONPATH=src .venv/bin/python3.12 -m social_nav.training.warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
+PYTHONPATH=src .venv/bin/python3.12 -m social_nav.train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
 ```
 
 Expected output:

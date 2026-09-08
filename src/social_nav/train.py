@@ -1,4 +1,4 @@
-"""File description: Tiny warm-up training loop for flat trajectory models."""
+"""File description: Training entry point for trajectory model experiments."""
 
 from __future__ import annotations
 
@@ -137,16 +137,18 @@ def _select_device(requested: str) -> torch.device:
 
 
 def main() -> None:
-    """Run the warm-up training command."""
+    """Run a training command."""
 
-    parser = argparse.ArgumentParser(description="Run a tiny flat-model training smoke test.")
-    parser.add_argument("--data", type=Path, default=FlatWarmupConfig.data_path)
-    parser.add_argument("--sequence-index", type=int, default=FlatWarmupConfig.sequence_index)
-    parser.add_argument("--window-length", type=int, default=FlatWarmupConfig.window_length)
-    parser.add_argument("--steps", type=int, default=FlatWarmupConfig.steps)
-    parser.add_argument("--learning-rate", type=float, default=FlatWarmupConfig.learning_rate)
-    parser.add_argument("--seed", type=int, default=FlatWarmupConfig.seed)
-    parser.add_argument("--device", default=FlatWarmupConfig.device)
+    parser = argparse.ArgumentParser(description="Train trajectory models.")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    warmup = subcommands.add_parser("warmup", help="Run a short flat-model smoke test.")
+    warmup.add_argument("--data", type=Path, default=FlatWarmupConfig.data_path)
+    warmup.add_argument("--sequence-index", type=int, default=FlatWarmupConfig.sequence_index)
+    warmup.add_argument("--window-length", type=int, default=FlatWarmupConfig.window_length)
+    warmup.add_argument("--steps", type=int, default=FlatWarmupConfig.steps)
+    warmup.add_argument("--learning-rate", type=float, default=FlatWarmupConfig.learning_rate)
+    warmup.add_argument("--seed", type=int, default=FlatWarmupConfig.seed)
+    warmup.add_argument("--device", default=FlatWarmupConfig.device)
     args = parser.parse_args()
 
     result = run_flat_warmup(

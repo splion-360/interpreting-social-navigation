@@ -33,22 +33,16 @@ Use this directory tree as the intended project shape:
 │   └── social_nav/
 │       ├── config/
 │       ├── data/
-│       ├── evaluation/
-│       ├── experiments/
-│       ├── geometry/
 │       ├── graphs/
-│       ├── logging/
 │       ├── losses/
 │       ├── models/
-│       └── training/
+│       └── train.py
 ├── tests/
 │   ├── data/
-│   ├── evaluation/
-│   ├── geometry/
 │   ├── graphs/
 │   ├── losses/
 │   ├── models/
-│   └── training/
+│   └── test_train.py
 ├── socialAttention/
 └── data/                 # ignored local dataset storage
 ```
@@ -69,8 +63,8 @@ scripts/st_graph.py   -> src/social_nav/graphs/
 scripts/helper.py     -> src/social_nav/geometry/ or src/social_nav/models/
 scripts/model.py      -> src/social_nav/models/
 scripts/criterion.py  -> src/social_nav/losses/
-scripts/train.py      -> src/social_nav/training/
-scripts/sample.py     -> src/social_nav/evaluation/ or inference helpers
+scripts/train.py      -> src/social_nav/train.py
+scripts/sample.py     -> src/social_nav/evaluate.py or inference helpers
 ```
 
 Do not move everything in one edit. Migrate one module at a time, add tests at the new seam, and preserve the historical script path until the replacement is verified.
@@ -83,19 +77,24 @@ Design deep modules: small interfaces with substantial behavior hidden behind th
 config -> data -> geometry -> graphs -> models -> losses -> training -> evaluation -> experiments/scripts
 ```
 
-Lower layers must not import higher layers. For example, `geometry` must not know about graphs or training; models must not know where datasets live; losses must not log to W&B or write checkpoints.
+Lower layers must not import higher layers. For example, geometry helpers must not know about graphs or training; models must not know where datasets live; losses must not log to W&B or write checkpoints.
 
-Use these target modules:
+Use folders only when a concern has multiple files or a stable internal API. Start with a single module for thin orchestration paths such as training and evaluation, then promote to a package only after the file becomes crowded.
+
+Use these current modules:
 
 - `src/social_nav/config/`: typed experiment and runtime configuration.
 - `src/social_nav/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
-- `src/social_nav/geometry/`: coordinate transforms, velocities, centroid/reference positions, anatomical edge definitions, and bone-length metrics.
 - `src/social_nav/graphs/`: flat sparse, flat full, and mouse-level graph builders with explicit node/edge-count contracts.
 - `src/social_nav/models/`: flat Social Attention, hierarchical mouse encoder, mouse-level Social Attention, and keypoint decoder.
 - `src/social_nav/losses/`: Gaussian NLL, geodesic/structural loss, and Gaussian parameter validation.
-- `src/social_nav/training/`: training loops, device selection, seeds, checkpointing, tiny-batch overfit mode, and optional W&B adapters.
-- `src/social_nav/evaluation/`: ADE, FDE, anatomical consistency, efficiency metrics, representation extraction, and behavior probes.
-- `src/social_nav/experiments/`: named experiment definitions for flat baseline, hierarchical baseline, and ablations.
+- `src/social_nav/train.py`: training CLI, device selection, seeds, warm-up smoke runs, and later real experiment entry points.
+
+Add future modules only when needed:
+
+- `src/social_nav/geometry.py` or `src/social_nav/geometry/`: coordinate transforms, velocities, anatomical edge definitions, and bone-length metrics.
+- `src/social_nav/evaluate.py` or `src/social_nav/evaluation/`: ADE, FDE, anatomical consistency, efficiency metrics, representation extraction, and behavior probes.
+- `src/social_nav/experiments.py` or `src/social_nav/experiments/`: named experiment definitions for flat baseline, hierarchical baseline, and ablations.
 
 Preferred interfaces include `DatasetAdapter.load_split(config)`, `GraphBuilder.build(sequence)`, `TrajectoryModel.forward(batch_or_graph)`, `TrajectoryLoss(prediction, target, mask)`, `Trainer.run(config)`, and `Evaluator.evaluate(checkpoint, dataset)`. Add a seam only when behavior actually varies, such as graph variants, dataset adapters, model families, losses, or loggers.
 

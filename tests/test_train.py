@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from social_nav.training.warmup import FlatWarmupConfig, run_flat_warmup
+from social_nav.train import FlatWarmupConfig, run_flat_warmup
 
 
 def write_mabe_file(path: Path) -> None:
