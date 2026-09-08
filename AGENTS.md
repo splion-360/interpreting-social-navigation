@@ -106,9 +106,13 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 - `cd scripts && python train.py` trains the model; it expects root-level `data/MaBe/mouse_train.npy` and CUDA-capable PyTorch.
 - `cd scripts && python train.py --wandb` also logs the run to Weights & Biases.
 - `cd scripts && python sample.py --epoch 199` evaluates checkpoint epoch 199 from `scripts/save/save_attention/`.
+- `python -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
+- `python -m train fit --model flat --data data/MaBe/mouse_triplet_train.npy --epochs 20 --batch-size 16 --wandb` runs flat-model training with W&B logging.
 - `python -m pytest tests` runs new first-party tests once pytest is installed.
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.
+
+Training commands should run locally with visible CLI progress. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging.
 
 ## Coding Style & Naming Conventions
 

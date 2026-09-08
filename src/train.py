@@ -5,11 +5,20 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor
+from tqdm import tqdm
 
-from data import MabeDataset, MabeWindowDataset, PoseNormalizer, WindowSpec
+from data import (
+    MabeDataset,
+    MabeWindowDataset,
+    PoseNormalizer,
+    WindowSpec,
+    split_sequence_ids,
+)
 from graphs import build_flat_sparse_keypoint_graph
 from losses import bivariate_gaussian_nll
 from models import FlatSocialAttentionModel
@@ -55,6 +64,70 @@ class FlatWarmupResult:
     device: str
 
 
+@dataclass(frozen=True)
+class FlatFitConfig:
+    """Configuration for flat-model training.
+
+    Attributes:
+        data_path: Path to `mouse_triplet_train.npy`.
+        epochs: Number of training epochs.
+        batch_size: Number of windows per optimizer step.
+        window_length: Number of frames per next-frame training window.
+        stride: Frame stride between windows.
+        max_train_windows: Optional training-window cap for debug runs.
+        max_validation_windows: Optional validation-window cap for debug runs.
+        validation_fraction: Fraction of sequences used for validation.
+        learning_rate: Adam learning rate.
+        grad_clip: Gradient clipping threshold.
+        seed: Random seed for deterministic splits and model initialization.
+        device: Requested device, such as `cpu`, `cuda`, or `auto`.
+        wandb: Whether to log metrics to Weights & Biases.
+        wandb_project: Weights & Biases project name.
+        wandb_run_name: Optional Weights & Biases run name.
+        checkpoint_dir: Directory for best-checkpoint files.
+        save_checkpoints: Whether to save the best validation checkpoint.
+    """
+
+    data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
+    epochs: int = 20
+    batch_size: int = 16
+    window_length: int = 9
+    stride: int = 20
+    max_train_windows: int | None = None
+    max_validation_windows: int | None = None
+    validation_fraction: float = 0.2
+    learning_rate: float = 1e-3
+    grad_clip: float = 10.0
+    seed: int = 42
+    device: str = "auto"
+    wandb: bool = False
+    wandb_project: str = "interpreting-social-navigation"
+    wandb_run_name: str | None = None
+    checkpoint_dir: Path = Path("checkpoints/flat")
+    save_checkpoints: bool = True
+
+
+@dataclass(frozen=True)
+class FlatFitResult:
+    """Summary metrics from a flat-model training run.
+
+    Attributes:
+        best_epoch: Epoch with the lowest validation loss.
+        best_validation_loss: Lowest observed validation loss.
+        final_train_loss: Training loss from the final epoch.
+        final_validation_loss: Validation loss from the final epoch.
+        checkpoint_path: Best-checkpoint path when checkpointing is enabled.
+        device: Device used for the run.
+    """
+
+    best_epoch: int
+    best_validation_loss: float
+    final_train_loss: float
+    final_validation_loss: float
+    checkpoint_path: Path | None
+    device: str
+
+
 def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
     """Run a short flat-model training smoke test.
 
@@ -97,6 +170,94 @@ def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
     )
 
 
+def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFitResult:
+    """Train the flat trajectory model with CLI and optional W&B logging.
+
+    Args:
+        config: Training configuration.
+        show_progress: Whether to render tqdm progress bars.
+
+    Returns:
+        Training summary with best validation loss and checkpoint path.
+    """
+
+    torch.manual_seed(config.seed)
+    np.random.seed(config.seed)
+    device = _select_device(config.device)
+    train_windows, validation_windows = _build_window_datasets(config)
+    model = FlatSocialAttentionModel().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    run = _start_wandb(config)
+
+    best_epoch = 0
+    best_validation_loss = float("inf")
+    checkpoint_path = config.checkpoint_dir / "flat_best.pt"
+    final_train_loss = 0.0
+    final_validation_loss = 0.0
+
+    for epoch in range(1, config.epochs + 1):
+        final_train_loss = _run_epoch(
+            model=model,
+            windows=train_windows,
+            optimizer=optimizer,
+            config=config,
+            device=device,
+            epoch=epoch,
+            split="train",
+            show_progress=show_progress,
+        )
+        final_validation_loss = _run_epoch(
+            model=model,
+            windows=validation_windows,
+            optimizer=None,
+            config=config,
+            device=device,
+            epoch=epoch,
+            split="validation",
+            show_progress=show_progress,
+        )
+
+        print(
+            f"epoch={epoch}/{config.epochs} "
+            f"train_loss={final_train_loss:.6f} "
+            f"validation_loss={final_validation_loss:.6f}"
+        )
+        _wandb_log(
+            run,
+            {
+                "epoch": epoch,
+                "train/loss": final_train_loss,
+                "validation/loss": final_validation_loss,
+            },
+        )
+
+        if final_validation_loss < best_validation_loss:
+            best_epoch = epoch
+            best_validation_loss = final_validation_loss
+            if config.save_checkpoints:
+                config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "validation_loss": final_validation_loss,
+                        "config": config,
+                    },
+                    checkpoint_path,
+                )
+
+    _finish_wandb(run)
+    return FlatFitResult(
+        best_epoch=best_epoch,
+        best_validation_loss=best_validation_loss,
+        final_train_loss=final_train_loss,
+        final_validation_loss=final_validation_loss,
+        checkpoint_path=checkpoint_path if config.save_checkpoints else None,
+        device=str(device),
+    )
+
+
 def _load_flat_next_frame_batch(
     config: FlatWarmupConfig,
 ) -> tuple[Tensor, Tensor, Tensor, tuple]:
@@ -128,6 +289,145 @@ def _load_flat_next_frame_batch(
     )
 
 
+def _build_window_datasets(
+    config: FlatFitConfig,
+) -> tuple[MabeWindowDataset, MabeWindowDataset]:
+    """Load train and validation window datasets."""
+
+    dataset = MabeDataset.from_file(config.data_path)
+    train_ids, validation_ids = split_sequence_ids(
+        dataset.sequence_ids,
+        validation_fraction=config.validation_fraction,
+        seed=config.seed,
+    )
+    normalizer = PoseNormalizer.fit(dataset.select(train_ids))
+    spec = WindowSpec(
+        length=config.window_length,
+        observation_length=config.window_length - 1,
+        prediction_length=1,
+        stride=config.stride,
+    )
+    train_windows = MabeWindowDataset(
+        dataset.select(train_ids),
+        spec,
+        normalizer=normalizer,
+        max_windows=config.max_train_windows,
+    )
+    validation_windows = MabeWindowDataset(
+        dataset.select(validation_ids),
+        spec,
+        normalizer=normalizer,
+        max_windows=config.max_validation_windows,
+    )
+    return train_windows, validation_windows
+
+
+def _run_epoch(
+    *,
+    model: FlatSocialAttentionModel,
+    windows: MabeWindowDataset,
+    optimizer: torch.optim.Optimizer | None,
+    config: FlatFitConfig,
+    device: torch.device,
+    epoch: int,
+    split: str,
+    show_progress: bool,
+) -> float:
+    """Run one train or validation epoch."""
+
+    model.train(optimizer is not None)
+    batch_losses = []
+    iterator = range(0, len(windows), config.batch_size)
+    progress = tqdm(
+        iterator,
+        desc=f"{split} epoch {epoch}",
+        unit="batch",
+        disable=not show_progress,
+    )
+    for start in progress:
+        batch_indices = range(start, min(start + config.batch_size, len(windows)))
+        with torch.set_grad_enabled(optimizer is not None):
+            loss = _batch_loss(model, windows, batch_indices, device)
+        if optimizer is not None:
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+            optimizer.step()
+
+        loss_value = float(loss.detach().cpu())
+        batch_losses.append(loss_value)
+        progress.set_postfix(loss=f"{loss_value:.6f}")
+
+    return float(np.mean(batch_losses))
+
+
+def _batch_loss(
+    model: FlatSocialAttentionModel,
+    windows: MabeWindowDataset,
+    batch_indices: range,
+    device: torch.device,
+) -> Tensor:
+    """Compute the mean next-frame prediction loss for a window batch."""
+
+    losses = []
+    for index in batch_indices:
+        window = windows[index]
+        input_graph = build_flat_sparse_keypoint_graph(window.keypoints[:-1])
+        target_graph = build_flat_sparse_keypoint_graph(window.keypoints[1:])
+        nodes = torch.from_numpy(input_graph.nodes).to(device)
+        edges = torch.from_numpy(input_graph.edge_features).to(device)
+        targets = torch.from_numpy(target_graph.nodes).to(device)
+        predictions = model(nodes, edges, input_graph.edge_specs)
+        losses.append(bivariate_gaussian_nll(predictions, targets))
+    return torch.stack(losses).mean()
+
+
+def _start_wandb(config: FlatFitConfig) -> Any | None:
+    """Start a W&B run when requested."""
+
+    if not config.wandb:
+        return None
+
+    try:
+        import wandb
+    except ImportError as exc:
+        raise RuntimeError(
+            "W&B logging requires the optional dependency: "
+            'python -m pip install -e ".[wandb]"'
+        ) from exc
+
+    return wandb.init(
+        project=config.wandb_project,
+        name=config.wandb_run_name,
+        config={
+            "model": "flat",
+            "data_path": str(config.data_path),
+            "epochs": config.epochs,
+            "batch_size": config.batch_size,
+            "window_length": config.window_length,
+            "stride": config.stride,
+            "learning_rate": config.learning_rate,
+            "grad_clip": config.grad_clip,
+            "seed": config.seed,
+            "device": config.device,
+        },
+    )
+
+
+def _wandb_log(run: Any | None, metrics: dict[str, float | int]) -> None:
+    """Log metrics to W&B when a run exists."""
+
+    if run is not None:
+        run.log(metrics)
+
+
+def _finish_wandb(run: Any | None) -> None:
+    """Finish a W&B run when a run exists."""
+
+    if run is not None:
+        run.finish()
+
+
 def _select_device(requested: str) -> torch.device:
     """Resolve a requested training device."""
 
@@ -141,6 +441,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Train trajectory models.")
     subcommands = parser.add_subparsers(dest="command", required=True)
+
     warmup = subcommands.add_parser("warmup", help="Run a short flat-model smoke test.")
     warmup.add_argument("--data", type=Path, default=FlatWarmupConfig.data_path)
     warmup.add_argument(
@@ -155,23 +456,78 @@ def main() -> None:
     )
     warmup.add_argument("--seed", type=int, default=FlatWarmupConfig.seed)
     warmup.add_argument("--device", default=FlatWarmupConfig.device)
+
+    fit = subcommands.add_parser("fit", help="Train a trajectory model.")
+    fit.add_argument("--model", choices=["flat"], default="flat")
+    fit.add_argument("--data", type=Path, default=FlatFitConfig.data_path)
+    fit.add_argument("--epochs", type=int, default=FlatFitConfig.epochs)
+    fit.add_argument("--batch-size", type=int, default=FlatFitConfig.batch_size)
+    fit.add_argument("--window-length", type=int, default=FlatFitConfig.window_length)
+    fit.add_argument("--stride", type=int, default=FlatFitConfig.stride)
+    fit.add_argument("--max-train-windows", type=int)
+    fit.add_argument("--max-validation-windows", type=int)
+    fit.add_argument(
+        "--validation-fraction", type=float, default=FlatFitConfig.validation_fraction
+    )
+    fit.add_argument("--learning-rate", type=float, default=FlatFitConfig.learning_rate)
+    fit.add_argument("--grad-clip", type=float, default=FlatFitConfig.grad_clip)
+    fit.add_argument("--seed", type=int, default=FlatFitConfig.seed)
+    fit.add_argument("--device", default=FlatFitConfig.device)
+    fit.add_argument("--wandb", action="store_true")
+    fit.add_argument("--wandb-project", default=FlatFitConfig.wandb_project)
+    fit.add_argument("--wandb-run-name")
+    fit.add_argument(
+        "--checkpoint-dir", type=Path, default=FlatFitConfig.checkpoint_dir
+    )
+    fit.add_argument("--no-checkpoint", action="store_true")
     args = parser.parse_args()
 
-    result = run_flat_warmup(
-        FlatWarmupConfig(
+    if args.command == "warmup":
+        warmup_result = run_flat_warmup(
+            FlatWarmupConfig(
+                data_path=args.data,
+                sequence_index=args.sequence_index,
+                window_length=args.window_length,
+                steps=args.steps,
+                learning_rate=args.learning_rate,
+                seed=args.seed,
+                device=args.device,
+            )
+        )
+        print(f"device={warmup_result.device}")
+        print(f"steps={warmup_result.steps}")
+        print(f"initial_loss={warmup_result.initial_loss:.6f}")
+        print(f"final_loss={warmup_result.final_loss:.6f}")
+        return
+
+    fit_result = run_flat_fit(
+        FlatFitConfig(
             data_path=args.data,
-            sequence_index=args.sequence_index,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
             window_length=args.window_length,
-            steps=args.steps,
+            stride=args.stride,
+            max_train_windows=args.max_train_windows,
+            max_validation_windows=args.max_validation_windows,
+            validation_fraction=args.validation_fraction,
             learning_rate=args.learning_rate,
+            grad_clip=args.grad_clip,
             seed=args.seed,
             device=args.device,
+            wandb=args.wandb,
+            wandb_project=args.wandb_project,
+            wandb_run_name=args.wandb_run_name,
+            checkpoint_dir=args.checkpoint_dir,
+            save_checkpoints=not args.no_checkpoint,
         )
     )
-    print(f"device={result.device}")
-    print(f"steps={result.steps}")
-    print(f"initial_loss={result.initial_loss:.6f}")
-    print(f"final_loss={result.final_loss:.6f}")
+    print(f"device={fit_result.device}")
+    print(f"best_epoch={fit_result.best_epoch}")
+    print(f"best_validation_loss={fit_result.best_validation_loss:.6f}")
+    print(f"final_train_loss={fit_result.final_train_loss:.6f}")
+    print(f"final_validation_loss={fit_result.final_validation_loss:.6f}")
+    if fit_result.checkpoint_path is not None:
+        print(f"checkpoint={fit_result.checkpoint_path}")
 
 
 if __name__ == "__main__":

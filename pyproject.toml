@@ -12,9 +12,13 @@ dependencies = [
     "numpy>=1.26",
     "scipy>=1.12",
     "torch==2.5.0",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]
+wandb = [
+    "wandb>=0.29.0",
+]
 dev = [
     "ipykernel>=6.29",
     "jupyterlab>=4.1",
@@ -24,7 +28,7 @@ dev = [
     "pytest>=8",
     "ruff>=0.5",
     "seaborn>=0.13",
-    "wandb>=0.17",
+    "wandb>=0.29.0",
 ]
 
 [tool.uv.sources]
@@ -116,6 +120,7 @@ known-third-party = [
     "pytest",
     "scipy",
     "torch",
+    "tqdm",
 ]
 
 [tool.ruff.format]

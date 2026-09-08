@@ -9,7 +9,7 @@ Use this notebook to verify that the data loader, graph builder, flat model, and
 ## Run CPU Warm-Up
 
 ```sh
-PYTHONPATH=src .venv/bin/python3.12 -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
+python -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
 ```
 
 Expected output:
@@ -26,3 +26,13 @@ final_loss=<finite number>
 - The command does not save checkpoints, logs, plots, or model artifacts.
 - Increase `--steps` only when you intentionally want a longer debug run.
 - Keep real experiment runs separate from this smoke path.
+
+## Run Flat Training
+
+Use this only when you want an actual local training run.
+
+```sh
+python -m train fit --model flat --data data/MaBe/mouse_triplet_train.npy --device cpu --epochs 20 --batch-size 16 --wandb
+```
+
+The `--wandb` flag is opt-in. Leave it out for local CLI-only logging.
