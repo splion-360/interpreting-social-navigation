@@ -1,4 +1,4 @@
-"""File description: Paper-aligned graph builders for social-attention experiments."""
+"""File description: Spatio-temporal graph builders for mouse trajectory modeling."""
 
 from __future__ import annotations
 
@@ -91,10 +91,10 @@ def flat_keypoint_node_id(mouse_id: int, keypoint_id: int) -> int:
 def build_flat_sparse_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
     """Build a flat keypoint graph with sparse cross-mouse spatial edges.
 
-    The paper-style graph uses temporal self-edges for same-node motion and
-    directed spatial edges for interactions within each frame. For the sparse
-    MABe triplet baseline, spatial edges connect keypoints across mice only,
-    excluding same-mouse keypoint-to-keypoint edges from the full spatial graph.
+    The graph uses temporal self-edges for same-node motion and directed
+    spatial edges for interactions within each frame. For the sparse MABe
+    triplet baseline, spatial edges connect keypoints across mice only,
+    excluding same-mouse keypoint-to-keypoint edges.
 
     Args:
         keypoints: Pose sequence shaped `[time, 3, 12, 2]`.

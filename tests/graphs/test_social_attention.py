@@ -1,4 +1,4 @@
-"""File description: Tests for paper-aligned social-attention graph builders."""
+"""File description: Tests for social-attention graph builders."""
 
 import numpy as np
 import pytest

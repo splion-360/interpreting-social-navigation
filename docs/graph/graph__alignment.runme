@@ -2,9 +2,9 @@
 cwd: ../..
 ---
 
-# Graph Alignment Notebook
+# Graph Inspection Notebook
 
-This notebook inspects the new graph builders against the paper-aligned contract. Treat `docs/social-attention.pdf` as the authority; historical code and the upstream submodule are audit references only.
+This notebook inspects the graph builders used by the trajectory models. Use it to verify node counts, edge counts, and sample feature values before training depends on graph outputs.
 
 ## Synthetic Flat Keypoint Graph
 
@@ -85,4 +85,15 @@ print("mouse nodes/edges:", mouse_graph.nodes.shape, mouse_graph.edge_features.s
 - Flat graph: 36 nodes, one per mouse keypoint. Temporal self-edges start at frame 1; frame 0 has only spatial edges present.
 - Sparse spatial policy: directed cross-mouse keypoint edges only. Same-mouse anatomical edges are intentionally left to geometry/structural losses until the paper contract requires them in the interaction graph.
 - Mouse-level graph: 3 centroid nodes with directed inter-mouse spatial edges. This is the seam for the future hierarchical model.
-- Historical `scripts/st_graph.py` should be audited as reference behavior, not treated as the target contract.
+- `scripts/st_graph.py` is kept as migration reference while reusable graph code moves into `src/social_nav/graphs/`.
+
+## Migration Audit: `scripts/st_graph.py`
+
+The package graph builders intentionally keep only the stable behavior needed by the new training path.
+
+- Historical node IDs use `mouse_id * 12 + keypoint_id`, matching `flat_keypoint_node_id`.
+- Historical total edge allocation is 900: 864 directed cross-mouse spatial edges plus 36 temporal self-edges.
+- Historical frame 0 has no temporal edges because temporal edges are added only after a node has a previous position.
+- `scripts/st_graph.py` defines `printGraph` and `getSequence` twice. The duplicate `getSequence` references `self.nkeypoints`, but the constructor defines `self.nkeys`.
+- Spatial edge construction uses `frame[ped_in, kp_out, 2]` for the source y-coordinate while iterating `kp_in`; this looks like a keypoint-indexing typo.
+- Historical code stores edges in dictionaries and then mirrors spatial edges during tensor materialization. The package graph builder emits deterministic directed edge specs directly.

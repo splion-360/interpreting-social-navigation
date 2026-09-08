@@ -1,0 +1,28 @@
+---
+cwd: ../..
+---
+
+# Flat Model Warm-Up
+
+Use this notebook to verify that the data loader, graph builder, flat model, and Gaussian loss can run together. This is a short smoke test, not a real experiment.
+
+## Run CPU Warm-Up
+
+```sh
+PYTHONPATH=src .venv/bin/python3.12 -m social_nav.training.warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
+```
+
+Expected output:
+
+```text
+device=cpu
+steps=5
+initial_loss=<finite number>
+final_loss=<finite number>
+```
+
+## Notes
+
+- The command does not save checkpoints, logs, plots, or model artifacts.
+- Increase `--steps` only when you intentionally want a longer debug run.
+- Keep real experiment runs separate from this smoke path.
