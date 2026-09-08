@@ -75,7 +75,7 @@ def test_dense_keypoint_graph_uses_dense_source_target_indexing() -> None:
     )
 
 
-def test_flat_keypoint_graph_features_match_coordinate_deltas() -> None:
+def test_flat_keypoint_graph_features_match_source_minus_target_vectors() -> None:
     keypoints = make_keypoints()
 
     graph = build_flat_sparse_keypoint_graph(keypoints)
@@ -89,15 +89,15 @@ def test_flat_keypoint_graph_features_match_coordinate_deltas() -> None:
     assert temporal_edge not in graph.edges_present[0]
     assert temporal_edge in graph.edges_present[1]
     np.testing.assert_array_equal(
-        graph.edge_features[1, temporal_edge], np.array([1, 2])
+        graph.edge_features[1, temporal_edge], np.array([-1, -2])
     )
 
     source = keypoints[0, 0, 1]
     target = keypoints[0, 2, 3]
-    np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], target - source)
+    np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], source - target)
 
 
-def test_dense_keypoint_graph_features_match_coordinate_deltas() -> None:
+def test_dense_keypoint_graph_features_match_source_minus_target_vectors() -> None:
     keypoints = make_keypoints()
 
     graph = build_dense_keypoint_graph(keypoints)
@@ -111,12 +111,12 @@ def test_dense_keypoint_graph_features_match_coordinate_deltas() -> None:
     assert temporal_edge not in graph.edges_present[0]
     assert temporal_edge in graph.edges_present[1]
     np.testing.assert_array_equal(
-        graph.edge_features[1, temporal_edge], np.array([1, 2])
+        graph.edge_features[1, temporal_edge], np.array([-1, -2])
     )
 
     source = keypoints[0, 0, 1]
     target = keypoints[0, 0, 3]
-    np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], target - source)
+    np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], source - target)
 
 
 def test_mouse_level_graph_uses_three_mouse_centroids() -> None:
@@ -140,11 +140,11 @@ def test_mouse_level_graph_uses_directed_inter_mouse_edges() -> None:
 
     assert forward != backward
     np.testing.assert_array_equal(
-        graph.edge_features[0, forward], graph.nodes[0, 2] - graph.nodes[0, 0]
+        graph.edge_features[0, forward], graph.nodes[0, 0] - graph.nodes[0, 2]
     )
     np.testing.assert_array_equal(
         graph.edge_features[0, backward],
-        graph.nodes[0, 0] - graph.nodes[0, 2],
+        graph.nodes[0, 2] - graph.nodes[0, 0],
     )
 
 

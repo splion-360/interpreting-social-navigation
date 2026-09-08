@@ -7,8 +7,8 @@ observation_length: 8
 prediction_length: 12
 graph_variant: mouse_level
 stride: 20
-max_train_windows:
-max_validation_windows:
+max_train_windows: null
+max_validation_windows: null
 validation_fraction: 0.2
 learning_rate: 0.001
 grad_clip: 10.0
@@ -16,10 +16,11 @@ seed: 42
 device: cpu
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name:
+wandb_run_name: mouse-level-baseline
 checkpoint_dir: checkpoints/mouse_level
 save_checkpoints: true
+checkpoint_frequency: 10
 wandb_artifact_name: mouse-level-best-checkpoint
-resume_checkpoint:
-resume_wandb_artifact:
+resume_checkpoint: null
+resume_wandb_artifact: null
 resume_download_dir: checkpoints/wandb

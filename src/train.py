@@ -115,6 +115,7 @@ class FlatFitConfig:
         wandb_run_name: Optional Weights & Biases run name.
         checkpoint_dir: Directory for best-checkpoint files.
         save_checkpoints: Whether to save the best validation checkpoint.
+        checkpoint_frequency: Optional interval for saving epoch checkpoints.
         wandb_artifact_name: W&B artifact name for the best checkpoint.
         resume_checkpoint: Optional local checkpoint restored before training.
         resume_wandb_artifact: Optional W&B artifact restored before training.
@@ -142,6 +143,7 @@ class FlatFitConfig:
     wandb_run_name: str | None = None
     checkpoint_dir: Path = Path("checkpoints/flat")
     save_checkpoints: bool = True
+    checkpoint_frequency: int | None = None
     wandb_artifact_name: str = "flat-best-checkpoint"
     resume_checkpoint: Path | None = None
     resume_wandb_artifact: str | None = None
@@ -272,7 +274,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
         device=device,
     )
     best_epoch = start_epoch - 1
-    checkpoint_path = config.checkpoint_dir / "flat_best.pt"
+    best_checkpoint_path = config.checkpoint_dir / "flat_best.pt"
     final_train_loss = 0.0
     final_validation_loss = 0.0
 
@@ -312,27 +314,47 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             },
         )
 
-        if final_validation_loss < best_validation_loss:
+        is_best_checkpoint = final_validation_loss < best_validation_loss
+        if is_best_checkpoint:
             best_epoch = epoch
             best_validation_loss = final_validation_loss
             if config.save_checkpoints:
                 config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "validation_loss": final_validation_loss,
-                        "config": config,
-                    },
-                    checkpoint_path,
+                _save_checkpoint(
+                    path=best_checkpoint_path,
+                    model=model,
+                    optimizer=optimizer,
+                    config=config,
+                    epoch=epoch,
+                    validation_loss=final_validation_loss,
                 )
                 _wandb_log_checkpoint(
                     run=run,
-                    checkpoint_path=checkpoint_path,
+                    checkpoint_path=best_checkpoint_path,
                     artifact_name=config.wandb_artifact_name,
                     epoch=epoch,
                     validation_loss=final_validation_loss,
+                    aliases=["best", f"epoch-{epoch}"],
+                )
+        if _should_save_epoch_checkpoint(config, epoch):
+            epoch_checkpoint_path = config.checkpoint_dir / f"flat_epoch_{epoch:04d}.pt"
+            config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            _save_checkpoint(
+                path=epoch_checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                config=config,
+                epoch=epoch,
+                validation_loss=final_validation_loss,
+            )
+            if not is_best_checkpoint:
+                _wandb_log_checkpoint(
+                    run=run,
+                    checkpoint_path=epoch_checkpoint_path,
+                    artifact_name=config.wandb_artifact_name,
+                    epoch=epoch,
+                    validation_loss=final_validation_loss,
+                    aliases=[f"epoch-{epoch}"],
                 )
 
     _finish_wandb(run)
@@ -341,7 +363,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
         best_validation_loss=best_validation_loss,
         final_train_loss=final_train_loss,
         final_validation_loss=final_validation_loss,
-        checkpoint_path=checkpoint_path if config.save_checkpoints else None,
+        checkpoint_path=best_checkpoint_path if config.save_checkpoints else None,
         wandb_artifact_name=(
             config.wandb_artifact_name
             if config.wandb and config.save_checkpoints
@@ -500,6 +522,49 @@ def _batch_loss(
     return torch.stack(losses).mean()
 
 
+def _save_checkpoint(
+    *,
+    path: Path,
+    model: FlatSocialAttentionModel,
+    optimizer: torch.optim.Optimizer,
+    config: FlatFitConfig,
+    epoch: int,
+    validation_loss: float,
+) -> None:
+    """Save model, optimizer, and training metadata to a checkpoint file.
+
+    Args:
+        path: Destination checkpoint path.
+        model: Model whose parameters are saved.
+        optimizer: Optimizer whose state is saved.
+        config: Training config used for this run.
+        epoch: Epoch represented by this checkpoint.
+        validation_loss: Validation loss recorded at this epoch.
+    """
+
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "validation_loss": validation_loss,
+            "config": config,
+        },
+        path,
+    )
+
+
+def _should_save_epoch_checkpoint(config: FlatFitConfig, epoch: int) -> bool:
+    """Return whether a periodic checkpoint should be saved for this epoch."""
+
+    return (
+        config.save_checkpoints
+        and config.checkpoint_frequency is not None
+        and config.checkpoint_frequency > 0
+        and epoch % config.checkpoint_frequency == 0
+    )
+
+
 def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
     """Start a W&B run when requested."""
 
@@ -532,6 +597,7 @@ def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
             "grad_clip": config.grad_clip,
             "seed": config.seed,
             "device": config.device,
+            "checkpoint_frequency": config.checkpoint_frequency,
             "resolved_device": device_info.resolved,
             "torch_version": device_info.torch_version,
             "cuda_available": device_info.cuda_available,
@@ -564,6 +630,7 @@ def _wandb_log_checkpoint(
     artifact_name: str,
     epoch: int,
     validation_loss: float,
+    aliases: list[str],
 ) -> None:
     """Version a checkpoint as a W&B model artifact when logging is enabled.
 
@@ -573,6 +640,7 @@ def _wandb_log_checkpoint(
         artifact_name: Stable W&B artifact name.
         epoch: Epoch represented by the checkpoint.
         validation_loss: Validation loss for the checkpoint.
+        aliases: Artifact aliases to assign to this checkpoint version.
     """
 
     if run is None:
@@ -586,7 +654,7 @@ def _wandb_log_checkpoint(
         metadata={"epoch": epoch, "validation_loss": validation_loss},
     )
     artifact.add_file(str(checkpoint_path))
-    logged = run.log_artifact(artifact, aliases=["best", f"epoch-{epoch}"])
+    logged = run.log_artifact(artifact, aliases=aliases)
     logged.wait()
 
 
@@ -701,15 +769,19 @@ def _device_info(requested: str, resolved: torch.device) -> DeviceInfo:
 
 
 def _print_device_info(device_info: DeviceInfo) -> None:
-    """Print selected compute-device details before training work begins.
+    """Print the selected compute device before training work begins.
 
     Args:
         device_info: Device metadata to print.
     """
 
-    print("device:")
-    for key, value in asdict(device_info).items():
-        print(f"  {key}: {value}")
+    print(f"device: {_device_display_name(device_info)}")
+
+
+def _device_display_name(device_info: DeviceInfo) -> str:
+    """Return the concise device label shown in training logs."""
+
+    return device_info.cuda_device_name or device_info.resolved
 
 
 def load_flat_fit_config(
@@ -795,7 +867,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                 ),
             },
         },
-        "device": asdict(_device_info(config.device, resolved_device)),
+        "device": _device_display_name(_device_info(config.device, resolved_device)),
         "graph": {
             "variant": first_graph.variant,
             "node_count": first_graph.node_count,
@@ -823,6 +895,10 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         "checkpointing": {
             "enabled": config.save_checkpoints,
             "best_checkpoint_path": str(config.checkpoint_dir / "flat_best.pt"),
+            "epoch_checkpoint_pattern": str(
+                config.checkpoint_dir / "flat_epoch_{epoch:04d}.pt"
+            ),
+            "checkpoint_frequency": config.checkpoint_frequency,
             "resume_checkpoint": (
                 str(config.resume_checkpoint)
                 if config.resume_checkpoint is not None
@@ -972,6 +1048,7 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "wandb_artifact_name": args.wandb_artifact_name,
         "checkpoint_dir": args.checkpoint_dir,
         "save_checkpoints": args.save_checkpoints,
+        "checkpoint_frequency": args.checkpoint_frequency,
         "resume_checkpoint": args.resume_checkpoint,
         "resume_wandb_artifact": args.resume_wandb_artifact,
         "resume_download_dir": args.resume_download_dir,
@@ -1032,6 +1109,7 @@ def main() -> None:
     fit.add_argument("--wandb-artifact-name")
     fit.add_argument("--checkpoint-dir", type=Path)
     fit.add_argument("--save-checkpoints", action=argparse.BooleanOptionalAction)
+    fit.add_argument("--checkpoint-frequency", type=int)
     fit.add_argument("--no-checkpoint", action="store_true")
     fit.add_argument("--resume-checkpoint", type=Path)
     fit.add_argument("--resume-wandb-artifact")

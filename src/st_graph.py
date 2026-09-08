@@ -35,7 +35,7 @@ class GraphSequence:
     Attributes:
         variant: Graph variant name.
         nodes: Node coordinates shaped `[time, nodes, 2]`.
-        edge_features: Edge coordinate deltas shaped `[time, edges, 2]`.
+        edge_features: Edge position vectors shaped `[time, edges, 2]`.
         edge_specs: Stable edge identities matching the edge-feature axis.
         nodes_present: Node IDs available at each frame.
         edges_present: Edge IDs available at each frame.
@@ -226,11 +226,11 @@ def _build_graph_sequence(
         if edge.kind == "temporal":
             temporal_edge_ids.append(edge_idx)
             edge_features[1:, edge_idx] = (
-                nodes[1:, edge.target] - nodes[:-1, edge.source]
+                nodes[:-1, edge.source] - nodes[1:, edge.target]
             )
         else:
             spatial_edge_ids.append(edge_idx)
-            edge_features[:, edge_idx] = nodes[:, edge.target] - nodes[:, edge.source]
+            edge_features[:, edge_idx] = nodes[:, edge.source] - nodes[:, edge.target]
 
     nodes_present = tuple(tuple(range(nodes.shape[1])) for _ in range(nodes.shape[0]))
     edges_present = (

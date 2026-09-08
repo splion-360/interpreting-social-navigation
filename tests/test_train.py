@@ -106,11 +106,9 @@ def test_flat_fit_prints_resolved_device_info(
     )
 
     output = capsys.readouterr().out
-    assert "device:" in output
-    assert "  requested: cpu" in output
-    assert "  resolved: cpu" in output
-    assert "  torch_version:" in output
-    assert "  cuda_available:" in output
+    assert "device: cpu" in output
+    assert "torch_version:" not in output
+    assert "cuda_available:" not in output
 
 
 def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
@@ -136,6 +134,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
                 "wandb_project: interpreting-social-navigation",
                 "checkpoint_dir: checkpoints/test",
                 "save_checkpoints: true",
+                "checkpoint_frequency: 10",
                 "wandb_artifact_name: test-artifact",
                 "resume_checkpoint:",
                 "resume_wandb_artifact:",
@@ -155,24 +154,29 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.observation_length == 4
     assert config.prediction_length == 2
     assert config.graph_variant == "flat_sparse_keypoint"
+    assert config.checkpoint_frequency == 10
     assert config.wandb is True
 
 
 def test_variant_train_configs_load_from_src_config() -> None:
     variants = {
-        "dense_keypoint": Path("src/config/dense_keypoint__train.yml"),
-        "flat_sparse_keypoint": Path("src/config/flat_sparse_keypoint__train.yml"),
-        "mouse_level": Path("src/config/mouse_level__train.yml"),
+        "dense_keypoint": (Path("src/config/dense_keypoint__train.yml"), 20),
+        "flat_sparse_keypoint": (
+            Path("src/config/flat_sparse_keypoint__train.yml"),
+            10,
+        ),
+        "mouse_level": (Path("src/config/mouse_level__train.yml"), 10),
     }
 
-    assert train.DEFAULT_TRAIN_CONFIG_PATH == variants["dense_keypoint"]
-    for variant, path in variants.items():
+    assert train.DEFAULT_TRAIN_CONFIG_PATH == variants["dense_keypoint"][0]
+    for variant, (path, checkpoint_frequency) in variants.items():
         config = train.load_flat_fit_config(path)
 
         assert config.graph_variant == variant
         assert config.window_length == 20
         assert config.observation_length == 8
         assert config.prediction_length == 12
+        assert config.checkpoint_frequency == checkpoint_frequency
 
 
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
@@ -207,8 +211,8 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "optimizer: Adam" in output
     assert "resume_checkpoint: null" in output
     assert "resume_wandb_artifact: null" in output
-    assert "requested: cpu" in output
-    assert "resolved: cpu" in output
+    assert "device: cpu" in output
+    assert "checkpoint_frequency: null" in output
 
 
 def test_device_info_reports_cpu_without_gpu_name() -> None:
@@ -217,6 +221,44 @@ def test_device_info_reports_cpu_without_gpu_name() -> None:
     assert info.requested == "cpu"
     assert info.resolved == "cpu"
     assert info.cuda_device_name is None
+
+
+def test_flat_fit_saves_periodic_epoch_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    checkpoint_dir = tmp_path / "checkpoints"
+    write_mabe_file(data_path)
+
+    def fake_run_epoch(*, epoch: int, split: str, **_: Any) -> float:
+        if split == "train":
+            return 1.0
+        return 1.0 if epoch == 1 else 0.5
+
+    monkeypatch.setattr(train, "_run_epoch", fake_run_epoch)
+
+    run_flat_fit(
+        FlatFitConfig(
+            data_path=data_path,
+            epochs=2,
+            batch_size=1,
+            window_length=5,
+            observation_length=4,
+            prediction_length=1,
+            stride=5,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_frequency=2,
+            max_train_windows=1,
+            max_validation_windows=1,
+            device="cpu",
+            wandb=False,
+        ),
+        show_progress=False,
+    )
+
+    assert (checkpoint_dir / "flat_best.pt").exists()
+    assert (checkpoint_dir / "flat_epoch_0002.pt").exists()
 
 
 def test_nodes_present_mask_matches_graph_metadata() -> None:
@@ -262,6 +304,7 @@ def test_wandb_checkpoint_logging_is_skipped_without_run(tmp_path: Path) -> None
         artifact_name="flat-best-checkpoint",
         epoch=1,
         validation_loss=1.5,
+        aliases=["best", "epoch-1"],
     )
 
 
@@ -311,6 +354,7 @@ def test_wandb_checkpoint_logging_uploads_model_artifact(
         artifact_name="flat-best-checkpoint",
         epoch=2,
         validation_loss=0.75,
+        aliases=["best", "epoch-2"],
     )
 
     artifact, aliases = logged_artifacts[0]
