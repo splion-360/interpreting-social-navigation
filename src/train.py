@@ -649,12 +649,12 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                 "stride": train_windows.spec.stride,
             },
             "normalization": {
-                "method": "forward/backward fill missing keypoints, fit coordinate mean/std on observed train keypoints, preserve fully missing keypoints as zero",
-                "mean_xy": (
-                    _rounded_list(normalizer.mean) if normalizer is not None else None
+                "method": "forward/backward fill intermittent missing keypoints, preserve fully missing keypoints as zero, scale observed pixel coordinates by image width/height",
+                "offset_xy": (
+                    _rounded_list(normalizer.offset) if normalizer is not None else None
                 ),
-                "std_xy": (
-                    _rounded_list(normalizer.std) if normalizer is not None else None
+                "scale_xy": (
+                    _rounded_list(normalizer.scale) if normalizer is not None else None
                 ),
                 "raw_train_coordinate_range_including_zero_sentinels": _coordinate_range(
                     train_sequences

@@ -16,6 +16,8 @@ from config.mabe import (
     DEFAULT_SPLIT_SEED,
     DEFAULT_VALIDATION_FRACTION,
     DEFAULT_WINDOW_STRIDE,
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
 )
 
 
@@ -233,53 +235,45 @@ def fill_missing_keypoints(keypoints: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class PoseNormalizer:
-    """Mean/std pose normalizer fitted on observed training poses only.
+    """Image-size pose normalizer for MABe pixel coordinates.
 
     Attributes:
-        mean: Coordinate mean shaped `[2]`.
-        std: Coordinate standard deviation shaped `[2]`.
+        offset: Coordinate offset shaped `[2]`.
+        scale: Coordinate scale shaped `[2]`.
     """
 
-    mean: np.ndarray
-    std: np.ndarray
+    offset: np.ndarray
+    scale: np.ndarray
 
     @classmethod
     def fit(cls, sequences: Iterable[MabeSequence]) -> PoseNormalizer:
-        """Fit coordinate statistics from training sequences.
+        """Create the fixed MABe pixel-coordinate normalizer.
 
         Args:
-            sequences: Training sequences used to estimate mean and standard deviation.
+            sequences: Unused training sequences kept for caller symmetry.
 
         Returns:
-            Normalizer that can transform and inverse-transform pose tensors.
+            Normalizer that maps pixel coordinates to image-size units.
         """
 
-        arrays = [
-            fill_missing_keypoints(sequence.keypoints).astype(np.float32)
-            for sequence in sequences
-        ]
-        observed = [
-            array[~missing_keypoint_mask(array)].reshape(-1, COORDINATES)
-            for array in arrays
-        ]
-        stacked = np.concatenate(observed, axis=0)
-        mean = stacked.mean(axis=0, dtype=np.float64).astype(np.float32)
-        std = stacked.std(axis=0, dtype=np.float64).astype(np.float32)
-        std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
-        return cls(mean=mean, std=std)
+        _ = sequences
+        return cls(
+            offset=np.zeros(COORDINATES, dtype=np.float32),
+            scale=np.array([FRAME_WIDTH, FRAME_HEIGHT], dtype=np.float32),
+        )
 
     def transform(self, keypoints: np.ndarray) -> np.ndarray:
-        """Normalize keypoints with training-set coordinate statistics.
+        """Normalize keypoints by MABe image dimensions.
 
         Args:
             keypoints: Pose tensor with final coordinate dimension `[x, y]`.
 
         Returns:
-            Float32 normalized tensor with the same shape.
+            Float32 tensor where observed pixels are scaled by `[width, height]`.
         """
 
         missing = missing_keypoint_mask(keypoints)
-        normalized = (keypoints.astype(np.float32) - self.mean) / self.std
+        normalized = (keypoints.astype(np.float32) - self.offset) / self.scale
         normalized[missing] = 0.0
         return normalized.astype(np.float32)
 
@@ -293,7 +287,10 @@ class PoseNormalizer:
             Float32 pose tensor in pixel coordinates.
         """
 
-        return keypoints.astype(np.float32) * self.std + self.mean
+        missing = missing_keypoint_mask(keypoints)
+        restored = keypoints.astype(np.float32) * self.scale + self.offset
+        restored[missing] = 0.0
+        return restored.astype(np.float32)
 
 
 class MabeWindowDataset:

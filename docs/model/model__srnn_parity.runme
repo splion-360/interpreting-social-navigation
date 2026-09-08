@@ -1,0 +1,47 @@
+---
+cwd: ../..
+---
+
+# SRNN Model Parity
+
+This note records the flat model architecture boundary before hierarchical
+modeling starts.
+
+## Source References
+
+- Paper: `docs/social-attention.pdf`
+- Upstream reference: `socialAttention/social-attention/srnn-pytorch/srnn/model.py`
+- Current model: `src/models/flat.py`
+
+## Architecture Components
+
+The current flat model uses the same component split as the upstream
+social-attention SRNN:
+
+- `NodeRNN`: embeds node coordinates, combines temporal and spatial edge context,
+  then advances a node LSTM.
+- `EdgeRNN`: embeds edge coordinate deltas and advances an edge LSTM.
+- `temporal_edge_rnn`: processes self-edges across adjacent frames.
+- `spatial_edge_rnn`: processes inter-node spatial edges within each frame.
+- `EdgeAttention`: attends from each node's temporal edge state over its spatial
+  edge states.
+
+## MABe Adaptation Boundary
+
+The implementation keeps the training-facing output contract:
+
+```text
+[time, nodes, 5]
+```
+
+where `5` is the bivariate Gaussian parameter vector per node.
+
+The graph is still the MABe keypoint graph from `src/st_graph.py`, so this is an
+architecture parity implementation adapted to the current graph contract rather
+than a byte-for-byte port of the upstream pedestrian code.
+
+## Verify
+
+```sh
+python -m pytest tests/test_models_flat.py -q
+```

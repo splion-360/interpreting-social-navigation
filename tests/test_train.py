@@ -135,6 +135,7 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
 
     output = capsys.readouterr().out
     assert "normalization:" in output
+    assert "scale_xy:" in output
     assert "train_windows: 2" in output
     assert "validation_windows: 1" in output
     assert "loss: bivariate_gaussian_nll" in output

@@ -6,6 +6,8 @@ from typing import Any
 import numpy as np
 
 from data import (
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
     MabeDataset,
     MabeWindowDataset,
     PoseNormalizer,
@@ -130,7 +132,7 @@ def test_pose_normalizer_round_trips_filled_keypoints() -> None:
     np.testing.assert_allclose(restored, sequence.keypoints, rtol=1e-6, atol=1e-5)
 
 
-def test_pose_normalizer_ignores_missing_keypoints_and_preserves_zero_sentinel() -> None:
+def test_pose_normalizer_scales_pixels_and_preserves_zero_sentinel() -> None:
     keypoints = make_keypoints(frames=6)
     keypoints[:, 0, 0] = 0
     dataset = MabeDataset.from_dict(
@@ -146,5 +148,14 @@ def test_pose_normalizer_ignores_missing_keypoints_and_preserves_zero_sentinel()
     normalizer = PoseNormalizer.fit([dataset.sequences["seq"]])
     normalized = normalizer.transform(keypoints)
 
-    np.testing.assert_array_equal(normalized[:, 0, 0], np.zeros((6, 2), dtype=np.float32))
-    assert not np.allclose(normalizer.mean, np.zeros(2))
+    np.testing.assert_array_equal(
+        normalized[:, 0, 0], np.zeros((6, 2), dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        normalizer.scale,
+        np.array([FRAME_WIDTH, FRAME_HEIGHT], dtype=np.float32),
+    )
+    np.testing.assert_allclose(
+        normalized[0, 0, 1],
+        keypoints[0, 0, 1] / np.array([FRAME_WIDTH, FRAME_HEIGHT], dtype=np.float32),
+    )

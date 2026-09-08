@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from loss import gaussian_2d_parameters
-from models import FlatSocialAttentionModel
+from models import EdgeAttention, EdgeRNN, FlatSocialAttentionModel, NodeRNN
 from st_graph import build_flat_sparse_keypoint_graph
 
 
@@ -34,10 +34,28 @@ def test_flat_social_attention_model_outputs_gaussian_params_per_keypoint() -> N
     assert torch.all(params.rho > -1)
 
 
-def test_flat_social_attention_model_keeps_zero_edge_features_zero() -> None:
+def test_flat_social_attention_model_uses_srnn_components() -> None:
     model = FlatSocialAttentionModel()
-    zeros = torch.zeros((2, 4, 2))
 
-    edge_embeddings = model.edge_encoder(zeros)
+    assert isinstance(model.node_rnn, NodeRNN)
+    assert isinstance(model.temporal_edge_rnn, EdgeRNN)
+    assert isinstance(model.spatial_edge_rnn, EdgeRNN)
+    assert isinstance(model.edge_attention, EdgeAttention)
 
-    assert torch.count_nonzero(edge_embeddings) == 0
+
+def test_flat_social_attention_model_backpropagates_through_recurrent_path() -> None:
+    graph = build_flat_sparse_keypoint_graph(make_keypoints(frames=3))
+    model = FlatSocialAttentionModel()
+
+    outputs = model(
+        torch.from_numpy(graph.nodes),
+        torch.from_numpy(graph.edge_features),
+        graph.edge_specs,
+    )
+    loss = outputs.square().mean()
+    loss.backward()
+
+    assert model.node_rnn.cell.weight_hh.grad is not None
+    assert model.temporal_edge_rnn.cell.weight_hh.grad is not None
+    assert model.spatial_edge_rnn.cell.weight_hh.grad is not None
+    assert model.edge_attention.temporal_projection.weight.grad is not None
