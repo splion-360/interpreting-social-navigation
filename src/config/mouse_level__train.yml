@@ -5,7 +5,7 @@ batch_size: 8
 window_length: 20
 observation_length: 8
 prediction_length: 12
-graph_variant: dense_keypoint
+graph_variant: mouse_level
 stride: 20
 max_train_windows:
 max_validation_windows:
@@ -17,9 +17,9 @@ device: cpu
 wandb: false
 wandb_project: interpreting-social-navigation
 wandb_run_name:
-checkpoint_dir: checkpoints/flat
+checkpoint_dir: checkpoints/mouse_level
 save_checkpoints: true
-wandb_artifact_name: flat-best-checkpoint
+wandb_artifact_name: mouse-level-best-checkpoint
 resume_checkpoint:
 resume_wandb_artifact:
 resume_download_dir: checkpoints/wandb

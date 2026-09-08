@@ -123,6 +123,23 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.wandb is True
 
 
+def test_variant_train_configs_load_from_src_config() -> None:
+    variants = {
+        "dense_keypoint": Path("src/config/dense_keypoint__train.yml"),
+        "flat_sparse_keypoint": Path("src/config/flat_sparse_keypoint__train.yml"),
+        "mouse_level": Path("src/config/mouse_level__train.yml"),
+    }
+
+    assert train.DEFAULT_TRAIN_CONFIG_PATH == variants["dense_keypoint"]
+    for variant, path in variants.items():
+        config = train.load_flat_fit_config(path)
+
+        assert config.graph_variant == variant
+        assert config.window_length == 20
+        assert config.observation_length == 8
+        assert config.prediction_length == 12
+
+
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

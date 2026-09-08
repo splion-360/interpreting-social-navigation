@@ -29,10 +29,11 @@ from st_graph import (
     GraphSequence,
     build_dense_keypoint_graph,
     build_flat_sparse_keypoint_graph,
+    build_mouse_level_graph,
 )
 
 
-DEFAULT_TRAIN_CONFIG_PATH = Path("config/train.yml")
+DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/dense_keypoint__train.yml")
 PATH_CONFIG_FIELDS = {
     "data_path",
     "checkpoint_dir",
@@ -42,6 +43,7 @@ PATH_CONFIG_FIELDS = {
 GRAPH_BUILDERS = {
     "dense_keypoint": build_dense_keypoint_graph,
     "flat_sparse_keypoint": build_flat_sparse_keypoint_graph,
+    "mouse_level": build_mouse_level_graph,
 }
 
 
