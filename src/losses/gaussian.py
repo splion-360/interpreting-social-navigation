@@ -84,7 +84,9 @@ def bivariate_gaussian_nll(
     one_minus_rho_sq = torch.clamp(1 - params.rho.square(), min=eps)
     z = norm_x.square() + norm_y.square() - 2 * params.rho * norm_x * norm_y
     nll = (
-        torch.log(torch.tensor(2.0 * torch.pi, device=outputs.device, dtype=outputs.dtype))
+        torch.log(
+            torch.tensor(2.0 * torch.pi, device=outputs.device, dtype=outputs.dtype)
+        )
         + torch.log(params.sigma_x)
         + torch.log(params.sigma_y)
         + 0.5 * torch.log(one_minus_rho_sq)

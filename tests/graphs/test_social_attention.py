@@ -59,7 +59,9 @@ def test_flat_keypoint_graph_features_match_coordinate_deltas() -> None:
 
     assert temporal_edge not in graph.edges_present[0]
     assert temporal_edge in graph.edges_present[1]
-    np.testing.assert_array_equal(graph.edge_features[1, temporal_edge], np.array([1, 2]))
+    np.testing.assert_array_equal(
+        graph.edge_features[1, temporal_edge], np.array([1, 2])
+    )
 
     source = keypoints[0, 0, 1]
     target = keypoints[0, 2, 3]

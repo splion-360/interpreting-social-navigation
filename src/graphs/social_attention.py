@@ -9,6 +9,7 @@ import numpy as np
 
 from config.mabe import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 
+
 EdgeKind = Literal["temporal", "spatial"]
 
 
@@ -132,7 +133,8 @@ def build_mouse_level_graph(keypoints: np.ndarray) -> GraphSequence:
     _ensure_pose_shape(keypoints)
     nodes = keypoints.astype(np.float32).mean(axis=2)
     temporal_edges = tuple(
-        EdgeSpec(source=mouse_id, target=mouse_id, kind="temporal") for mouse_id in range(NUM_MICE)
+        EdgeSpec(source=mouse_id, target=mouse_id, kind="temporal")
+        for mouse_id in range(NUM_MICE)
     )
     spatial_edges = tuple(
         EdgeSpec(source=source, target=target, kind="spatial")
@@ -169,7 +171,9 @@ def _ensure_pose_shape(keypoints: np.ndarray) -> None:
 
     expected_tail = (NUM_MICE, NUM_KEYPOINTS, COORDINATES)
     if keypoints.ndim != 4 or keypoints.shape[1:] != expected_tail:
-        raise ValueError(f"keypoints must be shaped [time, {NUM_MICE}, {NUM_KEYPOINTS}, 2]")
+        raise ValueError(
+            f"keypoints must be shaped [time, {NUM_MICE}, {NUM_KEYPOINTS}, 2]"
+        )
 
 
 def _build_graph_sequence(
@@ -187,7 +191,9 @@ def _build_graph_sequence(
     for edge_idx, edge in enumerate(edge_specs):
         if edge.kind == "temporal":
             temporal_edge_ids.append(edge_idx)
-            edge_features[1:, edge_idx] = nodes[1:, edge.target] - nodes[:-1, edge.source]
+            edge_features[1:, edge_idx] = (
+                nodes[1:, edge.target] - nodes[:-1, edge.source]
+            )
         else:
             spatial_edge_ids.append(edge_idx)
             edge_features[:, edge_idx] = nodes[:, edge.target] - nodes[:, edge.source]

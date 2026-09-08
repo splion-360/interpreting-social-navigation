@@ -6,6 +6,7 @@ from losses.gaussian import (
     gaussian_2d_parameters,
 )
 
+
 __all__ = [
     "Gaussian2DParameters",
     "bivariate_gaussian_nll",

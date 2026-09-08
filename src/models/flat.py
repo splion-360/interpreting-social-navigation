@@ -68,8 +68,12 @@ class FlatSocialAttentionModel(nn.Module):
 
         node_embeddings = torch.relu(self.node_encoder(nodes.float()))
         edge_embeddings = torch.relu(self.edge_encoder(edge_features.float()))
-        temporal_context = self._temporal_context(edge_embeddings, edge_specs, nodes.shape[1])
-        social_context = self._social_attention(edge_embeddings, temporal_context, edge_specs)
+        temporal_context = self._temporal_context(
+            edge_embeddings, edge_specs, nodes.shape[1]
+        )
+        social_context = self._social_attention(
+            edge_embeddings, temporal_context, edge_specs
+        )
         return self.output_head(
             torch.cat((node_embeddings, temporal_context, social_context), dim=-1)
         )
@@ -84,7 +88,9 @@ class FlatSocialAttentionModel(nn.Module):
 
         contexts = []
         for node_id in range(node_count):
-            edge_id = edge_specs.index(EdgeSpec(source=node_id, target=node_id, kind="temporal"))
+            edge_id = edge_specs.index(
+                EdgeSpec(source=node_id, target=node_id, kind="temporal")
+            )
             contexts.append(edge_embeddings[:, edge_id])
         return torch.stack(contexts, dim=1)
 

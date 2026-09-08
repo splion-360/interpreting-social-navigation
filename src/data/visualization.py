@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import animation
+from matplotlib.axes import Axes
 
 from config.mabe import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
 
@@ -31,7 +32,7 @@ MOUSE_SKELETON_EDGES = (
 
 
 def plot_pose_frame(
-    ax: plt.Axes,
+    ax: Axes,
     pose: np.ndarray,
     *,
     colors: tuple[str, str, str] = MOUSE_COLORS,
@@ -97,7 +98,7 @@ def animate_pose_sequence(
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    def update(frame_idx: int) -> tuple[plt.Axes]:
+    def update(frame_idx: int) -> tuple[Axes]:
         ax.clear()
         track = keypoints[: frame_idx + 1] if show_track else None
         plot_pose_frame(ax, keypoints[frame_idx], track=track)
@@ -131,7 +132,7 @@ def animate_prediction_comparison(
     frame_indices = list(range(0, actual_keypoints.shape[0], step))
     fig, ax = plt.subplots(figsize=(6, 6))
 
-    def update(frame_idx: int) -> tuple[plt.Axes]:
+    def update(frame_idx: int) -> tuple[Axes]:
         ax.clear()
         predicted_pose = None
         if frame_idx >= observation_length:

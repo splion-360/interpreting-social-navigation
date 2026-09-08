@@ -15,6 +15,7 @@ from config.mabe import (
     NUM_MICE,
 )
 
+
 __all__ = [
     "COORDINATES",
     "DEFAULT_OBSERVATION_LENGTH",

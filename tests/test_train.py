@@ -1,6 +1,7 @@
 """File description: Tests for tiny flat-model warm-up training."""
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -12,17 +13,15 @@ def write_mabe_file(path: Path) -> None:
 
     values = np.linspace(0.0, 1.0, num=12 * 3 * 12 * 2, dtype=np.float32)
     keypoints = values.reshape(12, 3, 12, 2)
-    np.save(
-        path,
-        {
-            "vocabulary": [],
-            "sequences": {
-                "seq": {
-                    "keypoints": keypoints,
-                },
+    payload: dict[str, Any] = {
+        "vocabulary": [],
+        "sequences": {
+            "seq": {
+                "keypoints": keypoints,
             },
         },
-    )
+    }
+    np.save(path, np.asarray(payload, dtype=object))
 
 
 def test_flat_warmup_runs_short_cpu_smoke_test(tmp_path: Path) -> None:

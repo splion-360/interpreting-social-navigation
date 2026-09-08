@@ -2,6 +2,7 @@
 
 from models.flat import FlatSocialAttentionConfig, FlatSocialAttentionModel
 
+
 __all__ = [
     "FlatSocialAttentionConfig",
     "FlatSocialAttentionModel",

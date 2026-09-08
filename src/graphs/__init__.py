@@ -9,6 +9,7 @@ from graphs.social_attention import (
     flat_keypoint_node_id,
 )
 
+
 __all__ = [
     "EdgeKind",
     "EdgeSpec",

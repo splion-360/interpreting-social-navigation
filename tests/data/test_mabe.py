@@ -1,6 +1,7 @@
 """File description: Tests for MABe loading, preprocessing, and windowing."""
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -21,22 +22,20 @@ def make_keypoints(frames: int = 30) -> np.ndarray:
 
 
 def write_mabe_file(path: Path) -> None:
-    np.save(
-        path,
-        {
-            "vocabulary": ["chases", "lights"],
-            "sequences": {
-                "seq_b": {
-                    "keypoints": make_keypoints(),
-                    "annotations": np.zeros((2, 30), dtype=np.float32),
-                },
-                "seq_a": {
-                    "keypoints": make_keypoints() + 1000,
-                    "annotations": np.ones((2, 30), dtype=np.float32),
-                },
+    payload: dict[str, Any] = {
+        "vocabulary": ["chases", "lights"],
+        "sequences": {
+            "seq_b": {
+                "keypoints": make_keypoints(),
+                "annotations": np.zeros((2, 30), dtype=np.float32),
+            },
+            "seq_a": {
+                "keypoints": make_keypoints() + 1000,
+                "annotations": np.ones((2, 30), dtype=np.float32),
             },
         },
-    )
+    }
+    np.save(path, np.asarray(payload, dtype=object))
 
 
 def test_loads_mabe_dictionary(tmp_path: Path) -> None:
@@ -48,7 +47,9 @@ def test_loads_mabe_dictionary(tmp_path: Path) -> None:
     assert dataset.vocabulary == ("chases", "lights")
     assert dataset.sequence_ids == ("seq_a", "seq_b")
     assert dataset.sequences["seq_a"].keypoints.shape == (30, 3, 12, 2)
-    assert dataset.sequences["seq_a"].annotations.shape == (2, 30)
+    annotations = dataset.sequences["seq_a"].annotations
+    assert annotations is not None
+    assert annotations.shape == (2, 30)
 
 
 def test_split_sequence_ids_is_deterministic() -> None:

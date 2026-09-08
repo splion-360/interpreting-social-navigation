@@ -143,10 +143,16 @@ def main() -> None:
     subcommands = parser.add_subparsers(dest="command", required=True)
     warmup = subcommands.add_parser("warmup", help="Run a short flat-model smoke test.")
     warmup.add_argument("--data", type=Path, default=FlatWarmupConfig.data_path)
-    warmup.add_argument("--sequence-index", type=int, default=FlatWarmupConfig.sequence_index)
-    warmup.add_argument("--window-length", type=int, default=FlatWarmupConfig.window_length)
+    warmup.add_argument(
+        "--sequence-index", type=int, default=FlatWarmupConfig.sequence_index
+    )
+    warmup.add_argument(
+        "--window-length", type=int, default=FlatWarmupConfig.window_length
+    )
     warmup.add_argument("--steps", type=int, default=FlatWarmupConfig.steps)
-    warmup.add_argument("--learning-rate", type=float, default=FlatWarmupConfig.learning_rate)
+    warmup.add_argument(
+        "--learning-rate", type=float, default=FlatWarmupConfig.learning_rate
+    )
     warmup.add_argument("--seed", type=int, default=FlatWarmupConfig.seed)
     warmup.add_argument("--device", default=FlatWarmupConfig.device)
     args = parser.parse_args()
