@@ -32,7 +32,7 @@ class FlatSocialAttentionConfig:
     node_embedding_size: int = 64
     edge_embedding_size: int = 64
     node_rnn_size: int = 128
-    edge_rnn_size: int = 128
+    edge_rnn_size: int = 256
     attention_size: int = 64
     output_size: int = 5
     dropout: float = 0.0

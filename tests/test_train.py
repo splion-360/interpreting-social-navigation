@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import train
+from st_graph import build_dense_keypoint_graph
 from train import FlatFitConfig, FlatWarmupConfig, run_flat_fit, run_flat_warmup
 
 
@@ -58,6 +59,8 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
             epochs=1,
             batch_size=1,
             window_length=5,
+            observation_length=4,
+            prediction_length=1,
             stride=5,
             max_train_windows=1,
             max_validation_windows=1,
@@ -85,6 +88,8 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
                 "epochs: 7",
                 "batch_size: 4",
                 "window_length: 6",
+                "observation_length: 4",
+                "prediction_length: 2",
                 "graph_variant: flat_sparse_keypoint",
                 "stride: 2",
                 "validation_fraction: 0.25",
@@ -112,6 +117,8 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.epochs == 3
     assert config.batch_size == 4
     assert config.data_path == tmp_path / "data.npy"
+    assert config.observation_length == 4
+    assert config.prediction_length == 2
     assert config.graph_variant == "flat_sparse_keypoint"
     assert config.wandb is True
 
@@ -127,6 +134,8 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
         FlatFitConfig(
             data_path=data_path,
             window_length=5,
+            observation_length=4,
+            prediction_length=1,
             stride=5,
             max_train_windows=2,
             max_validation_windows=1,
@@ -142,10 +151,20 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "edge_count: 1296" in output
     assert "train_windows: 2" in output
     assert "validation_windows: 1" in output
-    assert "loss: bivariate_gaussian_nll" in output
+    assert "loss: bivariate_gaussian_horizon_nll" in output
     assert "optimizer: Adam" in output
     assert "resume_checkpoint: null" in output
     assert "resume_wandb_artifact: null" in output
+
+
+def test_nodes_present_mask_matches_graph_metadata() -> None:
+    keypoints = np.zeros((3, 3, 12, 2), dtype=np.float32)
+    graph = build_dense_keypoint_graph(keypoints)
+
+    mask = train._nodes_present_mask(graph)
+
+    assert mask.shape == (3, 36)
+    assert mask.all()
 
 
 def test_wandb_is_not_started_when_flag_is_disabled() -> None:

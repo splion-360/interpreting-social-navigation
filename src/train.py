@@ -23,7 +23,7 @@ from data import (
     fill_missing_keypoints,
     split_sequence_ids,
 )
-from loss import bivariate_gaussian_nll
+from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
 from models import FlatSocialAttentionModel
 from st_graph import (
     GraphSequence,
@@ -96,7 +96,9 @@ class FlatFitConfig:
         data_path: Path to `mouse_triplet_train.npy`.
         epochs: Number of training epochs.
         batch_size: Number of windows per optimizer step.
-        window_length: Number of frames per next-frame training window.
+        window_length: Number of frames per training window.
+        observation_length: Number of conditioning frames.
+        prediction_length: Number of forecast target frames.
         graph_variant: Graph builder used for flat model inputs.
         stride: Frame stride between windows.
         max_train_windows: Optional training-window cap for debug runs.
@@ -119,9 +121,11 @@ class FlatFitConfig:
 
     model: str = "flat"
     data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
-    epochs: int = 20
-    batch_size: int = 16
-    window_length: int = 9
+    epochs: int = 100
+    batch_size: int = 8
+    window_length: int = 20
+    observation_length: int = 8
+    prediction_length: int = 12
     graph_variant: str = "dense_keypoint"
     stride: int = 20
     max_train_windows: int | None = None
@@ -362,8 +366,8 @@ def _build_window_datasets(
     normalizer = PoseNormalizer.fit(dataset.select(train_ids))
     spec = WindowSpec(
         length=config.window_length,
-        observation_length=config.window_length - 1,
-        prediction_length=1,
+        observation_length=config.observation_length,
+        prediction_length=config.prediction_length,
         stride=config.stride,
     )
     train_windows = MabeWindowDataset(
@@ -427,7 +431,7 @@ def _batch_loss(
     config: FlatFitConfig,
     device: torch.device,
 ) -> Tensor:
-    """Compute the mean next-frame prediction loss for a window batch."""
+    """Compute mean prediction-horizon loss for a window batch."""
 
     build_graph = _graph_builder(config.graph_variant)
     losses = []
@@ -438,8 +442,16 @@ def _batch_loss(
         nodes = torch.from_numpy(input_graph.nodes).to(device)
         edges = torch.from_numpy(input_graph.edge_features).to(device)
         targets = torch.from_numpy(target_graph.nodes).to(device)
+        target_mask = _nodes_present_mask(target_graph).to(device)
         predictions = model(nodes, edges, input_graph.edge_specs)
-        losses.append(bivariate_gaussian_nll(predictions, targets))
+        losses.append(
+            bivariate_gaussian_horizon_nll(
+                predictions,
+                targets,
+                observation_length=window.observation_length,
+                mask=target_mask,
+            )
+        )
     return torch.stack(losses).mean()
 
 
@@ -467,6 +479,8 @@ def _start_wandb(config: FlatFitConfig) -> Any | None:
             "epochs": config.epochs,
             "batch_size": config.batch_size,
             "window_length": config.window_length,
+            "observation_length": config.observation_length,
+            "prediction_length": config.prediction_length,
             "graph_variant": config.graph_variant,
             "stride": config.stride,
             "learning_rate": config.learning_rate,
@@ -697,7 +711,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         },
         "optimization": {
             "resolved_device": str(_select_device(config.device)),
-            "loss": "bivariate_gaussian_nll",
+            "loss": "bivariate_gaussian_horizon_nll",
             "optimizer": "Adam",
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
@@ -750,6 +764,22 @@ def _graph_builder(variant: str) -> Callable[[np.ndarray], GraphSequence]:
     if variant not in GRAPH_BUILDERS:
         raise ValueError(f"unknown graph variant: {variant}")
     return GRAPH_BUILDERS[variant]
+
+
+def _nodes_present_mask(graph: GraphSequence) -> Tensor:
+    """Build a boolean node-presence mask from graph metadata.
+
+    Args:
+        graph: Graph sequence with `nodes_present` frame metadata.
+
+    Returns:
+        Boolean tensor shaped `[time, nodes]`.
+    """
+
+    mask = torch.zeros((graph.nodes.shape[0], graph.node_count), dtype=torch.bool)
+    for frame_idx, node_ids in enumerate(graph.nodes_present):
+        mask[frame_idx, list(node_ids)] = True
+    return mask
 
 
 def _plain_config(config: FlatFitConfig) -> dict[str, Any]:
@@ -823,6 +853,8 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "window_length": args.window_length,
+        "observation_length": args.observation_length,
+        "prediction_length": args.prediction_length,
         "graph_variant": args.graph_variant,
         "stride": args.stride,
         "max_train_windows": args.max_train_windows,
@@ -881,6 +913,8 @@ def main() -> None:
     fit.add_argument("--epochs", type=int)
     fit.add_argument("--batch-size", type=int)
     fit.add_argument("--window-length", type=int)
+    fit.add_argument("--observation-length", type=int)
+    fit.add_argument("--prediction-length", type=int)
     fit.add_argument("--graph-variant", choices=sorted(GRAPH_BUILDERS))
     fit.add_argument("--stride", type=int)
     fit.add_argument("--max-train-windows", type=int)

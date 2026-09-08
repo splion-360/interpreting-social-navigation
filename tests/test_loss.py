@@ -2,7 +2,11 @@
 
 import torch
 
-from loss import bivariate_gaussian_nll, gaussian_2d_parameters
+from loss import (
+    bivariate_gaussian_horizon_nll,
+    bivariate_gaussian_nll,
+    gaussian_2d_parameters,
+)
 
 
 def test_bivariate_gaussian_nll_is_finite_and_differentiable() -> None:
@@ -49,3 +53,41 @@ def test_bivariate_gaussian_nll_preserves_shape_with_masked_none_reduction() -> 
     assert loss.shape == (1, 2, 1)
     assert loss[0, 0, 0] > 0
     assert loss[0, 1, 0] == 0
+
+
+def test_bivariate_gaussian_horizon_nll_skips_observed_targets() -> None:
+    outputs = torch.zeros((19, 1, 5))
+    targets = torch.zeros((19, 1, 2))
+    targets[:7] = 100.0
+
+    horizon_loss = bivariate_gaussian_horizon_nll(
+        outputs,
+        targets,
+        observation_length=8,
+    )
+    expected = bivariate_gaussian_nll(outputs[7:], targets[7:])
+
+    assert torch.allclose(horizon_loss, expected)
+
+
+def test_bivariate_gaussian_horizon_nll_applies_horizon_mask() -> None:
+    outputs = torch.zeros((3, 2, 5))
+    targets = torch.zeros((3, 2, 2))
+    targets[1:, 1] = 100.0
+    mask = torch.tensor(
+        [
+            [True, True],
+            [True, False],
+            [True, False],
+        ]
+    )
+
+    horizon_loss = bivariate_gaussian_horizon_nll(
+        outputs,
+        targets,
+        observation_length=2,
+        mask=mask,
+    )
+    expected = bivariate_gaussian_nll(outputs[1:, :1], targets[1:, :1])
+
+    assert torch.allclose(horizon_loss, expected)

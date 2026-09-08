@@ -105,3 +105,32 @@ def bivariate_gaussian_nll(
     if reduction == "none":
         return nll
     raise ValueError(f"unknown reduction: {reduction}")
+
+
+def bivariate_gaussian_horizon_nll(
+    outputs: Tensor,
+    targets: Tensor,
+    *,
+    observation_length: int,
+    mask: Tensor | None = None,
+) -> Tensor:
+    """Compute Gaussian NLL only over the prediction horizon.
+
+    Args:
+        outputs: Raw Gaussian predictions for shifted targets shaped
+            `[time - 1, nodes, 5]`.
+        targets: Shifted target coordinates shaped `[time - 1, nodes, 2]`.
+        observation_length: Number of observed frames before prediction begins.
+        mask: Optional boolean mask shaped `[time - 1, nodes]`.
+
+    Returns:
+        Mean negative log likelihood over prediction targets.
+    """
+
+    horizon_start = observation_length - 1
+    horizon_mask = mask[horizon_start:] if mask is not None else None
+    return bivariate_gaussian_nll(
+        outputs[horizon_start:],
+        targets[horizon_start:],
+        mask=horizon_mask,
+    )
