@@ -17,7 +17,7 @@ import numpy as np
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from graphs import build_flat_sparse_keypoint_graph
+from social_attention import build_flat_sparse_keypoint_graph
 
 keypoints = np.arange(3 * 3 * 12 * 2, dtype=np.float32).reshape(3, 3, 12, 2)
 graph = build_flat_sparse_keypoint_graph(keypoints)
@@ -40,7 +40,7 @@ import numpy as np
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src/data").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from graphs import build_mouse_level_graph
+from social_attention import build_mouse_level_graph
 
 keypoints = np.arange(3 * 3 * 12 * 2, dtype=np.float32).reshape(3, 3, 12, 2)
 graph = build_mouse_level_graph(keypoints)
@@ -61,7 +61,7 @@ repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "
 sys.path.insert(0, str(repo_root / "src"))
 
 from data import MabeDataset, MabeWindowDataset, WindowSpec
-from graphs import build_flat_sparse_keypoint_graph, build_mouse_level_graph
+from social_attention import build_flat_sparse_keypoint_graph, build_mouse_level_graph
 
 dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[0]]
@@ -85,7 +85,7 @@ print("mouse nodes/edges:", mouse_graph.nodes.shape, mouse_graph.edge_features.s
 - Flat graph: 36 nodes, one per mouse keypoint. Temporal self-edges start at frame 1; frame 0 has only spatial edges present.
 - Sparse spatial policy: directed cross-mouse keypoint edges only. Same-mouse anatomical edges are intentionally left to geometry/structural losses unless a graph experiment explicitly needs them.
 - Mouse-level graph: 3 centroid nodes with directed inter-mouse spatial edges. This is the seam for the future hierarchical model.
-- `scripts/st_graph.py` is kept as migration reference while reusable graph code moves into `src/graphs/`.
+- `scripts/st_graph.py` is kept as migration reference while reusable graph code moves into `src/social_attention.py`.
 
 ## Migration Audit: `scripts/st_graph.py`
 
