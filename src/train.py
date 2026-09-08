@@ -173,6 +173,33 @@ class FlatFitResult:
     device: str
 
 
+@dataclass(frozen=True)
+class DeviceInfo:
+    """Resolved compute-device metadata for a training run.
+
+    Attributes:
+        requested: Device value requested by config or CLI.
+        resolved: Device actually passed to PyTorch tensors/modules.
+        torch_version: Installed PyTorch version.
+        cuda_available: Whether PyTorch can use CUDA.
+        cuda_device_count: Number of CUDA devices visible to PyTorch.
+        cuda_device_index: Selected CUDA device index, when CUDA is used.
+        cuda_device_name: Selected CUDA device name, when CUDA is used.
+        cuda_version: CUDA version used by the PyTorch build.
+        cudnn_version: cuDNN version visible to PyTorch.
+    """
+
+    requested: str
+    resolved: str
+    torch_version: str
+    cuda_available: bool
+    cuda_device_count: int
+    cuda_device_index: int | None
+    cuda_device_name: str | None
+    cuda_version: str | None
+    cudnn_version: int | None
+
+
 def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
     """Run a short flat-model training smoke test.
 
@@ -185,6 +212,7 @@ def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
 
     torch.manual_seed(config.seed)
     device = _select_device(config.device)
+    _print_device_info(_device_info(config.device, device))
     nodes, edges, targets, edge_specs = _load_flat_next_frame_batch(config)
 
     nodes = nodes.to(device)
@@ -229,10 +257,12 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     device = _select_device(config.device)
+    device_info = _device_info(config.device, device)
+    _print_device_info(device_info)
     train_windows, validation_windows = _build_window_datasets(config)
     model = FlatSocialAttentionModel().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-    run = _start_wandb(config)
+    run = _start_wandb(config, device_info)
 
     start_epoch, best_validation_loss, resumed_from = _restore_training_state(
         config=config,
@@ -470,7 +500,7 @@ def _batch_loss(
     return torch.stack(losses).mean()
 
 
-def _start_wandb(config: FlatFitConfig) -> Any | None:
+def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
     """Start a W&B run when requested."""
 
     if not config.wandb:
@@ -502,6 +532,14 @@ def _start_wandb(config: FlatFitConfig) -> Any | None:
             "grad_clip": config.grad_clip,
             "seed": config.seed,
             "device": config.device,
+            "resolved_device": device_info.resolved,
+            "torch_version": device_info.torch_version,
+            "cuda_available": device_info.cuda_available,
+            "cuda_device_count": device_info.cuda_device_count,
+            "cuda_device_index": device_info.cuda_device_index,
+            "cuda_device_name": device_info.cuda_device_name,
+            "cuda_version": device_info.cuda_version,
+            "cudnn_version": device_info.cudnn_version,
             "resume_checkpoint": (
                 str(config.resume_checkpoint)
                 if config.resume_checkpoint is not None
@@ -627,6 +665,53 @@ def _finish_wandb(run: Any | None) -> None:
         run.finish()
 
 
+def _device_info(requested: str, resolved: torch.device) -> DeviceInfo:
+    """Collect PyTorch device information for logs and experiment metadata.
+
+    Args:
+        requested: Device value requested by config or CLI.
+        resolved: Device selected for tensors and modules.
+
+    Returns:
+        Device metadata safe to print or send to W&B.
+    """
+
+    cuda_available = torch.cuda.is_available()
+    cuda_device_count = torch.cuda.device_count()
+    cuda_device_index = None
+    cuda_device_name = None
+
+    if resolved.type == "cuda" and cuda_available:
+        cuda_device_index = (
+            torch.cuda.current_device() if resolved.index is None else resolved.index
+        )
+        cuda_device_name = torch.cuda.get_device_name(cuda_device_index)
+
+    return DeviceInfo(
+        requested=requested,
+        resolved=str(resolved),
+        torch_version=str(torch.__version__),
+        cuda_available=cuda_available,
+        cuda_device_count=cuda_device_count,
+        cuda_device_index=cuda_device_index,
+        cuda_device_name=cuda_device_name,
+        cuda_version=torch.version.cuda,
+        cudnn_version=torch.backends.cudnn.version(),
+    )
+
+
+def _print_device_info(device_info: DeviceInfo) -> None:
+    """Print selected compute-device details before training work begins.
+
+    Args:
+        device_info: Device metadata to print.
+    """
+
+    print("device:")
+    for key, value in asdict(device_info).items():
+        print(f"  {key}: {value}")
+
+
 def load_flat_fit_config(
     path: Path = DEFAULT_TRAIN_CONFIG_PATH,
     overrides: dict[str, Any] | None = None,
@@ -675,6 +760,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         train_windows.sequences[item] for item in train_windows.sequences
     ]
     normalizer = train_windows.normalizer
+    resolved_device = _select_device(config.device)
     first_graph = _graph_builder(config.graph_variant)(
         train_windows.first().keypoints[:-1]
     )
@@ -709,6 +795,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                 ),
             },
         },
+        "device": asdict(_device_info(config.device, resolved_device)),
         "graph": {
             "variant": first_graph.variant,
             "node_count": first_graph.node_count,
@@ -725,7 +812,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
             ),
         },
         "optimization": {
-            "resolved_device": str(_select_device(config.device)),
+            "resolved_device": str(resolved_device),
             "loss": "bivariate_gaussian_horizon_nll",
             "optimizer": "Adam",
             "learning_rate": config.learning_rate,

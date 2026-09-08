@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import torch
 
 import train
 from st_graph import build_dense_keypoint_graph
@@ -76,6 +77,40 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
     assert result.checkpoint_path is None
     assert np.isfinite(result.final_train_loss)
     assert np.isfinite(result.final_validation_loss)
+
+
+def test_flat_fit_prints_resolved_device_info(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_mabe_file(data_path)
+
+    run_flat_fit(
+        FlatFitConfig(
+            data_path=data_path,
+            epochs=1,
+            batch_size=1,
+            window_length=5,
+            observation_length=4,
+            prediction_length=1,
+            stride=5,
+            max_train_windows=1,
+            max_validation_windows=1,
+            learning_rate=1e-3,
+            device="cpu",
+            wandb=False,
+            save_checkpoints=False,
+        ),
+        show_progress=False,
+    )
+
+    output = capsys.readouterr().out
+    assert "device:" in output
+    assert "  requested: cpu" in output
+    assert "  resolved: cpu" in output
+    assert "  torch_version:" in output
+    assert "  cuda_available:" in output
 
 
 def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
@@ -172,6 +207,16 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "optimizer: Adam" in output
     assert "resume_checkpoint: null" in output
     assert "resume_wandb_artifact: null" in output
+    assert "requested: cpu" in output
+    assert "resolved: cpu" in output
+
+
+def test_device_info_reports_cpu_without_gpu_name() -> None:
+    info = train._device_info("cpu", torch.device("cpu"))
+
+    assert info.requested == "cpu"
+    assert info.resolved == "cpu"
+    assert info.cuda_device_name is None
 
 
 def test_nodes_present_mask_matches_graph_metadata() -> None:
@@ -185,7 +230,9 @@ def test_nodes_present_mask_matches_graph_metadata() -> None:
 
 
 def test_wandb_is_not_started_when_flag_is_disabled() -> None:
-    assert train._start_wandb(FlatFitConfig(wandb=False)) is None
+    device_info = train._device_info("cpu", torch.device("cpu"))
+
+    assert train._start_wandb(FlatFitConfig(wandb=False), device_info) is None
 
 
 def test_wandb_flag_requires_optional_dependency(
@@ -200,8 +247,9 @@ def test_wandb_flag_requires_optional_dependency(
 
     monkeypatch.setattr("builtins.__import__", fail_wandb_import)
 
+    device_info = train._device_info("cpu", torch.device("cpu"))
     with pytest.raises(RuntimeError, match="optional dependency"):
-        train._start_wandb(FlatFitConfig(wandb=True))
+        train._start_wandb(FlatFitConfig(wandb=True), device_info)
 
 
 def test_wandb_checkpoint_logging_is_skipped_without_run(tmp_path: Path) -> None:
