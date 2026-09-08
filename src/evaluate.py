@@ -4,21 +4,27 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal
 
 import numpy as np
 import torch
 from torch import Tensor
 
 from config.mabe import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from data import (
+    MabeDataset,
+    MabeWindowDataset,
+    PoseNormalizer,
+    WindowSpec,
+    split_sequence_ids,
+)
 from loss import gaussian_2d_parameters
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
 from train import (
     FlatFitConfig,
-    _build_window_datasets,
     _graph_builder,
     _nodes_present_mask,
     _select_device,
@@ -49,12 +55,14 @@ class EvaluationResult:
     """Aggregate trajectory metrics for a checkpoint.
 
     Attributes:
-        windows: Number of validation windows evaluated.
+        split: Evaluation split name.
+        windows: Number of windows evaluated.
         ade: Average displacement error across predicted frames.
         fde: Final displacement error on the last predicted frame.
         device: Device used for model inference.
     """
 
+    split: str
     windows: int
     ade: float
     fde: float
@@ -186,6 +194,7 @@ def evaluate_flat_checkpoint(
     *,
     config: FlatFitConfig,
     checkpoint_path: Path,
+    split: Literal["validation", "test"] = "validation",
     max_windows: int | None = None,
     sample: bool = True,
     seed: int | None = None,
@@ -195,7 +204,8 @@ def evaluate_flat_checkpoint(
     Args:
         config: Training/evaluation configuration.
         checkpoint_path: Local checkpoint containing model weights.
-        max_windows: Optional cap on validation windows.
+        split: Evaluation split, either validation from train data or test data.
+        max_windows: Optional cap on evaluated windows.
         sample: Whether to sample from Gaussian predictions.
         seed: Optional random seed for reproducible sampling.
 
@@ -207,13 +217,10 @@ def evaluate_flat_checkpoint(
         raise ValueError("autoregressive keypoint evaluation requires a keypoint graph")
 
     device = _select_device(config.device)
-    _, validation_windows = _build_window_datasets(
-        FlatFitConfig(
-            **{
-                **_config_values(config),
-                "max_validation_windows": max_windows or config.max_validation_windows,
-            }
-        )
+    windows = _build_evaluation_windows(
+        config=config,
+        split=split,
+        max_windows=max_windows,
     )
     build_graph = _graph_builder(config.graph_variant)
     model = FlatSocialAttentionModel().to(device)
@@ -228,11 +235,11 @@ def evaluate_flat_checkpoint(
     ade_values = []
     fde_values = []
     with torch.no_grad():
-        for window in validation_windows:
+        for window in windows:
             rollout = rollout_flat_keypoint_model(
                 model=model,
                 observed_keypoints=window.observed_keypoints,
-                prediction_length=validation_windows.spec.prediction_length,
+                prediction_length=windows.spec.prediction_length,
                 build_graph=build_graph,
                 device=device,
                 sample=sample,
@@ -240,20 +247,21 @@ def evaluate_flat_checkpoint(
             )
             target_graph = build_graph(window.keypoints)
             mask = _nodes_present_mask(target_graph)[
-                validation_windows.spec.observation_length :
+                windows.spec.observation_length :
             ].cpu()
             prediction = torch.from_numpy(
-                rollout.nodes[validation_windows.spec.observation_length :]
+                rollout.nodes[windows.spec.observation_length :]
             )
             target = torch.from_numpy(
-                target_graph.nodes[validation_windows.spec.observation_length :]
+                target_graph.nodes[windows.spec.observation_length :]
             )
             distances = torch.linalg.norm(prediction - target, dim=-1)
             ade_values.append(float(distances[mask].mean()))
             fde_values.append(float(distances[-1][mask[-1]].mean()))
 
     return EvaluationResult(
-        windows=len(validation_windows),
+        split=split,
+        windows=len(windows),
         ade=float(np.mean(ade_values)),
         fde=float(np.mean(fde_values)),
         device=str(device),
@@ -266,10 +274,54 @@ def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
     return nodes.reshape(NUM_MICE, NUM_KEYPOINTS, COORDINATES).astype(np.float32)
 
 
-def _config_values(config: FlatFitConfig) -> dict[str, Any]:
-    """Return dataclass values that can reconstruct `FlatFitConfig`."""
+def _build_evaluation_windows(
+    *,
+    config: FlatFitConfig,
+    split: Literal["validation", "test"],
+    max_windows: int | None,
+) -> MabeWindowDataset:
+    """Build validation or test windows for checkpoint evaluation.
 
-    return {field.name: getattr(config, field.name) for field in fields(config)}
+    Args:
+        config: Training/evaluation configuration.
+        split: Evaluation split name.
+        max_windows: Optional window cap for fast evaluation.
+
+    Returns:
+        Window dataset for the requested split.
+    """
+
+    train_dataset = MabeDataset.from_file(config.data_path)
+    train_ids, validation_ids = split_sequence_ids(
+        train_dataset.sequence_ids,
+        validation_fraction=config.validation_fraction,
+        seed=config.seed,
+    )
+    normalizer = PoseNormalizer.fit(train_dataset.select(train_ids))
+    spec = WindowSpec(
+        length=config.window_length,
+        observation_length=config.observation_length,
+        prediction_length=config.prediction_length,
+        stride=config.stride,
+    )
+
+    if split == "validation":
+        return MabeWindowDataset(
+            train_dataset.select(validation_ids),
+            spec,
+            normalizer=normalizer,
+            max_windows=max_windows or config.max_validation_windows,
+        )
+
+    if config.test_data_path is None:
+        raise ValueError("test split requires test_data_path in the training config")
+    test_dataset = MabeDataset.from_file(config.test_data_path)
+    return MabeWindowDataset(
+        test_dataset.select(test_dataset.sequence_ids),
+        spec,
+        normalizer=normalizer,
+        max_windows=max_windows,
+    )
 
 
 def _gaussian_means(outputs: Tensor) -> Tensor:
@@ -289,7 +341,9 @@ def main() -> None:
         default=Path("src/config/dense_keypoint__train.yml"),
     )
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--split", choices=["validation", "test"], default="validation")
     parser.add_argument("--max-validation-windows", type=int)
+    parser.add_argument("--max-windows", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--mean", action="store_true")
     args = parser.parse_args()
@@ -297,11 +351,13 @@ def main() -> None:
     result = evaluate_flat_checkpoint(
         config=load_flat_fit_config(args.config),
         checkpoint_path=args.checkpoint,
-        max_windows=args.max_validation_windows,
+        split=args.split,
+        max_windows=args.max_windows or args.max_validation_windows,
         sample=not args.mean,
         seed=args.seed,
     )
     print(f"device={result.device}")
+    print(f"split={result.split}")
     print(f"windows={result.windows}")
     print(f"ade={result.ade:.6f}")
     print(f"fde={result.fde:.6f}")

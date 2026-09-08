@@ -1,17 +1,49 @@
-# Social Navigation using Modified Social Attention
+# Interpreting Social Navigation
 
-This code here is the extension of the work carried out in the [Social Attention](https://arxiv.org/abs/1710.04689) to fit the [MaBe](https://www.aicrowd.com/challenges/multi-agent-behavior-challenge-2022/problems/mabe-2022-mouse-triplets#dataset) dataset for future trajectory prediction and behaviour analysis. <br>
+Trajectory forecasting experiments for MABe mouse triplets using a Social Attention-style spatio-temporal graph model.
 
-## Getting Started
+## Setup
 
-- Clone the repository - `git clone https://github.com/BRAINML-GT/social_navigate`
-- Run the `setup.sh` bash file to setup the directories for logging.   
-- Setup the conda environment using the `env.yml` configuration file. 
-- Activate the environment using `conda activate snav`
-- Download the dataset (`user_train.npy`) from the website and place it inside the `data/MaBe/`. You may want to change the filename depending on the name in the `train.py`
-- Execute `python train.py` to train the model. 
+```bash
+python -m pip install -e ".[dev]"
+git submodule update --init --recursive
+```
 
-Feel free to explore with the hyperparameters to accomodate your device requirements. This code was tested on Ubuntu 20.04 LTS containing NVIDIA GeForce RTX 3050 GPU with CUDA 12.0. 
+## Data
 
+Place local MABe files under:
 
+```text
+data/MaBe/mouse_triplet_train.npy
+data/MaBe/mouse_triplet_test.npy
+```
 
+`data/`, `checkpoints/`, generated outputs, and secrets should stay out of git.
+
+## Train
+
+```bash
+python src/train.py fit --config src/config/dense_keypoint__train.yml --wandb
+```
+
+Inspect without training:
+
+```bash
+python src/train.py fit --config src/config/dense_keypoint__train.yml --show-config
+```
+
+## Evaluate
+
+Validation split from training data:
+
+```bash
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt
+```
+
+Held-out MABe test file:
+
+```bash
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
+```
+
+Add `--mean` for deterministic Gaussian-mean rollout instead of sampling.
