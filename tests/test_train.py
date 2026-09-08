@@ -85,6 +85,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
                 "epochs: 7",
                 "batch_size: 4",
                 "window_length: 6",
+                "graph_variant: flat_sparse_keypoint",
                 "stride: 2",
                 "validation_fraction: 0.25",
                 "learning_rate: 0.002",
@@ -111,6 +112,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.epochs == 3
     assert config.batch_size == 4
     assert config.data_path == tmp_path / "data.npy"
+    assert config.graph_variant == "flat_sparse_keypoint"
     assert config.wandb is True
 
 
@@ -136,6 +138,8 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     output = capsys.readouterr().out
     assert "normalization:" in output
     assert "scale_xy:" in output
+    assert "variant: dense_keypoint" in output
+    assert "edge_count: 1296" in output
     assert "train_windows: 2" in output
     assert "validation_windows: 1" in output
     assert "loss: bivariate_gaussian_nll" in output

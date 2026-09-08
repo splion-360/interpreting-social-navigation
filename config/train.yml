@@ -3,6 +3,7 @@ data_path: data/MaBe/mouse_triplet_train.npy
 epochs: 20
 batch_size: 16
 window_length: 9
+graph_variant: dense_keypoint
 stride: 20
 max_train_windows:
 max_validation_windows:

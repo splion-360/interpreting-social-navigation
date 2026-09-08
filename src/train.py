@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,11 @@ from data import (
 )
 from loss import bivariate_gaussian_nll
 from models import FlatSocialAttentionModel
-from st_graph import build_flat_sparse_keypoint_graph
+from st_graph import (
+    GraphSequence,
+    build_dense_keypoint_graph,
+    build_flat_sparse_keypoint_graph,
+)
 
 
 DEFAULT_TRAIN_CONFIG_PATH = Path("config/train.yml")
@@ -33,6 +38,10 @@ PATH_CONFIG_FIELDS = {
     "checkpoint_dir",
     "resume_checkpoint",
     "resume_download_dir",
+}
+GRAPH_BUILDERS = {
+    "dense_keypoint": build_dense_keypoint_graph,
+    "flat_sparse_keypoint": build_flat_sparse_keypoint_graph,
 }
 
 
@@ -44,6 +53,7 @@ class FlatWarmupConfig:
         data_path: Path to `mouse_triplet_train.npy`.
         sequence_index: Sorted sequence index used for the smoke run.
         window_length: Number of frames loaded from the sequence.
+        graph_variant: Graph builder used by the smoke run.
         steps: Optimizer steps to run.
         learning_rate: Adam learning rate.
         seed: Torch random seed.
@@ -53,6 +63,7 @@ class FlatWarmupConfig:
     data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
     sequence_index: int = 0
     window_length: int = 9
+    graph_variant: str = "dense_keypoint"
     steps: int = 5
     learning_rate: float = 1e-3
     seed: int = 42
@@ -86,6 +97,7 @@ class FlatFitConfig:
         epochs: Number of training epochs.
         batch_size: Number of windows per optimizer step.
         window_length: Number of frames per next-frame training window.
+        graph_variant: Graph builder used for flat model inputs.
         stride: Frame stride between windows.
         max_train_windows: Optional training-window cap for debug runs.
         max_validation_windows: Optional validation-window cap for debug runs.
@@ -110,6 +122,7 @@ class FlatFitConfig:
     epochs: int = 20
     batch_size: int = 16
     window_length: int = 9
+    graph_variant: str = "dense_keypoint"
     stride: int = 20
     max_train_windows: int | None = None
     max_validation_windows: int | None = None
@@ -324,8 +337,9 @@ def _load_flat_next_frame_batch(
         max_windows=1,
     ).first()
 
-    input_graph = build_flat_sparse_keypoint_graph(window.keypoints[:-1])
-    target_graph = build_flat_sparse_keypoint_graph(window.keypoints[1:])
+    build_graph = _graph_builder(config.graph_variant)
+    input_graph = build_graph(window.keypoints[:-1])
+    target_graph = build_graph(window.keypoints[1:])
     return (
         torch.from_numpy(input_graph.nodes),
         torch.from_numpy(input_graph.edge_features),
@@ -392,7 +406,7 @@ def _run_epoch(
     for start in progress:
         batch_indices = range(start, min(start + config.batch_size, len(windows)))
         with torch.set_grad_enabled(optimizer is not None):
-            loss = _batch_loss(model, windows, batch_indices, device)
+            loss = _batch_loss(model, windows, batch_indices, config, device)
         if optimizer is not None:
             optimizer.zero_grad()
             loss.backward()
@@ -410,15 +424,17 @@ def _batch_loss(
     model: FlatSocialAttentionModel,
     windows: MabeWindowDataset,
     batch_indices: range,
+    config: FlatFitConfig,
     device: torch.device,
 ) -> Tensor:
     """Compute the mean next-frame prediction loss for a window batch."""
 
+    build_graph = _graph_builder(config.graph_variant)
     losses = []
     for index in batch_indices:
         window = windows[index]
-        input_graph = build_flat_sparse_keypoint_graph(window.keypoints[:-1])
-        target_graph = build_flat_sparse_keypoint_graph(window.keypoints[1:])
+        input_graph = build_graph(window.keypoints[:-1])
+        target_graph = build_graph(window.keypoints[1:])
         nodes = torch.from_numpy(input_graph.nodes).to(device)
         edges = torch.from_numpy(input_graph.edge_features).to(device)
         targets = torch.from_numpy(target_graph.nodes).to(device)
@@ -451,6 +467,7 @@ def _start_wandb(config: FlatFitConfig) -> Any | None:
             "epochs": config.epochs,
             "batch_size": config.batch_size,
             "window_length": config.window_length,
+            "graph_variant": config.graph_variant,
             "stride": config.stride,
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
@@ -629,7 +646,9 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         train_windows.sequences[item] for item in train_windows.sequences
     ]
     normalizer = train_windows.normalizer
-    first_graph = build_flat_sparse_keypoint_graph(train_windows.first().keypoints[:-1])
+    first_graph = _graph_builder(config.graph_variant)(
+        train_windows.first().keypoints[:-1]
+    )
     model = FlatSocialAttentionModel()
     report = {
         "config": _plain_config(config),
@@ -718,6 +737,21 @@ def _select_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
+def _graph_builder(variant: str) -> Callable[[np.ndarray], GraphSequence]:
+    """Return the graph builder for a configured graph variant.
+
+    Args:
+        variant: Name of a graph variant in `GRAPH_BUILDERS`.
+
+    Returns:
+        Callable that converts keypoints into a graph sequence.
+    """
+
+    if variant not in GRAPH_BUILDERS:
+        raise ValueError(f"unknown graph variant: {variant}")
+    return GRAPH_BUILDERS[variant]
+
+
 def _plain_config(config: FlatFitConfig) -> dict[str, Any]:
     """Convert a training config to YAML-safe values."""
 
@@ -789,6 +823,7 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "window_length": args.window_length,
+        "graph_variant": args.graph_variant,
         "stride": args.stride,
         "max_train_windows": args.max_train_windows,
         "max_validation_windows": args.max_validation_windows,
@@ -826,6 +861,11 @@ def main() -> None:
     warmup.add_argument(
         "--window-length", type=int, default=FlatWarmupConfig.window_length
     )
+    warmup.add_argument(
+        "--graph-variant",
+        choices=sorted(GRAPH_BUILDERS),
+        default=FlatWarmupConfig.graph_variant,
+    )
     warmup.add_argument("--steps", type=int, default=FlatWarmupConfig.steps)
     warmup.add_argument(
         "--learning-rate", type=float, default=FlatWarmupConfig.learning_rate
@@ -841,6 +881,7 @@ def main() -> None:
     fit.add_argument("--epochs", type=int)
     fit.add_argument("--batch-size", type=int)
     fit.add_argument("--window-length", type=int)
+    fit.add_argument("--graph-variant", choices=sorted(GRAPH_BUILDERS))
     fit.add_argument("--stride", type=int)
     fit.add_argument("--max-train-windows", type=int)
     fit.add_argument("--max-validation-windows", type=int)
@@ -867,6 +908,7 @@ def main() -> None:
                 data_path=args.data,
                 sequence_index=args.sequence_index,
                 window_length=args.window_length,
+                graph_variant=args.graph_variant,
                 steps=args.steps,
                 learning_rate=args.learning_rate,
                 seed=args.seed,

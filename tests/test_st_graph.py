@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from st_graph import (
+    build_dense_keypoint_graph,
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
     flat_keypoint_node_id,
@@ -37,6 +38,19 @@ def test_flat_keypoint_graph_has_expected_nodes_and_edges() -> None:
     assert graph.nodes_present[0] == tuple(range(36))
 
 
+def test_dense_keypoint_graph_has_one_slot_per_node_pair() -> None:
+    keypoints = make_keypoints()
+
+    graph = build_dense_keypoint_graph(keypoints)
+
+    assert graph.variant == "dense_keypoint"
+    assert graph.nodes.shape == (3, 36, 2)
+    assert graph.edge_features.shape == (3, 36 * 36, 2)
+    assert graph.edge_count == 36 * 36
+    assert len(set(graph.edge_specs)) == graph.edge_count
+    assert graph.nodes_present[0] == tuple(range(36))
+
+
 def test_flat_keypoint_graph_uses_stable_node_ids() -> None:
     keypoints = make_keypoints()
 
@@ -44,6 +58,21 @@ def test_flat_keypoint_graph_uses_stable_node_ids() -> None:
 
     assert flat_keypoint_node_id(mouse_id=2, keypoint_id=11) == 35
     np.testing.assert_array_equal(graph.nodes[0, 35], keypoints[0, 2, 11])
+
+
+def test_dense_keypoint_graph_uses_dense_source_target_indexing() -> None:
+    keypoints = make_keypoints()
+
+    graph = build_dense_keypoint_graph(keypoints)
+    source = flat_keypoint_node_id(mouse_id=0, keypoint_id=1)
+    target = flat_keypoint_node_id(mouse_id=2, keypoint_id=3)
+
+    assert graph.edge_id(source=source, target=target, kind="spatial") == (
+        source * 36 + target
+    )
+    assert graph.edge_id(source=target, target=target, kind="temporal") == (
+        target * 36 + target
+    )
 
 
 def test_flat_keypoint_graph_features_match_coordinate_deltas() -> None:
@@ -65,6 +94,28 @@ def test_flat_keypoint_graph_features_match_coordinate_deltas() -> None:
 
     source = keypoints[0, 0, 1]
     target = keypoints[0, 2, 3]
+    np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], target - source)
+
+
+def test_dense_keypoint_graph_features_match_coordinate_deltas() -> None:
+    keypoints = make_keypoints()
+
+    graph = build_dense_keypoint_graph(keypoints)
+    temporal_edge = graph.edge_id(source=0, target=0, kind="temporal")
+    spatial_edge = graph.edge_id(
+        source=flat_keypoint_node_id(mouse_id=0, keypoint_id=1),
+        target=flat_keypoint_node_id(mouse_id=0, keypoint_id=3),
+        kind="spatial",
+    )
+
+    assert temporal_edge not in graph.edges_present[0]
+    assert temporal_edge in graph.edges_present[1]
+    np.testing.assert_array_equal(
+        graph.edge_features[1, temporal_edge], np.array([1, 2])
+    )
+
+    source = keypoints[0, 0, 1]
+    target = keypoints[0, 0, 3]
     np.testing.assert_array_equal(graph.edge_features[0, spatial_edge], target - source)
 
 
@@ -102,6 +153,9 @@ def test_graph_builders_reject_wrong_pose_shape() -> None:
 
     with pytest.raises(ValueError, match="keypoints must be shaped"):
         build_flat_sparse_keypoint_graph(keypoints)
+
+    with pytest.raises(ValueError, match="keypoints must be shaped"):
+        build_dense_keypoint_graph(keypoints)
 
     with pytest.raises(ValueError, match="keypoints must be shaped"):
         build_mouse_level_graph(keypoints)

@@ -120,6 +120,40 @@ def build_flat_sparse_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
     )
 
 
+def build_dense_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
+    """Build a dense keypoint graph with one edge slot per node pair.
+
+    Diagonal slots are temporal self-edges and off-diagonal slots are directed
+    spatial edges. With three mice and twelve keypoints per mouse, this yields
+    36 nodes and 1,296 edge slots.
+
+    Args:
+        keypoints: Pose sequence shaped `[time, 3, 12, 2]`.
+
+    Returns:
+        Graph sequence with dense `[time, nodes * nodes, 2]` edge features.
+    """
+
+    _ensure_pose_shape(keypoints)
+    nodes = keypoints.astype(np.float32).reshape(
+        keypoints.shape[0], NUM_MICE * NUM_KEYPOINTS, COORDINATES
+    )
+    edge_specs = tuple(
+        EdgeSpec(
+            source=source,
+            target=target,
+            kind="temporal" if source == target else "spatial",
+        )
+        for source in range(nodes.shape[1])
+        for target in range(nodes.shape[1])
+    )
+    return _build_graph_sequence(
+        variant="dense_keypoint",
+        nodes=nodes,
+        edge_specs=edge_specs,
+    )
+
+
 def build_mouse_level_graph(keypoints: np.ndarray) -> GraphSequence:
     """Build a mouse-level graph from per-mouse pose centroids.
 
