@@ -201,7 +201,7 @@ def fill_missing_keypoints(keypoints: np.ndarray) -> np.ndarray:
 
     Returns:
         Copy of `keypoints` where missing entries are forward-filled. Initial holes use the
-        first later observed value for that mouse/keypoint.
+        first later observed value. Keypoints missing for the full sequence stay zero.
     """
 
     filled = np.asarray(keypoints).copy()
@@ -215,9 +215,7 @@ def fill_missing_keypoints(keypoints: np.ndarray) -> np.ndarray:
 
             observed = np.flatnonzero(~missing_frames)
             if observed.size == 0:
-                raise ValueError(
-                    f"mouse {mouse_idx} keypoint {keypoint_idx} is missing for the whole sequence"
-                )
+                continue
 
             first_observed = int(observed[0])
             filled[:first_observed, mouse_idx, keypoint_idx] = filled[
@@ -235,7 +233,7 @@ def fill_missing_keypoints(keypoints: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class PoseNormalizer:
-    """Mean/std pose normalizer fitted on training poses only.
+    """Mean/std pose normalizer fitted on observed training poses only.
 
     Attributes:
         mean: Coordinate mean shaped `[2]`.
@@ -257,9 +255,14 @@ class PoseNormalizer:
         """
 
         arrays = [
-            fill_missing_keypoints(sequence.keypoints).astype(np.float32) for sequence in sequences
+            fill_missing_keypoints(sequence.keypoints).astype(np.float32)
+            for sequence in sequences
         ]
-        stacked = np.concatenate([array.reshape(-1, COORDINATES) for array in arrays], axis=0)
+        observed = [
+            array[~missing_keypoint_mask(array)].reshape(-1, COORDINATES)
+            for array in arrays
+        ]
+        stacked = np.concatenate(observed, axis=0)
         mean = stacked.mean(axis=0, dtype=np.float64).astype(np.float32)
         std = stacked.std(axis=0, dtype=np.float64).astype(np.float32)
         std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
@@ -275,7 +278,10 @@ class PoseNormalizer:
             Float32 normalized tensor with the same shape.
         """
 
-        return (keypoints.astype(np.float32) - self.mean) / self.std
+        missing = missing_keypoint_mask(keypoints)
+        normalized = (keypoints.astype(np.float32) - self.mean) / self.std
+        normalized[missing] = 0.0
+        return normalized.astype(np.float32)
 
     def inverse_transform(self, keypoints: np.ndarray) -> np.ndarray:
         """Convert normalized keypoints back to pixel coordinates.

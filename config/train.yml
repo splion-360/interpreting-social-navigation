@@ -1,0 +1,19 @@
+model: flat
+data_path: data/MaBe/mouse_triplet_train.npy
+epochs: 20
+batch_size: 16
+window_length: 9
+stride: 20
+max_train_windows:
+max_validation_windows:
+validation_fraction: 0.2
+learning_rate: 0.001
+grad_clip: 10.0
+seed: 42
+device: cpu
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name:
+checkpoint_dir: checkpoints/flat
+save_checkpoints: true
+wandb_artifact_name: flat-best-checkpoint

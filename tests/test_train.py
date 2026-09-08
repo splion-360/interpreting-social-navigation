@@ -75,6 +75,70 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
     assert np.isfinite(result.final_validation_loss)
 
 
+def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
+    config_path = tmp_path / "train.yml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "model: flat",
+                f"data_path: {tmp_path / 'data.npy'}",
+                "epochs: 7",
+                "batch_size: 4",
+                "window_length: 6",
+                "stride: 2",
+                "validation_fraction: 0.25",
+                "learning_rate: 0.002",
+                "grad_clip: 5.0",
+                "seed: 123",
+                "device: cpu",
+                "wandb: false",
+                "wandb_project: interpreting-social-navigation",
+                "checkpoint_dir: checkpoints/test",
+                "save_checkpoints: true",
+                "wandb_artifact_name: test-artifact",
+            ]
+        )
+    )
+
+    config = train.load_flat_fit_config(
+        config_path,
+        overrides={"epochs": 3, "wandb": True},
+    )
+
+    assert config.epochs == 3
+    assert config.batch_size == 4
+    assert config.data_path == tmp_path / "data.npy"
+    assert config.wandb is True
+
+
+def test_show_flat_fit_setup_prints_data_and_training_metadata(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_mabe_file(data_path, sequences=3)
+
+    train.show_flat_fit_setup(
+        FlatFitConfig(
+            data_path=data_path,
+            window_length=5,
+            stride=5,
+            max_train_windows=2,
+            max_validation_windows=1,
+            device="cpu",
+            save_checkpoints=False,
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert "normalization:" in output
+    assert "train_windows: 2" in output
+    assert "validation_windows: 1" in output
+    assert "loss: bivariate_gaussian_nll" in output
+    assert "optimizer: Adam" in output
+    assert "resume_from_checkpoint: null" in output
+
+
 def test_wandb_is_not_started_when_flag_is_disabled() -> None:
     assert train._start_wandb(FlatFitConfig(wandb=False)) is None
 

@@ -29,12 +29,26 @@ final_loss=<finite number>
 
 ## Run Flat Training
 
-Use this only when you want an actual local training run.
+Training defaults are loaded from `config/train.yml`.
+
+Inspect the resolved setup without training:
 
 ```sh
-python -m train fit --model flat --data data/MaBe/mouse_triplet_train.npy --device cpu --epochs 20 --batch-size 16 --wandb
+python -m train fit --show-config
+```
+
+Start an actual local training run:
+
+```sh
+python -m train fit --wandb
 ```
 
 The `--wandb` flag is opt-in. Leave it out for local CLI-only logging. When
 `--wandb` and checkpointing are enabled, the best checkpoint is also uploaded as
 the `flat-best-checkpoint:best` W&B model artifact.
+
+Override YAML values only when needed:
+
+```sh
+python -m train fit --config config/train.yml --device cpu --epochs 5 --batch-size 8 --wandb
+```

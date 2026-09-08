@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26",
+    "pyyaml>=6.0",
     "scipy>=1.12",
     "torch==2.5.0",
     "tqdm>=4.66",
@@ -118,6 +119,7 @@ known-third-party = [
     "matplotlib",
     "numpy",
     "pytest",
+    "yaml",
     "scipy",
     "torch",
     "tqdm",
