@@ -45,6 +45,7 @@ explicit = true
 only-include = [
     "src/config",
     "src/data",
+    "src/evaluate.py",
     "src/loss.py",
     "src/models",
     "src/st_graph.py",

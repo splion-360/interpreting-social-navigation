@@ -32,6 +32,15 @@ def test_gaussian_parameter_transform_keeps_sigma_and_rho_valid() -> None:
     assert torch.all(params.rho > -1)
 
 
+def test_gaussian_parameter_transform_uses_exp_sigma_convention() -> None:
+    outputs = torch.tensor([0.0, 0.0, 2.0, -2.0, 0.0])
+
+    params = gaussian_2d_parameters(outputs)
+
+    assert torch.allclose(params.sigma_x, torch.exp(torch.tensor(2.0)))
+    assert torch.allclose(params.sigma_y, torch.exp(torch.tensor(-2.0)))
+
+
 def test_bivariate_gaussian_nll_applies_mask_before_reduction() -> None:
     outputs = torch.zeros((1, 2, 1, 5))
     targets = torch.tensor([[[[0.0, 0.0]], [[100.0, 100.0]]]])

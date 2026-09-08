@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 
 
 @dataclass(frozen=True)
@@ -30,7 +29,6 @@ class Gaussian2DParameters:
 
 def gaussian_2d_parameters(
     outputs: Tensor,
-    min_sigma: float = 1e-3,
     max_abs_rho: float = 0.999,
 ) -> Gaussian2DParameters:
     """Transform raw network outputs into valid Gaussian parameters.
@@ -38,7 +36,6 @@ def gaussian_2d_parameters(
     Args:
         outputs: Tensor shaped `[..., 5]` containing `mu_x`, `mu_y`,
             raw `sigma_x`, raw `sigma_y`, and raw `rho`.
-        min_sigma: Small positive lower bound added after softplus.
         max_abs_rho: Absolute bound applied after tanh to avoid singular covariance.
 
     Returns:
@@ -49,8 +46,8 @@ def gaussian_2d_parameters(
     return Gaussian2DParameters(
         mu_x=mu_x,
         mu_y=mu_y,
-        sigma_x=F.softplus(raw_sigma_x) + min_sigma,
-        sigma_y=F.softplus(raw_sigma_y) + min_sigma,
+        sigma_x=torch.exp(raw_sigma_x),
+        sigma_y=torch.exp(raw_sigma_y),
         rho=torch.clamp(torch.tanh(raw_rho), min=-max_abs_rho, max=max_abs_rho),
     )
 
