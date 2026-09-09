@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,9 +21,11 @@ from data import (
     MabeDataset,
     MabeWindowDataset,
     PoseNormalizer,
+    Window,
     WindowSpec,
     split_sequence_ids,
 )
+from data.visualization import animate_prediction_comparison, save_animation
 from loss import gaussian_2d_parameters
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
@@ -99,6 +102,23 @@ class EvaluationResult:
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
+
+
+@dataclass(frozen=True)
+class PredictionVideoResult:
+    """Saved prediction-comparison video metadata.
+
+    Attributes:
+        path: MP4 output path.
+        sequence_id: Source MABe sequence ID.
+        start_frame: Start frame for the visualized window.
+        graph_variant: Graph variant used for inference.
+    """
+
+    path: Path
+    sequence_id: str
+    start_frame: int
+    graph_variant: str
 
 
 def sample_bivariate_gaussian(
@@ -251,7 +271,7 @@ def evaluate_flat_checkpoint(
     )
     build_graph = _graph_builder(config.graph_variant)
     model = FlatSocialAttentionModel().to(device)
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = _load_checkpoint(checkpoint_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -296,10 +316,116 @@ def evaluate_flat_checkpoint(
     )
 
 
+def save_test_prediction_video(
+    *,
+    config: FlatFitConfig,
+    test_config: TestConfig,
+    checkpoint_path: Path,
+    sequence_id: str | None = None,
+    window_index: int = 0,
+    output_root: Path = Path("outputs/visualizations"),
+    fps: int = 8,
+    interval_ms: int = 120,
+    seed: int | None = None,
+) -> PredictionVideoResult:
+    """Run test-set inference for one window and save a comparison MP4.
+
+    Args:
+        config: Training configuration that defines the model and graph variant.
+        test_config: Held-out test configuration with the test `.npy` path.
+        checkpoint_path: Local checkpoint containing model weights.
+        sequence_id: Optional MABe sequence ID. Defaults to the first test sequence.
+        window_index: Deterministic window index within the selected sequence set.
+        output_root: Base output folder. The graph variant and sequence ID are appended.
+        fps: Frames per second for the saved MP4.
+        interval_ms: Matplotlib animation interval.
+        seed: Optional random seed for reproducible Gaussian sampling.
+
+    Returns:
+        Metadata for the saved video.
+    """
+
+    if config.graph_variant not in KEYPOINT_GRAPH_VARIANTS:
+        raise ValueError("prediction videos require a keypoint graph")
+
+    normalizer = _fit_training_normalizer(config)
+    window = _test_window(
+        config=config,
+        test_config=test_config,
+        normalizer=normalizer,
+        sequence_id=sequence_id,
+        window_index=window_index,
+    )
+    device = _select_device(config.device)
+    build_graph = _graph_builder(config.graph_variant)
+    model = FlatSocialAttentionModel().to(device)
+    checkpoint = _load_checkpoint(checkpoint_path, device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+
+    generator = torch.Generator(device=device)
+    resolved_seed = seed if seed is not None else test_config.seed
+    if resolved_seed is not None:
+        generator.manual_seed(resolved_seed)
+
+    with torch.no_grad():
+        rollout = rollout_flat_keypoint_model(
+            model=model,
+            observed_keypoints=window.observed_keypoints,
+            prediction_length=config.prediction_length,
+            build_graph=build_graph,
+            device=device,
+            generator=generator,
+        )
+
+    actual_keypoints = normalizer.inverse_transform(window.keypoints)
+    predicted_future = normalizer.inverse_transform(
+        rollout.nodes[config.observation_length :].reshape(
+            config.prediction_length,
+            NUM_MICE,
+            NUM_KEYPOINTS,
+            COORDINATES,
+        )
+    )
+    animation_obj = animate_prediction_comparison(
+        actual_keypoints=actual_keypoints,
+        predicted_future_keypoints=predicted_future,
+        observation_length=config.observation_length,
+        sequence_id=window.sequence_id,
+        step=1,
+        interval_ms=interval_ms,
+    )
+    output_path = output_root / config.graph_variant / f"{window.sequence_id}.mp4"
+    saved_path = save_animation(animation_obj, output_path, fps=fps)
+    return PredictionVideoResult(
+        path=saved_path,
+        sequence_id=window.sequence_id,
+        start_frame=window.start_frame,
+        graph_variant=config.graph_variant,
+    )
+
+
 def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
     """Convert flat keypoint nodes back to `[3, 12, 2]` keypoints."""
 
     return nodes.reshape(NUM_MICE, NUM_KEYPOINTS, COORDINATES).astype(np.float32)
+
+
+def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
+    """Load a trajectory checkpoint across script/module entry points.
+
+    Args:
+        path: Local `.pt` checkpoint file.
+        device: Device used to map checkpoint tensors.
+
+    Returns:
+        Checkpoint dictionary.
+    """
+
+    main_module = sys.modules["__main__"]
+    if not hasattr(main_module, "FlatFitConfig"):
+        main_module.FlatFitConfig = FlatFitConfig
+    return torch.load(path, map_location=device, weights_only=False)
 
 
 def _build_evaluation_windows(
@@ -322,11 +448,7 @@ def _build_evaluation_windows(
     """
 
     train_dataset = MabeDataset.from_file(config.data_path)
-    train_ids, validation_ids = split_sequence_ids(
-        train_dataset.sequence_ids,
-        validation_fraction=config.validation_fraction,
-        seed=config.seed,
-    )
+    train_ids, validation_ids = _training_validation_ids(config, train_dataset)
     normalizer = PoseNormalizer.fit(train_dataset.select(train_ids))
     spec = WindowSpec(
         length=config.window_length,
@@ -352,6 +474,52 @@ def _build_evaluation_windows(
         normalizer=normalizer,
         max_windows=max_windows,
     )
+
+
+def _fit_training_normalizer(config: FlatFitConfig) -> PoseNormalizer:
+    """Fit the pose normalizer using only training split sequences."""
+
+    train_dataset = MabeDataset.from_file(config.data_path)
+    train_ids, _ = _training_validation_ids(config, train_dataset)
+    return PoseNormalizer.fit(train_dataset.select(train_ids))
+
+
+def _training_validation_ids(
+    config: FlatFitConfig,
+    dataset: MabeDataset,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split training-file sequence IDs into train and validation IDs."""
+
+    return split_sequence_ids(
+        dataset.sequence_ids,
+        validation_fraction=config.validation_fraction,
+        seed=config.seed,
+    )
+
+
+def _test_window(
+    *,
+    config: FlatFitConfig,
+    test_config: TestConfig,
+    normalizer: PoseNormalizer,
+    sequence_id: str | None,
+    window_index: int,
+) -> Window:
+    """Load one deterministic normalized window from the held-out test file."""
+
+    test_dataset = MabeDataset.from_file(test_config.data_path)
+    selected_ids = [sequence_id] if sequence_id is not None else test_dataset.sequence_ids
+    windows = MabeWindowDataset(
+        test_dataset.select(selected_ids),
+        WindowSpec(
+            length=config.window_length,
+            observation_length=config.observation_length,
+            prediction_length=config.prediction_length,
+            stride=config.stride,
+        ),
+        normalizer=normalizer,
+    )
+    return windows[window_index]
 
 
 def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:

@@ -1,0 +1,93 @@
+---
+cwd: ../..
+---
+
+# Visualize Test Predictions
+
+Generate one MP4 comparing the held-out MABe ground-truth future against a sampled model rollout.
+
+Output path:
+
+```text
+outputs/visualizations/{graph_name}/{seq_id}.mp4
+```
+
+## Select a Test Trajectory
+
+Leave `SEQ_ID = None` to use the first deterministic sequence in `mouse_triplet_test.npy`.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from data import MabeDataset
+
+TEST_DATA = repo_root / "data/MaBe/mouse_triplet_test.npy"
+SEQ_ID = None
+
+dataset = MabeDataset.from_file(TEST_DATA)
+sequence_id = SEQ_ID or dataset.sequence_ids[0]
+sequence = dataset.sequences[sequence_id]
+
+print("sequence_id:", sequence_id)
+print("keypoints:", sequence.keypoints.shape)
+```
+
+## Run Inference and Save Video
+
+This samples future keypoint coordinates from the predicted bivariate Gaussian distribution. It does not use a deterministic mean rollout.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from dataclasses import replace
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from evaluate import load_test_config, save_test_prediction_video
+from train import load_flat_fit_config
+
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TEST_CONFIG = repo_root / "src/config/test.yml"
+CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
+SEQ_ID = None
+WINDOW_INDEX = 0
+SEED = 42
+DEVICE = None  # set to "cpu" or "cuda" to override the train YAML device
+
+train_config = load_flat_fit_config(TRAIN_CONFIG)
+if DEVICE is not None:
+    train_config = replace(train_config, device=DEVICE)
+test_config = load_test_config(TEST_CONFIG)
+
+result = save_test_prediction_video(
+    config=train_config,
+    test_config=test_config,
+    checkpoint_path=CHECKPOINT,
+    sequence_id=SEQ_ID,
+    window_index=WINDOW_INDEX,
+    output_root=repo_root / "outputs/visualizations",
+    fps=8,
+    interval_ms=120,
+    seed=SEED,
+)
+
+print("sequence_id:", result.sequence_id)
+print("start_frame:", result.start_frame)
+print("graph:", result.graph_variant)
+print("video:", result.path)
+```
+
+## Notes
+
+- The model receives normalized coordinates.
+- The saved video is denormalized back to MABe pixel coordinates.
+- Solid lines/points are ground truth. Dashed `x` markers are sampled predictions for future frames.
