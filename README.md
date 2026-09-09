@@ -46,4 +46,4 @@ Held-out MABe test file:
 python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
 ```
 
-Add `--mean` for deterministic Gaussian-mean rollout instead of sampling.
+Evaluation samples future coordinates from the predicted bivariate Gaussian.

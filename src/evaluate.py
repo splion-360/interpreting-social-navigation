@@ -49,7 +49,6 @@ class TestConfig:
         results_path: Local JSONL ledger for evaluation records.
         max_windows: Optional cap on test windows.
         seed: Optional sampling seed.
-        sample: Whether to sample Gaussian predictions by default.
         wandb: Whether to log evaluation metrics to W&B.
         wandb_project: W&B project for evaluation logging.
         wandb_run_name: Optional W&B run name for evaluation logging.
@@ -59,7 +58,6 @@ class TestConfig:
     results_path: Path = DEFAULT_RESULTS_PATH
     max_windows: int | None = None
     seed: int | None = None
-    sample: bool = True
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
     wandb_run_name: str | None = None
@@ -146,7 +144,6 @@ def rollout_flat_keypoint_model(
     prediction_length: int,
     build_graph: Callable[[np.ndarray], GraphSequence],
     device: torch.device,
-    sample: bool = True,
     generator: torch.Generator | None = None,
 ) -> RolloutResult:
     """Roll a flat keypoint model forward from observed frames.
@@ -157,7 +154,6 @@ def rollout_flat_keypoint_model(
         prediction_length: Number of future frames to generate.
         build_graph: Graph builder matching the checkpoint/config variant.
         device: Inference device.
-        sample: Whether to sample from Gaussians; if false, use Gaussian means.
         generator: Optional random generator for reproducible sampling.
 
     Returns:
@@ -205,11 +201,7 @@ def rollout_flat_keypoint_model(
             )
         state = result.state
         output = result.outputs[0]
-        next_nodes = (
-            sample_bivariate_gaussian(output, generator=generator)
-            if sample
-            else _gaussian_means(output)
-        )
+        next_nodes = sample_bivariate_gaussian(output, generator=generator)
         gaussian_outputs.append(output.detach().cpu().numpy())
         attention.extend(result.attention_weights)
         rollout_keypoints[current_frame + 1] = _flat_nodes_to_keypoints(
@@ -231,7 +223,6 @@ def evaluate_flat_checkpoint(
     split: Literal["validation", "test"] = "validation",
     test_data_path: Path | None = None,
     max_windows: int | None = None,
-    sample: bool = True,
     seed: int | None = None,
 ) -> EvaluationResult:
     """Evaluate a flat keypoint checkpoint with autoregressive rollouts.
@@ -242,7 +233,6 @@ def evaluate_flat_checkpoint(
         split: Evaluation split, either validation from train data or test data.
         test_data_path: Held-out test file used only when `split` is `test`.
         max_windows: Optional cap on evaluated windows.
-        sample: Whether to sample from Gaussian predictions.
         seed: Optional random seed for reproducible sampling.
 
     Returns:
@@ -279,8 +269,7 @@ def evaluate_flat_checkpoint(
                 prediction_length=windows.spec.prediction_length,
                 build_graph=build_graph,
                 device=device,
-                sample=sample,
-                generator=generator if sample else None,
+                generator=generator,
             )
             target_graph = build_graph(window.keypoints)
             mask = _nodes_present_mask(target_graph)[
@@ -381,7 +370,6 @@ def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:
         "results_path": raw.get("results_path", TestConfig.results_path),
         "max_windows": raw.get("max_windows", TestConfig.max_windows),
         "seed": raw.get("seed", TestConfig.seed),
-        "sample": raw.get("sample", TestConfig.sample),
         "wandb": raw.get("wandb", TestConfig.wandb),
         "wandb_project": raw.get("wandb_project", TestConfig.wandb_project),
         "wandb_run_name": raw.get("wandb_run_name", TestConfig.wandb_run_name),
@@ -452,7 +440,6 @@ def build_evaluation_record(
     test_config_path: Path | None,
     test_data_path: Path | None,
     max_windows: int | None,
-    sample: bool,
     seed: int | None,
 ) -> dict[str, Any]:
     """Build a durable metadata record for one evaluation run.
@@ -466,7 +453,6 @@ def build_evaluation_record(
         test_config_path: Test YAML path when evaluating the held-out test split.
         test_data_path: Test file path when evaluating the held-out test split.
         max_windows: Window cap used for evaluation.
-        sample: Whether Gaussian sampling was used.
         seed: Sampling seed used for evaluation.
 
     Returns:
@@ -482,7 +468,7 @@ def build_evaluation_record(
         "test_data_path": str(test_data_path) if test_data_path else None,
         "windows": result.windows,
         "max_windows": max_windows,
-        "sample": sample,
+        "sampling": "bivariate_gaussian",
         "seed": seed,
         "device": result.device,
         "model": {
@@ -502,13 +488,6 @@ def build_evaluation_record(
             "fde": result.fde,
         },
     }
-
-
-def _gaussian_means(outputs: Tensor) -> Tensor:
-    """Extract Gaussian mean coordinates from raw model outputs."""
-
-    params = gaussian_2d_parameters(outputs)
-    return torch.stack((params.mu_x, params.mu_y), dim=-1)
 
 
 def main() -> None:
@@ -532,7 +511,6 @@ def main() -> None:
     parser.add_argument("--max-validation-windows", type=int)
     parser.add_argument("--max-windows", type=int)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--mean", action="store_true")
     args = parser.parse_args()
 
     test_config = load_test_config(args.test_config) if args.split == "test" else None
@@ -547,7 +525,6 @@ def main() -> None:
     seed = args.seed if args.seed is not None else (
         test_config.seed if test_config is not None else None
     )
-    sample = (test_config.sample if test_config is not None else True) and not args.mean
 
     train_config = load_flat_fit_config(args.config)
     wandb_enabled = (
@@ -571,7 +548,6 @@ def main() -> None:
         split=args.split,
         test_data_path=test_data_path,
         max_windows=max_windows,
-        sample=sample,
         seed=seed,
     )
     record = build_evaluation_record(
@@ -583,7 +559,6 @@ def main() -> None:
         test_config_path=args.test_config if args.split == "test" else None,
         test_data_path=test_data_path,
         max_windows=max_windows,
-        sample=sample,
         seed=seed,
     )
     if not args.no_save_result:

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+import evaluate as evaluate_module
 from evaluate import (
     EvaluationResult,
     _build_evaluation_windows,
@@ -53,7 +54,9 @@ def test_sample_bivariate_gaussian_returns_coordinate_samples() -> None:
     assert torch.isfinite(samples).all()
 
 
-def test_rollout_reuses_sampled_positions_to_recompute_edges() -> None:
+def test_rollout_reuses_sampled_positions_to_recompute_edges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     observed = make_keypoints(frames=2)
     recorded_edges = []
 
@@ -70,13 +73,17 @@ def test_rollout_reuses_sampled_positions_to_recompute_edges() -> None:
                 attention_weights=({},),
             )
 
+    def fake_sample(outputs, *, generator=None):
+        del generator
+        return outputs[:, :2]
+
+    monkeypatch.setattr(evaluate_module, "sample_bivariate_gaussian", fake_sample)
     rollout = rollout_flat_keypoint_model(
         model=IncrementModel(),
         observed_keypoints=observed,
         prediction_length=2,
         build_graph=build_dense_keypoint_graph,
         device=torch.device("cpu"),
-        sample=False,
     )
 
     observed_graph = build_dense_keypoint_graph(observed)
@@ -132,7 +139,6 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
                 f"results_path: {tmp_path / 'results.jsonl'}",
                 "max_windows: 3",
                 "seed: 7",
-                "sample: false",
                 "wandb: true",
                 "wandb_project: eval-project",
                 "wandb_run_name: eval-run",
@@ -146,7 +152,6 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
     assert config.results_path == tmp_path / "results.jsonl"
     assert config.max_windows == 3
     assert config.seed == 7
-    assert config.sample is False
     assert config.wandb is True
     assert config.wandb_project == "eval-project"
     assert config.wandb_run_name == "eval-run"
@@ -185,7 +190,6 @@ def test_build_evaluation_record_tracks_lineage() -> None:
         test_config_path=Path("src/config/test.yml"),
         test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
         max_windows=10,
-        sample=False,
         seed=42,
     )
 
@@ -193,7 +197,7 @@ def test_build_evaluation_record_tracks_lineage() -> None:
     assert record["checkpoint"]["epoch"] == 50
     assert record["model"]["graph_variant"] == "dense_keypoint"
     assert record["metrics"] == {"ade": 1.0, "fde": 2.0}
-    assert record["sample"] is False
+    assert record["sampling"] == "bivariate_gaussian"
 
 
 def test_mouse_level_checkpoint_evaluation_requires_decoder(tmp_path) -> None:
