@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -35,6 +37,7 @@ from train import (
 
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
+DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
 
 
 @dataclass(frozen=True)
@@ -43,15 +46,23 @@ class TestConfig:
 
     Attributes:
         data_path: Path to the held-out MABe test file.
+        results_path: Local JSONL ledger for evaluation records.
         max_windows: Optional cap on test windows.
         seed: Optional sampling seed.
         sample: Whether to sample Gaussian predictions by default.
+        wandb: Whether to log evaluation metrics to W&B.
+        wandb_project: W&B project for evaluation logging.
+        wandb_run_name: Optional W&B run name for evaluation logging.
     """
 
     data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
+    results_path: Path = DEFAULT_RESULTS_PATH
     max_windows: int | None = None
     seed: int | None = None
     sample: bool = True
+    wandb: bool = False
+    wandb_project: str = "interpreting-social-navigation"
+    wandb_run_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,8 @@ class EvaluationResult:
         ade: Average displacement error across predicted frames.
         fde: Final displacement error on the last predicted frame.
         device: Device used for model inference.
+        checkpoint_epoch: Epoch stored in the evaluated checkpoint, if available.
+        checkpoint_validation_loss: Validation loss stored in the checkpoint.
     """
 
     split: str
@@ -86,6 +99,8 @@ class EvaluationResult:
     ade: float
     fde: float
     device: str
+    checkpoint_epoch: int | None
+    checkpoint_validation_loss: float | None
 
 
 def sample_bivariate_gaussian(
@@ -287,6 +302,8 @@ def evaluate_flat_checkpoint(
         ade=float(np.mean(ade_values)),
         fde=float(np.mean(fde_values)),
         device=str(device),
+        checkpoint_epoch=checkpoint.get("epoch"),
+        checkpoint_validation_loss=checkpoint.get("validation_loss"),
     )
 
 
@@ -361,12 +378,130 @@ def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:
     raw = yaml.safe_load(path.read_text()) or {}
     values = {
         "data_path": raw.get("data_path", TestConfig.data_path),
+        "results_path": raw.get("results_path", TestConfig.results_path),
         "max_windows": raw.get("max_windows", TestConfig.max_windows),
         "seed": raw.get("seed", TestConfig.seed),
         "sample": raw.get("sample", TestConfig.sample),
+        "wandb": raw.get("wandb", TestConfig.wandb),
+        "wandb_project": raw.get("wandb_project", TestConfig.wandb_project),
+        "wandb_run_name": raw.get("wandb_run_name", TestConfig.wandb_run_name),
     }
     values["data_path"] = Path(values["data_path"])
+    values["results_path"] = Path(values["results_path"])
     return TestConfig(**values)
+
+
+def save_evaluation_record(record: dict[str, Any], path: Path) -> None:
+    """Append one evaluation record to a local JSONL ledger.
+
+    Args:
+        record: JSON-serializable evaluation metadata and metrics.
+        path: Destination `.jsonl` file.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def log_evaluation_to_wandb(
+    *,
+    record: dict[str, Any],
+    project: str,
+    run_name: str | None,
+) -> None:
+    """Log evaluation metrics and lineage metadata to W&B.
+
+    Args:
+        record: Evaluation record used as run config and metric source.
+        project: W&B project name.
+        run_name: Optional W&B run name.
+    """
+
+    try:
+        import wandb
+    except ImportError as exc:
+        raise RuntimeError(
+            "W&B logging requires the optional dependency: "
+            'python -m pip install -e ".[wandb]"'
+        ) from exc
+
+    run = wandb.init(
+        project=project,
+        name=run_name,
+        job_type="evaluate",
+        config=record,
+    )
+    run.log(
+        {
+            "eval/ade": record["metrics"]["ade"],
+            "eval/fde": record["metrics"]["fde"],
+            "eval/windows": record["windows"],
+        }
+    )
+    run.finish()
+
+
+def build_evaluation_record(
+    *,
+    result: EvaluationResult,
+    train_config: FlatFitConfig,
+    train_config_path: Path,
+    checkpoint_path: Path,
+    split: str,
+    test_config_path: Path | None,
+    test_data_path: Path | None,
+    max_windows: int | None,
+    sample: bool,
+    seed: int | None,
+) -> dict[str, Any]:
+    """Build a durable metadata record for one evaluation run.
+
+    Args:
+        result: Aggregate evaluation metrics.
+        train_config: Training configuration used to build the model/data setup.
+        train_config_path: Path to the training YAML.
+        checkpoint_path: Evaluated checkpoint.
+        split: Evaluation split name.
+        test_config_path: Test YAML path when evaluating the held-out test split.
+        test_data_path: Test file path when evaluating the held-out test split.
+        max_windows: Window cap used for evaluation.
+        sample: Whether Gaussian sampling was used.
+        seed: Sampling seed used for evaluation.
+
+    Returns:
+        JSON-serializable evaluation record.
+    """
+
+    return {
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "split": split,
+        "train_config_path": str(train_config_path),
+        "test_config_path": str(test_config_path) if test_config_path else None,
+        "checkpoint_path": str(checkpoint_path),
+        "test_data_path": str(test_data_path) if test_data_path else None,
+        "windows": result.windows,
+        "max_windows": max_windows,
+        "sample": sample,
+        "seed": seed,
+        "device": result.device,
+        "model": {
+            "family": train_config.model,
+            "graph_variant": train_config.graph_variant,
+            "window_length": train_config.window_length,
+            "observation_length": train_config.observation_length,
+            "prediction_length": train_config.prediction_length,
+            "stride": train_config.stride,
+        },
+        "checkpoint": {
+            "epoch": result.checkpoint_epoch,
+            "validation_loss": result.checkpoint_validation_loss,
+        },
+        "metrics": {
+            "ade": result.ade,
+            "fde": result.fde,
+        },
+    }
 
 
 def _gaussian_means(outputs: Tensor) -> Tensor:
@@ -389,6 +524,11 @@ def main() -> None:
     parser.add_argument("--split", choices=["validation", "test"], default="validation")
     parser.add_argument("--test-config", type=Path, default=DEFAULT_TEST_CONFIG_PATH)
     parser.add_argument("--test-data", type=Path)
+    parser.add_argument("--results-path", type=Path)
+    parser.add_argument("--no-save-result", action="store_true")
+    parser.add_argument("--wandb", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--wandb-project")
+    parser.add_argument("--wandb-run-name")
     parser.add_argument("--max-validation-windows", type=int)
     parser.add_argument("--max-windows", type=int)
     parser.add_argument("--seed", type=int)
@@ -409,8 +549,24 @@ def main() -> None:
     )
     sample = (test_config.sample if test_config is not None else True) and not args.mean
 
+    train_config = load_flat_fit_config(args.config)
+    wandb_enabled = (
+        args.wandb
+        if args.wandb is not None
+        else (test_config.wandb if test_config is not None else False)
+    )
+    wandb_project = args.wandb_project or (
+        test_config.wandb_project if test_config is not None else train_config.wandb_project
+    )
+    wandb_run_name = args.wandb_run_name or (
+        test_config.wandb_run_name if test_config is not None else None
+    )
+    results_path = args.results_path or (
+        test_config.results_path if test_config is not None else DEFAULT_RESULTS_PATH
+    )
+
     result = evaluate_flat_checkpoint(
-        config=load_flat_fit_config(args.config),
+        config=train_config,
         checkpoint_path=args.checkpoint,
         split=args.split,
         test_data_path=test_data_path,
@@ -418,11 +574,33 @@ def main() -> None:
         sample=sample,
         seed=seed,
     )
+    record = build_evaluation_record(
+        result=result,
+        train_config=train_config,
+        train_config_path=args.config,
+        checkpoint_path=args.checkpoint,
+        split=args.split,
+        test_config_path=args.test_config if args.split == "test" else None,
+        test_data_path=test_data_path,
+        max_windows=max_windows,
+        sample=sample,
+        seed=seed,
+    )
+    if not args.no_save_result:
+        save_evaluation_record(record, results_path)
+    if wandb_enabled:
+        log_evaluation_to_wandb(
+            record=record,
+            project=wandb_project,
+            run_name=wandb_run_name,
+        )
     print(f"device={result.device}")
     print(f"split={result.split}")
     print(f"windows={result.windows}")
     print(f"ade={result.ade:.6f}")
     print(f"fde={result.fde:.6f}")
+    if not args.no_save_result:
+        print(f"result={results_path}")
 
 
 if __name__ == "__main__":

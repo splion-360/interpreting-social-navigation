@@ -1,4 +1,8 @@
 data_path: data/MaBe/mouse_triplet_test.npy
+results_path: outputs/evaluations/results.jsonl
 max_windows: null
 seed: null
 sample: true
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name: null

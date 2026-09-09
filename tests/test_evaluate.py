@@ -1,5 +1,6 @@
 """File description: Tests for autoregressive checkpoint evaluation."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -7,11 +8,14 @@ import pytest
 import torch
 
 from evaluate import (
+    EvaluationResult,
     _build_evaluation_windows,
+    build_evaluation_record,
     evaluate_flat_checkpoint,
     load_test_config,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
+    save_evaluation_record,
 )
 from st_graph import build_dense_keypoint_graph
 from train import FlatFitConfig
@@ -125,9 +129,13 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
         "\n".join(
             [
                 f"data_path: {tmp_path / 'mouse_triplet_test.npy'}",
+                f"results_path: {tmp_path / 'results.jsonl'}",
                 "max_windows: 3",
                 "seed: 7",
                 "sample: false",
+                "wandb: true",
+                "wandb_project: eval-project",
+                "wandb_run_name: eval-run",
             ]
         )
     )
@@ -135,9 +143,57 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
     config = load_test_config(config_path)
 
     assert config.data_path == tmp_path / "mouse_triplet_test.npy"
+    assert config.results_path == tmp_path / "results.jsonl"
     assert config.max_windows == 3
     assert config.seed == 7
     assert config.sample is False
+    assert config.wandb is True
+    assert config.wandb_project == "eval-project"
+    assert config.wandb_run_name == "eval-run"
+
+
+def test_save_evaluation_record_appends_jsonl(tmp_path) -> None:
+    results_path = tmp_path / "outputs" / "evaluations" / "results.jsonl"
+    record = {
+        "split": "test",
+        "windows": 2,
+        "metrics": {"ade": 1.25, "fde": 2.5},
+    }
+
+    save_evaluation_record(record, results_path)
+
+    assert results_path.read_text().strip() == (
+        '{"metrics": {"ade": 1.25, "fde": 2.5}, "split": "test", "windows": 2}'
+    )
+
+
+def test_build_evaluation_record_tracks_lineage() -> None:
+    record = build_evaluation_record(
+        result=EvaluationResult(
+            split="test",
+            windows=5,
+            ade=1.0,
+            fde=2.0,
+            device="cpu",
+            checkpoint_epoch=50,
+            checkpoint_validation_loss=0.5,
+        ),
+        train_config=FlatFitConfig(graph_variant="dense_keypoint"),
+        train_config_path=Path("src/config/dense_keypoint__train.yml"),
+        checkpoint_path=Path("checkpoints/dense_keypoint/flat_best.pt"),
+        split="test",
+        test_config_path=Path("src/config/test.yml"),
+        test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
+        max_windows=10,
+        sample=False,
+        seed=42,
+    )
+
+    assert record["split"] == "test"
+    assert record["checkpoint"]["epoch"] == 50
+    assert record["model"]["graph_variant"] == "dense_keypoint"
+    assert record["metrics"] == {"ade": 1.0, "fde": 2.0}
+    assert record["sample"] is False
 
 
 def test_mouse_level_checkpoint_evaluation_requires_decoder(tmp_path) -> None:
