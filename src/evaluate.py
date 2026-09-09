@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ import numpy as np
 import torch
 import yaml
 from torch import Tensor
+from tqdm import tqdm
 
 from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 from data import (
@@ -59,7 +61,7 @@ class TestConfig:
 
     data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
     results_path: Path = DEFAULT_RESULTS_PATH
-    max_windows: int | None = None
+    max_windows: int | None = 100
     seed: int | None = None
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
@@ -244,6 +246,7 @@ def evaluate_flat_checkpoint(
     test_data_path: Path | None = None,
     max_windows: int | None = None,
     seed: int | None = None,
+    show_progress: bool = True,
 ) -> EvaluationResult:
     """Evaluate a flat keypoint checkpoint with autoregressive rollouts.
 
@@ -254,6 +257,7 @@ def evaluate_flat_checkpoint(
         test_data_path: Held-out test file used only when `split` is `test`.
         max_windows: Optional cap on evaluated windows.
         seed: Optional random seed for reproducible sampling.
+        show_progress: Whether to print checkpoint and window progress.
 
     Returns:
         Mean ADE/FDE over selected validation windows.
@@ -271,9 +275,14 @@ def evaluate_flat_checkpoint(
     )
     build_graph = _graph_builder(config.graph_variant)
     model = FlatSocialAttentionModel().to(device)
+    if show_progress:
+        print(f"Loading checkpoint: {checkpoint_path}")
     checkpoint = _load_checkpoint(checkpoint_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
+    if show_progress:
+        print(f"Loaded checkpoint at epoch {checkpoint.get('epoch', 'unknown')}")
+        print(f"Evaluating {len(windows)} {split} windows on {device}")
 
     generator = torch.Generator(device=device)
     if seed is not None:
@@ -282,7 +291,15 @@ def evaluate_flat_checkpoint(
     ade_values = []
     fde_values = []
     with torch.no_grad():
-        for window in windows:
+        iterator = tqdm(
+            windows,
+            total=len(windows),
+            desc=f"evaluate {split}",
+            unit="window",
+            disable=not show_progress,
+        )
+        for batch_idx, window in enumerate(iterator, start=1):
+            start = time.perf_counter()
             rollout = rollout_flat_keypoint_model(
                 model=model,
                 observed_keypoints=window.observed_keypoints,
@@ -304,6 +321,17 @@ def evaluate_flat_checkpoint(
             distances = torch.linalg.norm(prediction - target, dim=-1)
             ade_values.append(float(distances[mask].mean()))
             fde_values.append(float(distances[-1][mask[-1]].mean()))
+            if show_progress:
+                iterator.set_postfix(
+                    ade=f"{np.mean(ade_values):.4f}",
+                    fde=f"{np.mean(fde_values):.4f}",
+                    sec=f"{time.perf_counter() - start:.2f}",
+                )
+                print(
+                    "Processed trajectory number: "
+                    f"{batch_idx} out of {len(windows)} "
+                    f"trajectories in time {time.perf_counter() - start:.2f}"
+                )
 
     return EvaluationResult(
         split=split,
@@ -717,6 +745,7 @@ def main() -> None:
         test_data_path=test_data_path,
         max_windows=max_windows,
         seed=seed,
+        show_progress=True,
     )
     record = build_evaluation_record(
         result=result,
