@@ -1,6 +1,6 @@
 """File description: Dataset loading, splitting, sampling, masking, and normalization."""
 
-from config.mabe import (
+from constants import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
     KEYPOINT_NAMES,

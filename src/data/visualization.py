@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib import animation
 from matplotlib.axes import Axes
 
-from config.mabe import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
+from constants import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
 
 MOUSE_COLORS = ("lawngreen", "skyblue", "tomato")
 MOUSE_TRACK_COLORS = ("green", "blue", "red")

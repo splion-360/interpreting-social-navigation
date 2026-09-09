@@ -1,4 +1,4 @@
-"""File description: MABe mouse-triplets dataset constants."""
+"""File description: Shared constants for MABe mouse-triplets experiments."""
 
 FRAME_WIDTH = 850
 FRAME_HEIGHT = 850

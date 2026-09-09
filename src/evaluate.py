@@ -15,7 +15,7 @@ import torch
 import yaml
 from torch import Tensor
 
-from config.mabe import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 from data import (
     MabeDataset,
     MabeWindowDataset,

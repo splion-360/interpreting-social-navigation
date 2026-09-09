@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config.mabe import (
+from constants import (
     COORDINATES,
     DEFAULT_OBSERVATION_LENGTH,
     DEFAULT_PREDICTION_LENGTH,

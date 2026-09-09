@@ -83,7 +83,7 @@ Use folders only when a concern has multiple files or a stable internal API. Sta
 
 Use these current modules:
 
-- `src/config/`: typed experiment and runtime configuration.
+- `src/config/`: YAML experiment, training, and evaluation configuration.
 - `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
 - `src/st_graph.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
 - `src/models/`: flat model now, hierarchical mouse/keypoint models next.
@@ -119,7 +119,7 @@ Training commands should run locally with visible CLI progress. Load default tra
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep dataset and experiment constants in `src/config/`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
+Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep `src/config/` YAML-only; shared Python constants belong in focused modules such as `src/constants.py`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
 
 Use Google-style docstrings for every non-trivial function, class, and method. Keep research code concise: avoid production-grade defensive layers unless they protect a known research invariant, prevent silent data leakage, or make tensor contracts clear. Prefer DRY, SOLID code with focused modules over broad utility files.
 

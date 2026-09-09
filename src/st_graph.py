@@ -7,7 +7,7 @@ from typing import Literal
 
 import numpy as np
 
-from config.mabe import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 
 
 EdgeKind = Literal["temporal", "spatial"]
