@@ -28,10 +28,11 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset
 
 TEST_DATA = repo_root / "data/MaBe/mouse_triplet_test.npy"
-SEQ_ID = None
+SEQ_ID = 20
+
 
 dataset = MabeDataset.from_file(TEST_DATA)
-sequence_id = SEQ_ID or dataset.sequence_ids[0]
+sequence_id = dataset.sequence_ids[SEQ_ID]
 sequence = dataset.sequences[sequence_id]
 
 print("sequence_id:", sequence_id)
@@ -58,11 +59,10 @@ from train import load_flat_fit_config
 TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
 TEST_CONFIG = repo_root / "src/config/test.yml"
 CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
-SEQ_ID = None
+SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
-DEVICE = None  # set to "cpu" or "cuda" to override the train YAML device
-
+DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
 train_config = load_flat_fit_config(TRAIN_CONFIG)
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
