@@ -12,6 +12,8 @@ import evaluate as evaluate_module
 from evaluate import (
     EvaluationResult,
     _build_evaluation_windows,
+    _extreme_pair_cells,
+    _matrix_cell_style,
     build_evaluation_record,
     evaluate_flat_checkpoint,
     load_test_config,
@@ -240,13 +242,46 @@ def test_print_evaluation_metrics_includes_diagnostic_tables(
     output = capsys.readouterr().out
     assert "keypoint_ade_px=1.250000" in output
     assert "Keypoint indices" in output
-    assert "00: nose" in output
+    assert "nose" in output
     assert "body_heading_error_deg_by_mouse" in output
     assert "edge_angle_error_deg_by_mouse" in output
     assert "edge_bone_length_error_px_by_mouse" in output
     assert "mouse_0" in output
     assert "  12.50" in output
     assert "   4.25" in output
+
+
+def test_diagnostic_table_styles_mark_edges_and_extremes() -> None:
+    matrix = np.full((12, 12), np.nan, dtype=np.float32)
+    matrix[0, 1] = 2.0
+    matrix[1, 0] = 2.0
+    matrix[0, 5] = 7.0
+    matrix[5, 0] = 7.0
+    matrix[3, 6] = 1.0
+    matrix[6, 3] = 1.0
+
+    min_cells, max_cells = _extreme_pair_cells(matrix)
+
+    assert min_cells == frozenset(((3, 6), (6, 3)))
+    assert max_cells == frozenset(((0, 5), (5, 0)))
+    assert _matrix_cell_style(
+        row_index=0,
+        column_index=1,
+        min_cells=min_cells,
+        max_cells=max_cells,
+    ) == "black on sky_blue1"
+    assert _matrix_cell_style(
+        row_index=3,
+        column_index=6,
+        min_cells=min_cells,
+        max_cells=max_cells,
+    ) == "bold black on green underline"
+    assert _matrix_cell_style(
+        row_index=0,
+        column_index=5,
+        min_cells=min_cells,
+        max_cells=max_cells,
+    ) == "bold white on red"
 
 
 def test_save_test_prediction_video_uses_requested_output_path(

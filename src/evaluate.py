@@ -14,10 +14,20 @@ from typing import Any, Literal, cast
 import numpy as np
 import torch
 import yaml
+from rich import box
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 from torch import Tensor
 from tqdm.auto import tqdm
 
-from constants import COORDINATES, KEYPOINT_NAMES, NUM_KEYPOINTS, NUM_MICE
+from constants import (
+    COORDINATES,
+    KEYPOINT_NAMES,
+    MOUSE_SKELETON_EDGES,
+    NUM_KEYPOINTS,
+    NUM_MICE,
+)
 from data import (
     MabeDataset,
     MabeWindowDataset,
@@ -50,6 +60,11 @@ TABLE_METRIC_NAMES = (
     "body_heading_error_deg_by_mouse",
     "edge_angle_error_deg_by_mouse",
     "edge_bone_length_error_px_by_mouse",
+)
+SKELETON_EDGE_CELLS = frozenset(
+    (start, end)
+    for edge in MOUSE_SKELETON_EDGES
+    for start, end in (edge, (edge[1], edge[0]))
 )
 
 
@@ -594,77 +609,184 @@ def _array_to_json_list(value: np.ndarray) -> list[Any]:
     return json_value.tolist()
 
 
-def print_evaluation_metrics(metrics: dict[str, Any]) -> None:
+def print_evaluation_metrics(
+    metrics: dict[str, Any],
+    *,
+    console: Console | None = None,
+) -> None:
     """Print scalar metrics and diagnostic tables for the evaluation CLI.
 
     Args:
         metrics: JSON-ready metric dictionary returned by evaluation.
+        console: Optional Rich console for tests or custom render settings.
     """
 
+    output = console or Console()
     for name, value in metrics.items():
         if isinstance(value, int | float):
-            print(f"{name}={value:.6f}")
+            output.print(f"{name}={value:.6f}")
 
     table_metrics = {name: metrics[name] for name in TABLE_METRIC_NAMES if name in metrics}
     if not table_metrics:
         return
 
-    print()
-    print("Keypoint indices")
-    for index, name in enumerate(KEYPOINT_NAMES):
-        print(f"{index:02d}: {name}")
+    output.print()
+    output.print(_keypoint_index_table())
+    output.print()
+    output.print(
+        "[dim]Legend: blue cells = known MABe skeleton edges, "
+        "green = lowest error pair, red = highest error pair, "
+        "underlined = also a known skeleton edge.[/dim]"
+    )
 
     heading = table_metrics.get("body_heading_error_deg_by_mouse")
     if heading is not None:
-        print()
-        print("body_heading_error_deg_by_mouse")
-        print(_format_body_heading_table(heading))
+        output.print()
+        output.print("[bold]body_heading_error_deg_by_mouse[/bold]")
+        output.print(_body_heading_table(heading))
 
     _print_matrix_tables(
+        console=output,
         title="edge_angle_error_deg_by_mouse",
         values=table_metrics.get("edge_angle_error_deg_by_mouse"),
     )
     _print_matrix_tables(
+        console=output,
         title="edge_bone_length_error_px_by_mouse",
         values=table_metrics.get("edge_bone_length_error_px_by_mouse"),
     )
 
 
-def _format_body_heading_table(values: Any) -> str:
-    """Format per-mouse body heading errors as a two-column table."""
+def _keypoint_index_table() -> Table:
+    """Build the keypoint-index legend table for CLI output."""
 
-    rows = ["mouse  error_deg"]
+    table = Table(title="Keypoint indices", box=box.SIMPLE_HEAVY)
+    table.add_column("index", justify="right", style="cyan", no_wrap=True)
+    table.add_column("keypoint", style="white", no_wrap=True)
+    for index, name in enumerate(KEYPOINT_NAMES):
+        table.add_row(f"{index:02d}", name)
+    return table
+
+
+def _body_heading_table(values: Any) -> Table:
+    """Build the per-mouse body heading error table."""
+
+    table = Table(title="body_heading_error_deg_by_mouse", box=box.SIMPLE_HEAVY)
+    table.add_column("mouse", justify="right", style="cyan", no_wrap=True)
+    table.add_column("error_deg", justify="right", no_wrap=True)
     for mouse_index, value in enumerate(np.asarray(values, dtype=np.float32)):
-        rows.append(f"{mouse_index:>5}  {_format_table_value(value):>9}")
-    return "\n".join(rows)
+        table.add_row(str(mouse_index), _format_table_value(value))
+    return table
 
 
-def _print_matrix_tables(*, title: str, values: Any) -> None:
+def _print_matrix_tables(*, console: Console, title: str, values: Any) -> None:
     """Print one dense keypoint-pair matrix per mouse when values are present."""
 
     if values is None:
         return
 
     matrices = np.asarray(values, dtype=np.float32)
-    print()
-    print(title)
+    console.print()
+    console.print(f"[bold]{title}[/bold]")
     for mouse_index, matrix in enumerate(matrices):
-        print()
-        print(f"mouse_{mouse_index}")
-        print(_format_keypoint_matrix_table(matrix))
+        console.print()
+        console.print(_keypoint_matrix_table(matrix, title=f"mouse_{mouse_index}"))
 
 
-def _format_keypoint_matrix_table(matrix: np.ndarray) -> str:
-    """Format one dense `[12, 12]` keypoint-pair matrix for CLI output."""
+def _keypoint_matrix_table(matrix: np.ndarray, *, title: str) -> Table:
+    """Build one dense `[12, 12]` keypoint-pair matrix for CLI output."""
 
-    header = "kp       " + " ".join(
-        f"{index:>7}" for index in (f"{idx:02d}" for idx in range(NUM_KEYPOINTS))
-    )
-    rows = [header]
+    min_cells, max_cells = _extreme_pair_cells(matrix)
+    table = Table(title=title, box=box.SIMPLE_HEAVY, show_lines=False)
+    table.add_column("kp", justify="right", style="cyan", no_wrap=True)
+    for index in range(NUM_KEYPOINTS):
+        table.add_column(f"{index:02d}", justify="right", no_wrap=True)
     for row_index, row in enumerate(matrix):
-        values = " ".join(f"{_format_table_value(value):>7}" for value in row)
-        rows.append(f"{row_index:02d}       {values}")
-    return "\n".join(rows)
+        table.add_row(
+            f"{row_index:02d}",
+            *(
+                _format_matrix_cell(
+                    value,
+                    row_index=row_index,
+                    column_index=column_index,
+                    min_cells=min_cells,
+                    max_cells=max_cells,
+                )
+                for column_index, value in enumerate(row)
+            ),
+        )
+    return table
+
+
+def _format_matrix_cell(
+    value: Any,
+    *,
+    row_index: int,
+    column_index: int,
+    min_cells: frozenset[tuple[int, int]],
+    max_cells: frozenset[tuple[int, int]],
+) -> Text:
+    """Format and style one keypoint-pair metric cell."""
+
+    style = _matrix_cell_style(
+        row_index=row_index,
+        column_index=column_index,
+        min_cells=min_cells,
+        max_cells=max_cells,
+    )
+    return Text(_format_table_value(value), style=style)
+
+
+def _matrix_cell_style(
+    *,
+    row_index: int,
+    column_index: int,
+    min_cells: frozenset[tuple[int, int]],
+    max_cells: frozenset[tuple[int, int]],
+) -> str:
+    """Return the Rich style for one diagnostic matrix cell."""
+
+    if row_index == column_index:
+        return "dim"
+
+    cell = (row_index, column_index)
+    is_skeleton_edge = cell in SKELETON_EDGE_CELLS
+    if cell in max_cells:
+        return "bold white on red underline" if is_skeleton_edge else "bold white on red"
+    if cell in min_cells:
+        return (
+            "bold black on green underline"
+            if is_skeleton_edge
+            else "bold black on green"
+        )
+    if is_skeleton_edge:
+        return "black on sky_blue1"
+    return ""
+
+
+def _extreme_pair_cells(
+    matrix: np.ndarray,
+) -> tuple[frozenset[tuple[int, int]], frozenset[tuple[int, int]]]:
+    """Find symmetric lowest and highest off-diagonal cells in one matrix."""
+
+    upper_mask = np.triu(np.ones(matrix.shape, dtype=bool), k=1) & ~np.isnan(matrix)
+    if not np.any(upper_mask):
+        return frozenset(), frozenset()
+
+    pair_indices = np.argwhere(upper_mask)
+    pair_values = matrix[upper_mask]
+    min_index = int(np.argmin(pair_values))
+    max_index = int(np.argmax(pair_values))
+    min_pair = (int(pair_indices[min_index, 0]), int(pair_indices[min_index, 1]))
+    max_pair = (int(pair_indices[max_index, 0]), int(pair_indices[max_index, 1]))
+    return _symmetric_cells(min_pair), _symmetric_cells(max_pair)
+
+
+def _symmetric_cells(pair: tuple[int, int]) -> frozenset[tuple[int, int]]:
+    """Return both directed cells for an unordered keypoint pair."""
+
+    start, end = pair
+    return frozenset(((start, end), (end, start)))
 
 
 def _format_table_value(value: Any) -> str:
