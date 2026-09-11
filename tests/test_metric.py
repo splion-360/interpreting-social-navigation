@@ -4,10 +4,13 @@ import numpy as np
 
 from constants import MOUSE_SKELETON_EDGES
 from metric import (
+    body_heading_error_deg,
     bone_length_error_px,
     centroid_ade_px,
     centroid_fde_px,
     compute_pixel_metrics,
+    edge_angle_error_matrix_deg,
+    edge_bone_length_error_matrix_px,
     keypoint_ade_px,
     keypoint_fde_px,
     skeleton_edge_vectors,
@@ -35,7 +38,12 @@ def test_pixel_metrics_are_zero_for_perfect_prediction() -> None:
     assert metrics.centroid_fde_px == 0.0
     assert metrics.skeleton_orientation_error_deg == 0.0
     assert metrics.bone_length_error_px == 0.0
+    assert metrics.body_heading_error_deg == 0.0
+    assert metrics.body_heading_error_deg_by_mouse.shape == (1,)
+    assert metrics.edge_angle_error_deg_by_mouse.shape == (1, 12, 12)
+    assert metrics.edge_bone_length_error_px_by_mouse.shape == (1, 12, 12)
     assert metrics.to_dict()["keypoint_ade_px"] == 0.0
+    assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][5] is None
 
 
 def test_translation_affects_trajectory_not_pose_structure() -> None:
@@ -71,6 +79,40 @@ def test_bone_length_error_detects_uniform_scaling() -> None:
     )
 
     np.testing.assert_allclose(bone_length_error_px(predicted, target), expected)
+
+
+def test_edge_bone_length_matrix_identifies_the_distorted_edge() -> None:
+    target = make_pose()
+    predicted = target.copy()
+    predicted[..., 11, 0] += 3.0
+
+    matrix = edge_bone_length_error_matrix_px(predicted, target)
+
+    assert matrix.shape == (1, 12, 12)
+    assert matrix[0, 10, 11] == 3.0
+    assert matrix[0, 11, 10] == 3.0
+    assert np.isnan(matrix[0, 0, 5])
+
+
+def test_edge_angle_matrix_identifies_the_rotated_edge() -> None:
+    target = make_pose()
+    predicted = target.copy()
+    predicted[..., 11, :] = np.array([10.0, 1.0], dtype=np.float32)
+
+    matrix = edge_angle_error_matrix_deg(predicted, target)
+
+    assert matrix.shape == (1, 12, 12)
+    np.testing.assert_allclose(matrix[0, 10, 11], 90.0)
+    np.testing.assert_allclose(matrix[0, 11, 10], 90.0)
+    assert np.isnan(matrix[0, 0, 5])
+
+
+def test_body_heading_error_uses_tail_base_to_neck_axis() -> None:
+    target = make_pose()
+    predicted = target.copy()
+    predicted[..., 3, :] = np.array([9.0, -6.0], dtype=np.float32)
+
+    assert body_heading_error_deg(predicted, target) == 90.0
 
 
 def test_skeleton_edge_vectors_returns_anatomical_edges() -> None:

@@ -101,7 +101,7 @@ class EvaluationResult:
 
     split: str
     windows: int
-    metrics: dict[str, float]
+    metrics: dict[str, Any]
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
@@ -288,7 +288,7 @@ def evaluate_flat_checkpoint(
     if seed is not None:
         generator.manual_seed(seed)
 
-    metric_values: dict[str, list[float]] = {}
+    metric_values: dict[str, list[Any]] = {}
     with torch.no_grad():
         for window in tqdm(windows, desc="Evaluating on test data"):
             rollout = rollout_flat_keypoint_model(
@@ -311,9 +311,7 @@ def evaluate_flat_checkpoint(
     return EvaluationResult(
         split=split,
         windows=len(windows),
-        metrics={
-            name: float(np.mean(values)) for name, values in metric_values.items()
-        },
+        metrics=_aggregate_metric_values(metric_values),
         device=str(device),
         checkpoint_epoch=checkpoint.get("epoch"),
         checkpoint_validation_loss=checkpoint.get("validation_loss"),
@@ -520,7 +518,7 @@ def _window_pixel_metrics(
     window: Window,
     normalizer: PoseNormalizer,
     prediction_length: int,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Compute pixel-space metrics for one evaluated window.
 
     Args:
@@ -542,7 +540,52 @@ def _window_pixel_metrics(
         )
     )
     target_future = normalizer.inverse_transform(window.future_keypoints)
-    return compute_pixel_metrics(predicted_future, target_future).to_dict()
+    return compute_pixel_metrics(predicted_future, target_future).to_numpy_dict()
+
+
+def _aggregate_metric_values(metric_values: dict[str, list[Any]]) -> dict[str, Any]:
+    """Average scalar and array metrics across evaluated windows.
+
+    Args:
+        metric_values: Per-window metric values keyed by metric name.
+
+    Returns:
+        JSON-ready aggregate metrics.
+    """
+
+    aggregates: dict[str, Any] = {}
+    for name, values in metric_values.items():
+        first_value = values[0]
+        if isinstance(first_value, np.ndarray):
+            aggregates[name] = _array_to_json_list(
+                _nanmean_stacked([np.asarray(value) for value in values])
+            )
+        else:
+            aggregates[name] = float(np.mean(values))
+    return aggregates
+
+
+def _nanmean_stacked(values: list[np.ndarray]) -> np.ndarray:
+    """Average same-shaped arrays while preserving all-`nan` positions."""
+
+    stacked = np.stack(values, axis=0)
+    valid = ~np.isnan(stacked)
+    counts = valid.sum(axis=0)
+    sums = np.where(valid, stacked, 0.0).sum(axis=0)
+    return np.divide(
+        sums,
+        counts,
+        out=np.full(sums.shape, np.nan, dtype=np.float32),
+        where=counts > 0,
+    )
+
+
+def _array_to_json_list(value: np.ndarray) -> list[Any]:
+    """Convert arrays with `nan` sentinels into JSON lists with `null`."""
+
+    json_value = value.astype(object)
+    json_value[np.isnan(value)] = None
+    return json_value.tolist()
 
 
 def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
@@ -760,7 +803,11 @@ def log_evaluation_to_wandb(
     )
     run.log(
         {
-            **{f"eval/{name}": value for name, value in record["metrics"].items()},
+            **{
+                f"eval/{name}": value
+                for name, value in record["metrics"].items()
+                if isinstance(value, int | float)
+            },
             "eval/windows": record["windows"],
         }
     )
@@ -910,7 +957,8 @@ def main() -> None:
             run_name=wandb_run_name,
         )
     for name, value in result.metrics.items():
-        print(f"{name}={value:.6f}")
+        if isinstance(value, int | float):
+            print(f"{name}={value:.6f}")
     if not args.no_save_result:
         print(f"result={results_path}")
 
