@@ -57,6 +57,7 @@ KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
 DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
 TABLE_METRIC_NAMES = (
+    "centroid_offset_px_by_mouse",
     "body_heading_error_deg_by_mouse",
     "body_frame_keypoint_error_px_by_mouse",
     "relative_ordering_error_by_mouse_axis",
@@ -66,9 +67,11 @@ TABLE_METRIC_NAMES = (
 PRIMARY_METRIC_NAMES = (
     "centroid_ade_px",
     "centroid_fde_px",
+    "keypoint_ade_px",
+    "keypoint_fde_px",
+    "centroid_x_offset_px",
+    "centroid_y_offset_px",
     "body_heading_error_deg",
-    "body_frame_keypoint_ade_px",
-    "body_frame_keypoint_fde_px",
     "relative_ordering_error",
     "relative_ordering_error_forward",
     "relative_ordering_error_lateral",
@@ -646,10 +649,17 @@ def print_evaluation_metrics(
     output.print(_keypoint_index_table())
     output.print()
     output.print(
-        "[dim]Legend: blue cells = known MABe skeleton edges, "
+        "[dim]Image offsets: positive x = right, positive y = down. "
+        "Pairwise legend: blue cells = known MABe skeleton edges, "
         "green = lowest error pair, red = highest error pair, "
         "underlined = also a known skeleton edge.[/dim]"
     )
+
+    centroid_offsets = table_metrics.get("centroid_offset_px_by_mouse")
+    if centroid_offsets is not None:
+        output.print()
+        output.print("[bold]centroid_offset_px_by_mouse[/bold]")
+        output.print(_centroid_offset_table(centroid_offsets))
 
     heading = table_metrics.get("body_heading_error_deg_by_mouse")
     if heading is not None:
@@ -702,6 +712,19 @@ def _keypoint_index_table() -> Table:
     table.add_column("keypoint", style="white", no_wrap=True)
     for index, name in enumerate(KEYPOINT_NAMES):
         table.add_row(f"{index:02d}", name)
+    return table
+
+
+def _centroid_offset_table(values: Any) -> Table:
+    """Build the per-mouse signed centroid offset table."""
+
+    matrix = np.asarray(values, dtype=np.float32)
+    table = Table(title="centroid_offset_px_by_mouse", box=box.SIMPLE_HEAVY)
+    table.add_column("mouse", justify="right", style="cyan", no_wrap=True)
+    table.add_column("x_px", justify="right", no_wrap=True)
+    table.add_column("y_px", justify="right", no_wrap=True)
+    for mouse_index, row in enumerate(matrix):
+        table.add_row(str(mouse_index), *(_format_table_value(value) for value in row))
     return table
 
 

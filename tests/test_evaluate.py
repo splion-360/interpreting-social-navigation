@@ -234,12 +234,19 @@ def test_print_evaluation_metrics_includes_diagnostic_tables(
         {
             "centroid_ade_px": 1.25,
             "centroid_fde_px": 2.5,
+            "keypoint_ade_px": 1.5,
+            "keypoint_fde_px": 3.0,
+            "centroid_x_offset_px": 4.0,
+            "centroid_y_offset_px": -2.0,
             "body_heading_error_deg": 15.0,
-            "body_frame_keypoint_ade_px": 0.75,
-            "body_frame_keypoint_fde_px": 1.0,
             "relative_ordering_error": 0.125,
             "relative_ordering_error_forward": 0.1,
             "relative_ordering_error_lateral": 0.15,
+            "centroid_offset_px_by_mouse": [
+                [1.0, 2.0],
+                [3.0, -4.0],
+                [5.0, -6.0],
+            ],
             "body_heading_error_deg_by_mouse": [10.0, 20.0, 30.0],
             "body_frame_keypoint_error_px_by_mouse": np.full(
                 (3, 12), 0.75, dtype=np.float32
@@ -257,10 +264,12 @@ def test_print_evaluation_metrics_includes_diagnostic_tables(
     output = capsys.readouterr().out
     assert "Primary evaluation" in output
     assert "centroid_ade_px" in output
-    assert "body_frame_keypoint_ade_px" in output
+    assert "centroid_x_offset_px" in output
+    assert "keypoint_ade_px" in output
     assert "relative_ordering_error" in output
     assert "Keypoint indices" in output
     assert "nose" in output
+    assert "centroid_offset_px_by_mouse" in output
     assert "body_heading_error_deg_by_mouse" in output
     assert "body_frame_keypoint_error_px_by_mouse" in output
     assert "relative_ordering_error_by_mouse_axis" in output

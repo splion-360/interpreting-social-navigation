@@ -35,6 +35,7 @@ def test_plot_pose_frame_can_color_and_label_each_keypoint() -> None:
     assert legend is not None
     assert [text.get_text() for text in legend.get_texts()] == list(KEYPOINT_NAMES)
     assert len(KEYPOINT_COLORS) == len(KEYPOINT_NAMES)
+    assert {text.get_text() for text in ax.texts} == {"0", "1", "2", "p0", "p1", "p2"}
 
     plt.close(fig)
 
@@ -57,6 +58,8 @@ def test_single_mouse_prediction_animation_has_two_zoomed_panels() -> None:
     assert len(axes) == 2
     assert axes[0].get_title() == "Actual (future)"
     assert axes[1].get_title() == "Prediction"
+    assert [text.get_text() for text in axes[0].texts] == ["1"]
+    assert [text.get_text() for text in axes[1].texts] == ["1"]
     assert axes[1].get_legend() is not None
 
     animation_state._draw_was_started = True

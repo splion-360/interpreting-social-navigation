@@ -24,8 +24,9 @@ class PixelMetricBundle:
         keypoint_fde_px: Mean keypoint displacement error at the final frame.
         centroid_ade_px: Mean per-mouse centroid displacement over the horizon.
         centroid_fde_px: Mean per-mouse centroid displacement at the final frame.
-        body_frame_keypoint_ade_px: Mean local-body-frame keypoint error.
-        body_frame_keypoint_fde_px: Final-frame local-body-frame keypoint error.
+        centroid_x_offset_px: Signed mean centroid x-offset in image coordinates.
+        centroid_y_offset_px: Signed mean centroid y-offset in image coordinates.
+        centroid_offset_px_by_mouse: Signed per-mouse centroid offset.
         relative_ordering_error: Mean local-body-frame keypoint ordering error.
         relative_ordering_error_forward: Ordering error along the body axis.
         relative_ordering_error_lateral: Ordering error across the body axis.
@@ -43,8 +44,9 @@ class PixelMetricBundle:
     keypoint_fde_px: float
     centroid_ade_px: float
     centroid_fde_px: float
-    body_frame_keypoint_ade_px: float
-    body_frame_keypoint_fde_px: float
+    centroid_x_offset_px: float
+    centroid_y_offset_px: float
+    centroid_offset_px_by_mouse: np.ndarray
     relative_ordering_error: float
     relative_ordering_error_forward: float
     relative_ordering_error_lateral: float
@@ -73,8 +75,9 @@ class PixelMetricBundle:
             "keypoint_fde_px": self.keypoint_fde_px,
             "centroid_ade_px": self.centroid_ade_px,
             "centroid_fde_px": self.centroid_fde_px,
-            "body_frame_keypoint_ade_px": self.body_frame_keypoint_ade_px,
-            "body_frame_keypoint_fde_px": self.body_frame_keypoint_fde_px,
+            "centroid_x_offset_px": self.centroid_x_offset_px,
+            "centroid_y_offset_px": self.centroid_y_offset_px,
+            "centroid_offset_px_by_mouse": self.centroid_offset_px_by_mouse,
             "relative_ordering_error": self.relative_ordering_error,
             "relative_ordering_error_forward": self.relative_ordering_error_forward,
             "relative_ordering_error_lateral": self.relative_ordering_error_lateral,
@@ -133,13 +136,15 @@ def compute_pixel_metrics(
         target,
         min_edge_length_px=min_edge_length_px,
     )
+    centroid_offsets = centroid_offset_px_by_mouse(predicted, target)
     return PixelMetricBundle(
         keypoint_ade_px=keypoint_ade_px(predicted, target),
         keypoint_fde_px=keypoint_fde_px(predicted, target),
         centroid_ade_px=centroid_ade_px(predicted, target),
         centroid_fde_px=centroid_fde_px(predicted, target),
-        body_frame_keypoint_ade_px=_nanmean(body_frame_errors),
-        body_frame_keypoint_fde_px=_nanmean(body_frame_errors[-1]),
+        centroid_x_offset_px=float(centroid_offsets[:, 0].mean()),
+        centroid_y_offset_px=float(centroid_offsets[:, 1].mean()),
+        centroid_offset_px_by_mouse=centroid_offsets,
         relative_ordering_error=_nanmean(ordering_by_mouse_axis),
         relative_ordering_error_forward=_nanmean(ordering_by_mouse_axis[:, 0]),
         relative_ordering_error_lateral=_nanmean(ordering_by_mouse_axis[:, 1]),
@@ -179,6 +184,25 @@ def centroid_fde_px(predicted: np.ndarray, target: np.ndarray) -> float:
     """Return mean per-mouse centroid displacement on the final predicted frame."""
 
     return float(_centroid_distances(predicted, target)[-1].mean())
+
+
+def centroid_offset_px_by_mouse(
+    predicted: np.ndarray, target: np.ndarray
+) -> np.ndarray:
+    """Return signed centroid offsets for each mouse.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+
+    Returns:
+        Signed offsets shaped `[mice, 2]`. Positive x means right; positive y
+        means down in MABe image coordinates.
+    """
+
+    predicted_centroids = predicted.astype(np.float32).mean(axis=2)
+    target_centroids = target.astype(np.float32).mean(axis=2)
+    return (predicted_centroids - target_centroids).mean(axis=0)
 
 
 def skeleton_orientation_error_deg(

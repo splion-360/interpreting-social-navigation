@@ -9,6 +9,7 @@ from metric import (
     bone_length_error_px,
     centroid_ade_px,
     centroid_fde_px,
+    centroid_offset_px_by_mouse,
     compute_pixel_metrics,
     edge_angle_error_matrix_deg,
     edge_bone_length_error_matrix_px,
@@ -38,8 +39,9 @@ def test_pixel_metrics_are_zero_for_perfect_prediction() -> None:
     assert metrics.keypoint_fde_px == 0.0
     assert metrics.centroid_ade_px == 0.0
     assert metrics.centroid_fde_px == 0.0
-    assert metrics.body_frame_keypoint_ade_px == 0.0
-    assert metrics.body_frame_keypoint_fde_px == 0.0
+    assert metrics.centroid_x_offset_px == 0.0
+    assert metrics.centroid_y_offset_px == 0.0
+    assert metrics.centroid_offset_px_by_mouse.shape == (1, 2)
     assert metrics.relative_ordering_error == 0.0
     assert metrics.relative_ordering_error_forward == 0.0
     assert metrics.relative_ordering_error_lateral == 0.0
@@ -64,6 +66,10 @@ def test_translation_affects_trajectory_and_actual_frame_pose_not_structure() ->
     assert keypoint_fde_px(predicted, target) == 10.0
     assert centroid_ade_px(predicted, target) == 10.0
     assert centroid_fde_px(predicted, target) == 10.0
+    np.testing.assert_allclose(
+        centroid_offset_px_by_mouse(predicted, target),
+        np.array([[10.0, 0.0]], dtype=np.float32),
+    )
     assert skeleton_orientation_error_deg(predicted, target) == 0.0
     assert bone_length_error_px(predicted, target) == 0.0
     assert body_frame_keypoint_errors_px(predicted, target).mean() == 10.0

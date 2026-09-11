@@ -1,0 +1,105 @@
+---
+cwd: ../..
+---
+
+# Evaluation Metrics
+
+This notebook records the current trajectory-evaluation metric suite and the
+reasoning behind each metric. The goal is to avoid one blended score hiding
+different prediction failures.
+
+## Coordinate Convention
+
+The model predicts normalized coordinates during training and inference. Before
+evaluation, predictions and targets are converted back to MABe pixel coordinates.
+All distance metrics below are therefore reported in pixels.
+
+Mouse-local metrics use a body frame built from the actual mouse at the same
+timestep:
+
+```text
+origin = center_back
+forward_axis = normalize(tail_base -> neck)
+lateral_axis = perpendicular(forward_axis)
+```
+
+Using the actual mouse frame asks where the prediction landed relative to the
+ground-truth mouse position and heading.
+
+## Primary Metrics
+
+| Problem | Metric | Range | Better | Reason |
+|---|---:|---:|---:|---|
+| Mouse position over time | `centroid_ade_px` | `[0, inf)` | lower | Tracks global mouse trajectory without over-weighting individual keypoints. |
+| Mouse final position | `centroid_fde_px` | `[0, inf)` | lower | Captures final rollout drift. |
+| Keypoint position over time | `keypoint_ade_px` | `[0, inf)` | lower | Reference metric for full keypoint displacement. |
+| Final keypoint position | `keypoint_fde_px` | `[0, inf)` | lower | Reference metric for final-frame keypoint displacement. |
+| Signed horizontal offset | `centroid_x_offset_px` | `(-inf, inf)` | closer to 0 | Detects left/right centroid bias; positive means right. |
+| Signed vertical offset | `centroid_y_offset_px` | `(-inf, inf)` | closer to 0 | Detects up/down centroid bias; positive means down. |
+| Global body orientation | `body_heading_error_deg` | `[0, 180]` | lower | Checks whether the mouse faces the correct direction. |
+| Semantic keypoint ordering | `relative_ordering_error` | `[0, 1]` | lower | Checks whether keypoints preserve pairwise front/back and side ordering. |
+| Front/back ordering | `relative_ordering_error_forward` | `[0, 1]` | lower | Isolates ordering along the body axis. |
+| Left/right ordering | `relative_ordering_error_lateral` | `[0, 1]` | lower | Isolates ordering across the body axis. |
+
+## Diagnostic Tables
+
+The CLI also prints Rich tables when evaluating a checkpoint:
+
+| Diagnostic | Shape | Reason |
+|---|---:|---|
+| `centroid_offset_px_by_mouse` | `[3, 2]` | Finds signed x/y offset bias for each mouse. |
+| `body_heading_error_deg_by_mouse` | `[3]` | Finds which mouse has orientation error. |
+| `body_frame_keypoint_error_px_by_mouse` | `[3, 12]` | Finds which semantic keypoint is misplaced in the actual mouse frame. |
+| `relative_ordering_error_by_mouse_axis` | `[3, 2]` | Splits ordering failures by mouse and body-frame axis. |
+| `edge_angle_error_deg_by_mouse` | `[3, 12, 12]` | Locates pairwise shape / pose direction errors. |
+| `edge_bone_length_error_px_by_mouse` | `[3, 12, 12]` | Locates body scale, stretching, or collapse errors. |
+
+The pairwise matrices include all off-diagonal keypoint pairs. Diagonal cells are
+ignored because a keypoint has no self-edge length or angle.
+
+## Why These Metrics Are Not Redundant
+
+- Centroid ADE/FDE measures global motion.
+- Signed centroid offset measures directional bias, such as persistent rightward
+  drift, which unsigned ADE/FDE cannot show.
+- Heading error measures global orientation.
+- Relative ordering error measures whether keypoints cross each other
+  semantically, even when distances are small.
+- Bone-length error measures scale and stretch.
+- Edge-angle error measures pairwise pose direction.
+- The per-keypoint body-frame table is diagnostic only. Its scalar ADE/FDE forms
+  are omitted because using the actual mouse frame makes them equivalent to
+  keypoint ADE/FDE under a shared rigid transform.
+
+A model can score well on one and fail another. For example, it can predict the
+right centroid while scrambling nose, ear, and tail ordering.
+
+## Print Current Metric Contract
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+metric_contract = [
+    ("centroid_ade_px", "[0, inf)", "lower", "px"),
+    ("centroid_fde_px", "[0, inf)", "lower", "px"),
+    ("keypoint_ade_px", "[0, inf)", "lower", "px"),
+    ("keypoint_fde_px", "[0, inf)", "lower", "px"),
+    ("centroid_x_offset_px", "(-inf, inf)", "closer to 0", "px"),
+    ("centroid_y_offset_px", "(-inf, inf)", "closer to 0", "px"),
+    ("body_heading_error_deg", "[0, 180]", "lower", "degrees"),
+    ("relative_ordering_error", "[0, 1]", "lower", "fraction"),
+    ("relative_ordering_error_forward", "[0, 1]", "lower", "fraction"),
+    ("relative_ordering_error_lateral", "[0, 1]", "lower", "fraction"),
+]
+
+for name, value_range, better, unit in metric_contract:
+    print(f"{name:36} range={value_range:9} better={better:5} unit={unit}")
+```
+
+## Evaluation Command
+
+```bash {"interpreter":"/bin/bash"}
+python src/evaluate.py \
+  --config src/config/dense_keypoint__train.yml \
+  --test-config src/config/test.yml \
+  --checkpoint checkpoints/dense_keypoint/flat_best.pt \
+  --split test
+```

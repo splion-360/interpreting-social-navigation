@@ -41,6 +41,7 @@ def plot_pose_frame(
     color_by_keypoint: bool = False,
     show_keypoint_legend: bool = False,
     show_all_keypoint_tracks: bool = False,
+    show_mouse_labels: bool = True,
 ) -> None:
     """Plot one frame of mouse-triplets keypoints.
 
@@ -54,6 +55,7 @@ def plot_pose_frame(
         color_by_keypoint: Use stable body-part colors instead of mouse colors.
         show_keypoint_legend: Add a compact legend for the body-part colors.
         show_all_keypoint_tracks: Trail every keypoint, useful for eval videos.
+        show_mouse_labels: Add mouse IDs near each mouse centroid.
     """
 
     ax.set_xlim(0, FRAME_WIDTH)
@@ -111,8 +113,57 @@ def plot_pose_frame(
                     linestyle="--",
                 )
 
+        if show_mouse_labels:
+            _add_mouse_label(ax, mouse_pose, str(mouse_idx), color=color)
+            if predicted_pose is not None:
+                _add_mouse_label(
+                    ax,
+                    predicted_pose[mouse_idx],
+                    f"p{mouse_idx}",
+                    color=color,
+                    predicted=True,
+                )
+
     if show_keypoint_legend:
         _add_keypoint_legend(ax)
+
+
+def _add_mouse_label(
+    ax: Axes,
+    mouse_pose: np.ndarray,
+    label: str,
+    *,
+    color: str,
+    predicted: bool = False,
+) -> None:
+    """Add one mouse ID label near the mouse centroid.
+
+    Args:
+        ax: Matplotlib axes that receives the label.
+        mouse_pose: Mouse keypoints shaped `[12, 2]`.
+        label: Text label to draw.
+        color: Label edge color.
+        predicted: Whether the label marks a predicted mouse.
+    """
+
+    centroid = mouse_pose.mean(axis=0)
+    ax.text(
+        float(centroid[0]),
+        float(centroid[1]),
+        label,
+        color="black",
+        fontsize=8,
+        fontweight="bold",
+        ha="center",
+        va="center",
+        bbox={
+            "boxstyle": "circle,pad=0.25",
+            "facecolor": "white",
+            "edgecolor": color,
+            "alpha": 0.85,
+            "linestyle": "--" if predicted else "-",
+        },
+    )
 
 
 def _add_keypoint_legend(ax: Axes) -> None:
@@ -202,6 +253,7 @@ def animate_single_mouse_prediction_comparison(
             title=f"Actual ({phase})",
             x_limits=x_limits,
             y_limits=y_limits,
+            mouse_label=str(mouse_index),
         )
         _plot_single_mouse_frame(
             rollout_ax,
@@ -212,6 +264,7 @@ def animate_single_mouse_prediction_comparison(
             y_limits=y_limits,
             predicted=frame_idx >= observation_length,
             show_keypoint_legend=True,
+            mouse_label=str(mouse_index),
         )
         fig.suptitle(f"{sequence_id} mouse {mouse_index} frame {frame_idx}")
         return actual_ax, rollout_ax
@@ -231,6 +284,8 @@ def _plot_single_mouse_frame(
     y_limits: tuple[float, float],
     predicted: bool = False,
     show_keypoint_legend: bool = False,
+    show_mouse_label: bool = True,
+    mouse_label: str = "0",
 ) -> None:
     """Plot one mouse frame inside fixed zoom limits.
 
@@ -243,6 +298,8 @@ def _plot_single_mouse_frame(
         y_limits: Zoomed y-axis limits.
         predicted: Draw pose with prediction markers when true.
         show_keypoint_legend: Add keypoint legend to this panel.
+        show_mouse_label: Add the selected mouse ID to this panel.
+        mouse_label: Mouse ID shown near the centroid.
     """
 
     ax.set_xlim(*x_limits)
@@ -266,6 +323,15 @@ def _plot_single_mouse_frame(
             color=KEYPOINT_COLORS[start],
             linewidth=1.2,
             linestyle=line_style,
+        )
+
+    if show_mouse_label:
+        _add_mouse_label(
+            ax,
+            pose,
+            mouse_label,
+            color="black",
+            predicted=predicted,
         )
 
     if show_keypoint_legend:

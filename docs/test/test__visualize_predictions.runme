@@ -145,8 +145,59 @@ print("mouse_index:", MOUSE_INDEX)
 print("video:", result.path)
 ```
 
+## Print Exact-Window Error Profile
+
+Use the same `SEQ_ID`, `WINDOW_INDEX`, and `SEED` as the generated video. This
+prints metrics for the visualized rollout only, not the full sequence average.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from dataclasses import replace
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from evaluate import _sample_test_prediction, load_test_config, print_evaluation_metrics
+from metric import compute_pixel_metrics
+from train import load_flat_fit_config
+
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TEST_CONFIG = repo_root / "src/config/test.yml"
+CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
+SEQ_ID = "07FMZMD2TNPY7W3W48KA"
+WINDOW_INDEX = 0
+SEED = 42
+DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+
+train_config = load_flat_fit_config(TRAIN_CONFIG)
+if DEVICE is not None:
+    train_config = replace(train_config, device=DEVICE)
+test_config = load_test_config(TEST_CONFIG)
+
+window, actual_keypoints, predicted_future = _sample_test_prediction(
+    config=train_config,
+    test_config=test_config,
+    checkpoint_path=CHECKPOINT,
+    sequence_id=SEQ_ID,
+    window_index=WINDOW_INDEX,
+    seed=SEED,
+)
+target_future = actual_keypoints[train_config.observation_length :]
+metrics = compute_pixel_metrics(predicted_future, target_future).to_dict()
+
+print("sequence_id:", window.sequence_id)
+print("window_index:", WINDOW_INDEX)
+print("start_frame:", window.start_frame)
+print("prediction_frames:", predicted_future.shape[0])
+print_evaluation_metrics(metrics)
+```
+
 ## Notes
 
 - The model receives normalized coordinates.
 - The saved video is denormalized back to MABe pixel coordinates.
 - Solid lines/points are ground truth. Dashed `x` markers are sampled predictions for future frames.
+- Mouse labels use `0`, `1`, and `2` for ground truth and `p0`, `p1`, and `p2` for predicted mice in the triplet view.
