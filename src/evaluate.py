@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import torch
@@ -17,7 +17,7 @@ import yaml
 from torch import Tensor
 from tqdm.auto import tqdm
 
-from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from constants import COORDINATES, KEYPOINT_NAMES, NUM_KEYPOINTS, NUM_MICE
 from data import (
     MabeDataset,
     MabeWindowDataset,
@@ -46,6 +46,11 @@ from train import (
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
 DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
+TABLE_METRIC_NAMES = (
+    "body_heading_error_deg_by_mouse",
+    "edge_angle_error_deg_by_mouse",
+    "edge_bone_length_error_px_by_mouse",
+)
 
 
 @dataclass(frozen=True)
@@ -290,7 +295,8 @@ def evaluate_flat_checkpoint(
 
     metric_values: dict[str, list[Any]] = {}
     with torch.no_grad():
-        for window in tqdm(windows, desc="Evaluating on test data"):
+        for window_index in tqdm(range(len(windows)), desc="Evaluating on test data"):
+            window = windows[window_index]
             rollout = rollout_flat_keypoint_model(
                 model=model,
                 observed_keypoints=window.observed_keypoints,
@@ -588,6 +594,90 @@ def _array_to_json_list(value: np.ndarray) -> list[Any]:
     return json_value.tolist()
 
 
+def print_evaluation_metrics(metrics: dict[str, Any]) -> None:
+    """Print scalar metrics and diagnostic tables for the evaluation CLI.
+
+    Args:
+        metrics: JSON-ready metric dictionary returned by evaluation.
+    """
+
+    for name, value in metrics.items():
+        if isinstance(value, int | float):
+            print(f"{name}={value:.6f}")
+
+    table_metrics = {name: metrics[name] for name in TABLE_METRIC_NAMES if name in metrics}
+    if not table_metrics:
+        return
+
+    print()
+    print("Keypoint indices")
+    for index, name in enumerate(KEYPOINT_NAMES):
+        print(f"{index:02d}: {name}")
+
+    heading = table_metrics.get("body_heading_error_deg_by_mouse")
+    if heading is not None:
+        print()
+        print("body_heading_error_deg_by_mouse")
+        print(_format_body_heading_table(heading))
+
+    _print_matrix_tables(
+        title="edge_angle_error_deg_by_mouse",
+        values=table_metrics.get("edge_angle_error_deg_by_mouse"),
+    )
+    _print_matrix_tables(
+        title="edge_bone_length_error_px_by_mouse",
+        values=table_metrics.get("edge_bone_length_error_px_by_mouse"),
+    )
+
+
+def _format_body_heading_table(values: Any) -> str:
+    """Format per-mouse body heading errors as a two-column table."""
+
+    rows = ["mouse  error_deg"]
+    for mouse_index, value in enumerate(np.asarray(values, dtype=np.float32)):
+        rows.append(f"{mouse_index:>5}  {_format_table_value(value):>9}")
+    return "\n".join(rows)
+
+
+def _print_matrix_tables(*, title: str, values: Any) -> None:
+    """Print one sparse keypoint matrix per mouse when values are present."""
+
+    if values is None:
+        return
+
+    matrices = np.asarray(values, dtype=np.float32)
+    print()
+    print(title)
+    for mouse_index, matrix in enumerate(matrices):
+        print()
+        print(f"mouse_{mouse_index}")
+        print(_format_keypoint_matrix_table(matrix))
+
+
+def _format_keypoint_matrix_table(matrix: np.ndarray) -> str:
+    """Format one sparse `[12, 12]` keypoint matrix for CLI output."""
+
+    header = "kp       " + " ".join(
+        f"{index:>7}" for index in (f"{idx:02d}" for idx in range(NUM_KEYPOINTS))
+    )
+    rows = [header]
+    for row_index, row in enumerate(matrix):
+        values = " ".join(f"{_format_table_value(value):>7}" for value in row)
+        rows.append(f"{row_index:02d}       {values}")
+    return "\n".join(rows)
+
+
+def _format_table_value(value: Any) -> str:
+    """Format one metric table cell, using `.` for missing non-edges."""
+
+    if value is None:
+        return "."
+    numeric_value = float(value)
+    if np.isnan(numeric_value):
+        return "."
+    return f"{numeric_value:.2f}"
+
+
 def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
     """Load a trajectory checkpoint across script/module entry points.
 
@@ -599,7 +689,7 @@ def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
         Checkpoint dictionary.
     """
 
-    main_module = sys.modules["__main__"]
+    main_module = cast(Any, sys.modules["__main__"])
     if not hasattr(main_module, "FlatFitConfig"):
         main_module.FlatFitConfig = FlatFitConfig
     return torch.load(path, map_location=device, weights_only=False)
@@ -956,9 +1046,7 @@ def main() -> None:
             project=wandb_project,
             run_name=wandb_run_name,
         )
-    for name, value in result.metrics.items():
-        if isinstance(value, int | float):
-            print(f"{name}={value:.6f}")
+    print_evaluation_metrics(result.metrics)
     if not args.no_save_result:
         print(f"result={results_path}")
 

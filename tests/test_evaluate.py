@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from evaluate import (
     build_evaluation_record,
     evaluate_flat_checkpoint,
     load_test_config,
+    print_evaluation_metrics,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
     save_evaluation_record,
@@ -82,7 +84,7 @@ def test_rollout_reuses_sampled_positions_to_recompute_edges(
 
     monkeypatch.setattr(evaluate_module, "sample_bivariate_gaussian", fake_sample)
     rollout = rollout_flat_keypoint_model(
-        model=IncrementModel(),
+        model=cast(Any, IncrementModel()),
         observed_keypoints=observed,
         prediction_length=2,
         build_graph=build_dense_keypoint_graph,
@@ -214,6 +216,37 @@ def test_build_evaluation_record_tracks_lineage() -> None:
         "bone_length_error_px": 4.0,
     }
     assert record["sampling"] == "bivariate_gaussian"
+
+
+def test_print_evaluation_metrics_includes_diagnostic_tables(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    edge_angle = np.full((3, 12, 12), np.nan, dtype=np.float32)
+    edge_bone = np.full((3, 12, 12), np.nan, dtype=np.float32)
+    edge_angle[:, 0, 1] = 12.5
+    edge_angle[:, 1, 0] = 12.5
+    edge_bone[:, 0, 1] = 4.25
+    edge_bone[:, 1, 0] = 4.25
+
+    print_evaluation_metrics(
+        {
+            "keypoint_ade_px": 1.25,
+            "body_heading_error_deg_by_mouse": [10.0, 20.0, 30.0],
+            "edge_angle_error_deg_by_mouse": edge_angle.tolist(),
+            "edge_bone_length_error_px_by_mouse": edge_bone.tolist(),
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "keypoint_ade_px=1.250000" in output
+    assert "Keypoint indices" in output
+    assert "00: nose" in output
+    assert "body_heading_error_deg_by_mouse" in output
+    assert "edge_angle_error_deg_by_mouse" in output
+    assert "edge_bone_length_error_px_by_mouse" in output
+    assert "mouse_0" in output
+    assert "  12.50" in output
+    assert "   4.25" in output
 
 
 def test_save_test_prediction_video_uses_requested_output_path(
