@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,7 +15,7 @@ import numpy as np
 import torch
 import yaml
 from torch import Tensor
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 from data import (
@@ -208,9 +207,9 @@ def rollout_flat_keypoint_model(
         graph = build_graph(rollout_keypoints[: current_frame + 1])
         with torch.no_grad():
             result = model.forward_with_state(
-                nodes=torch.from_numpy(graph.nodes[current_frame : current_frame + 1]).to(
-                    device
-                ),
+                nodes=torch.from_numpy(
+                    graph.nodes[current_frame : current_frame + 1]
+                ).to(device),
                 edge_features=torch.from_numpy(
                     graph.edge_features[current_frame : current_frame + 1]
                 ).to(device),
@@ -280,7 +279,6 @@ def evaluate_flat_checkpoint(
     model.eval()
     if show_progress:
         print(f"Loaded checkpoint at epoch {checkpoint.get('epoch', 'unknown')}")
-        print(f"Evaluating {len(windows)} {split} windows on {device}")
 
     generator = torch.Generator(device=device)
     if seed is not None:
@@ -288,15 +286,7 @@ def evaluate_flat_checkpoint(
 
     metric_values: dict[str, list[float]] = {}
     with torch.no_grad():
-        iterator = tqdm(
-            windows,
-            total=len(windows),
-            desc=f"evaluate {split}",
-            unit="window",
-            disable=not show_progress,
-        )
-        for batch_idx, window in enumerate(iterator, start=1):
-            start = time.perf_counter()
+        for window in tqdm(windows, desc="Evaluating on test data"):
             rollout = rollout_flat_keypoint_model(
                 model=model,
                 observed_keypoints=window.observed_keypoints,
@@ -313,21 +303,6 @@ def evaluate_flat_checkpoint(
             )
             for name, value in metrics.items():
                 metric_values.setdefault(name, []).append(value)
-            if show_progress:
-                iterator.set_postfix(
-                    keypoint_ade_px=(
-                        f"{np.mean(metric_values['keypoint_ade_px']):.4f}"
-                    ),
-                    keypoint_fde_px=(
-                        f"{np.mean(metric_values['keypoint_fde_px']):.4f}"
-                    ),
-                    sec=f"{time.perf_counter() - start:.2f}",
-                )
-                print(
-                    "Processed trajectory number: "
-                    f"{batch_idx} out of {len(windows)} "
-                    f"trajectories in time {time.perf_counter() - start:.2f}"
-                )
 
     return EvaluationResult(
         split=split,
@@ -598,7 +573,9 @@ def _test_window(
     """Load one deterministic normalized window from the held-out test file."""
 
     test_dataset = MabeDataset.from_file(test_config.data_path)
-    selected_ids = [sequence_id] if sequence_id is not None else test_dataset.sequence_ids
+    selected_ids = (
+        [sequence_id] if sequence_id is not None else test_dataset.sequence_ids
+    )
     windows = MabeWindowDataset(
         test_dataset.select(selected_ids),
         WindowSpec(
@@ -680,10 +657,7 @@ def log_evaluation_to_wandb(
     )
     run.log(
         {
-            **{
-                f"eval/{name}": value
-                for name, value in record["metrics"].items()
-            },
+            **{f"eval/{name}": value for name, value in record["metrics"].items()},
             "eval/windows": record["windows"],
         }
     )
@@ -781,8 +755,10 @@ def main() -> None:
         or args.max_validation_windows
         or (test_config.max_windows if test_config is not None else None)
     )
-    seed = args.seed if args.seed is not None else (
-        test_config.seed if test_config is not None else None
+    seed = (
+        args.seed
+        if args.seed is not None
+        else (test_config.seed if test_config is not None else None)
     )
 
     train_config = load_flat_fit_config(args.config)
@@ -792,7 +768,9 @@ def main() -> None:
         else (test_config.wandb if test_config is not None else False)
     )
     wandb_project = args.wandb_project or (
-        test_config.wandb_project if test_config is not None else train_config.wandb_project
+        test_config.wandb_project
+        if test_config is not None
+        else train_config.wandb_project
     )
     wandb_run_name = args.wandb_run_name or (
         test_config.wandb_run_name if test_config is not None else None
@@ -829,9 +807,6 @@ def main() -> None:
             project=wandb_project,
             run_name=wandb_run_name,
         )
-    print(f"device={result.device}")
-    print(f"split={result.split}")
-    print(f"windows={result.windows}")
     for name, value in result.metrics.items():
         print(f"{name}={value:.6f}")
     if not args.no_save_result:
