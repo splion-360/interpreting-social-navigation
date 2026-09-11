@@ -48,6 +48,7 @@ only-include = [
     "src/data",
     "src/evaluate.py",
     "src/loss.py",
+    "src/metric.py",
     "src/models",
     "src/st_graph.py",
     "src/train.py",
@@ -116,7 +117,16 @@ ignore = [
 [tool.ruff.lint.isort]
 force-single-line = false
 lines-after-imports = 2
-known-first-party = ["config", "data", "loss", "models", "st_graph", "train"]
+known-first-party = [
+    "config",
+    "constants",
+    "data",
+    "loss",
+    "metric",
+    "models",
+    "st_graph",
+    "train",
+]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 known-third-party = [
     "matplotlib",

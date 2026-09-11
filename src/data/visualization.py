@@ -9,26 +9,10 @@ import numpy as np
 from matplotlib import animation
 from matplotlib.axes import Axes
 
-from constants import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES
+from constants import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES, MOUSE_SKELETON_EDGES
 
 MOUSE_COLORS = ("lawngreen", "skyblue", "tomato")
 MOUSE_TRACK_COLORS = ("green", "blue", "red")
-
-MOUSE_SKELETON_EDGES = (
-    (0, 1),
-    (1, 3),
-    (3, 2),
-    (2, 0),
-    (3, 6),
-    (6, 9),
-    (9, 10),
-    (10, 11),
-    (4, 5),
-    (5, 8),
-    (8, 9),
-    (9, 7),
-    (7, 4),
-)
 
 
 def plot_pose_frame(
