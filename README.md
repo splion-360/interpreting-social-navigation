@@ -46,4 +46,4 @@ Held-out MABe test file:
 python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
 ```
 
-Test evaluation uses `src/config/test.yml`, samples future coordinates from the predicted bivariate Gaussian, shows per-window progress, and defaults to 100 windows for faster iteration.
+Test evaluation uses `src/config/test.yml`, samples future coordinates from the predicted bivariate Gaussian, shows per-window progress, defaults to 100 windows, and reports pixel-space trajectory/pose metrics.

@@ -179,8 +179,14 @@ def test_build_evaluation_record_tracks_lineage() -> None:
         result=EvaluationResult(
             split="test",
             windows=5,
-            ade=1.0,
-            fde=2.0,
+            metrics={
+                "keypoint_ade_px": 1.0,
+                "keypoint_fde_px": 2.0,
+                "centroid_ade_px": 0.5,
+                "centroid_fde_px": 1.5,
+                "skeleton_orientation_error_deg": 3.0,
+                "bone_length_error_px": 4.0,
+            },
             device="cpu",
             checkpoint_epoch=50,
             checkpoint_validation_loss=0.5,
@@ -198,7 +204,14 @@ def test_build_evaluation_record_tracks_lineage() -> None:
     assert record["split"] == "test"
     assert record["checkpoint"]["epoch"] == 50
     assert record["model"]["graph_variant"] == "dense_keypoint"
-    assert record["metrics"] == {"ade": 1.0, "fde": 2.0}
+    assert record["metrics"] == {
+        "keypoint_ade_px": 1.0,
+        "keypoint_fde_px": 2.0,
+        "centroid_ade_px": 0.5,
+        "centroid_fde_px": 1.5,
+        "skeleton_orientation_error_deg": 3.0,
+        "bone_length_error_px": 4.0,
+    }
     assert record["sampling"] == "bivariate_gaussian"
 
 

@@ -29,12 +29,12 @@ from data import (
 )
 from data.visualization import animate_prediction_comparison, save_animation
 from loss import gaussian_2d_parameters
+from metric import compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
 from train import (
     FlatFitConfig,
     _graph_builder,
-    _nodes_present_mask,
     _select_device,
     load_flat_fit_config,
 )
@@ -90,8 +90,7 @@ class EvaluationResult:
     Attributes:
         split: Evaluation split name.
         windows: Number of windows evaluated.
-        ade: Average displacement error across predicted frames.
-        fde: Final displacement error on the last predicted frame.
+        metrics: Pixel-space evaluation metrics.
         device: Device used for model inference.
         checkpoint_epoch: Epoch stored in the evaluated checkpoint, if available.
         checkpoint_validation_loss: Validation loss stored in the checkpoint.
@@ -99,8 +98,7 @@ class EvaluationResult:
 
     split: str
     windows: int
-    ade: float
-    fde: float
+    metrics: dict[str, float]
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
@@ -267,7 +265,7 @@ def evaluate_flat_checkpoint(
         raise ValueError("autoregressive keypoint evaluation requires a keypoint graph")
 
     device = _select_device(config.device)
-    windows = _build_evaluation_windows(
+    windows, normalizer = _build_evaluation_data(
         config=config,
         split=split,
         test_data_path=test_data_path,
@@ -288,8 +286,7 @@ def evaluate_flat_checkpoint(
     if seed is not None:
         generator.manual_seed(seed)
 
-    ade_values = []
-    fde_values = []
+    metric_values: dict[str, list[float]] = {}
     with torch.no_grad():
         iterator = tqdm(
             windows,
@@ -308,23 +305,22 @@ def evaluate_flat_checkpoint(
                 device=device,
                 generator=generator,
             )
-            target_graph = build_graph(window.keypoints)
-            mask = _nodes_present_mask(target_graph)[
-                windows.spec.observation_length :
-            ].cpu()
-            prediction = torch.from_numpy(
-                rollout.nodes[windows.spec.observation_length :]
+            metrics = _window_pixel_metrics(
+                rollout=rollout,
+                window=window,
+                normalizer=normalizer,
+                prediction_length=windows.spec.prediction_length,
             )
-            target = torch.from_numpy(
-                target_graph.nodes[windows.spec.observation_length :]
-            )
-            distances = torch.linalg.norm(prediction - target, dim=-1)
-            ade_values.append(float(distances[mask].mean()))
-            fde_values.append(float(distances[-1][mask[-1]].mean()))
+            for name, value in metrics.items():
+                metric_values.setdefault(name, []).append(value)
             if show_progress:
                 iterator.set_postfix(
-                    ade=f"{np.mean(ade_values):.4f}",
-                    fde=f"{np.mean(fde_values):.4f}",
+                    keypoint_ade_px=(
+                        f"{np.mean(metric_values['keypoint_ade_px']):.4f}"
+                    ),
+                    keypoint_fde_px=(
+                        f"{np.mean(metric_values['keypoint_fde_px']):.4f}"
+                    ),
                     sec=f"{time.perf_counter() - start:.2f}",
                 )
                 print(
@@ -336,8 +332,9 @@ def evaluate_flat_checkpoint(
     return EvaluationResult(
         split=split,
         windows=len(windows),
-        ade=float(np.mean(ade_values)),
-        fde=float(np.mean(fde_values)),
+        metrics={
+            name: float(np.mean(values)) for name, values in metric_values.items()
+        },
         device=str(device),
         checkpoint_epoch=checkpoint.get("epoch"),
         checkpoint_validation_loss=checkpoint.get("validation_loss"),
@@ -439,6 +436,37 @@ def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
     return nodes.reshape(NUM_MICE, NUM_KEYPOINTS, COORDINATES).astype(np.float32)
 
 
+def _window_pixel_metrics(
+    *,
+    rollout: RolloutResult,
+    window: Window,
+    normalizer: PoseNormalizer,
+    prediction_length: int,
+) -> dict[str, float]:
+    """Compute pixel-space metrics for one evaluated window.
+
+    Args:
+        rollout: Model rollout over observed and predicted frames.
+        window: Normalized source window with ground-truth future frames.
+        normalizer: Pixel-coordinate normalizer used by the dataloader.
+        prediction_length: Number of predicted future frames.
+
+    Returns:
+        Pixel-space trajectory, pose, and structure metrics.
+    """
+
+    predicted_future = normalizer.inverse_transform(
+        rollout.nodes[-prediction_length:].reshape(
+            prediction_length,
+            NUM_MICE,
+            NUM_KEYPOINTS,
+            COORDINATES,
+        )
+    )
+    target_future = normalizer.inverse_transform(window.future_keypoints)
+    return compute_pixel_metrics(predicted_future, target_future).to_dict()
+
+
 def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
     """Load a trajectory checkpoint across script/module entry points.
 
@@ -475,6 +503,34 @@ def _build_evaluation_windows(
         Window dataset for the requested split.
     """
 
+    windows, _ = _build_evaluation_data(
+        config=config,
+        split=split,
+        test_data_path=test_data_path,
+        max_windows=max_windows,
+    )
+    return windows
+
+
+def _build_evaluation_data(
+    *,
+    config: FlatFitConfig,
+    split: Literal["validation", "test"],
+    test_data_path: Path | None,
+    max_windows: int | None,
+) -> tuple[MabeWindowDataset, PoseNormalizer]:
+    """Build normalized evaluation windows and their fitted normalizer.
+
+    Args:
+        config: Training/evaluation configuration.
+        split: Evaluation split name.
+        test_data_path: Held-out test file used only when `split` is `test`.
+        max_windows: Optional window cap for fast evaluation.
+
+    Returns:
+        Window dataset and train-split-fitted normalizer.
+    """
+
     train_dataset = MabeDataset.from_file(config.data_path)
     train_ids, validation_ids = _training_validation_ids(config, train_dataset)
     normalizer = PoseNormalizer.fit(train_dataset.select(train_ids))
@@ -486,21 +542,27 @@ def _build_evaluation_windows(
     )
 
     if split == "validation":
-        return MabeWindowDataset(
-            train_dataset.select(validation_ids),
-            spec,
-            normalizer=normalizer,
-            max_windows=max_windows or config.max_validation_windows,
+        return (
+            MabeWindowDataset(
+                train_dataset.select(validation_ids),
+                spec,
+                normalizer=normalizer,
+                max_windows=max_windows or config.max_validation_windows,
+            ),
+            normalizer,
         )
 
     if test_data_path is None:
         raise ValueError("test split requires --test-data or --test-config")
     test_dataset = MabeDataset.from_file(test_data_path)
-    return MabeWindowDataset(
-        test_dataset.select(test_dataset.sequence_ids),
-        spec,
-        normalizer=normalizer,
-        max_windows=max_windows,
+    return (
+        MabeWindowDataset(
+            test_dataset.select(test_dataset.sequence_ids),
+            spec,
+            normalizer=normalizer,
+            max_windows=max_windows,
+        ),
+        normalizer,
     )
 
 
@@ -618,8 +680,10 @@ def log_evaluation_to_wandb(
     )
     run.log(
         {
-            "eval/ade": record["metrics"]["ade"],
-            "eval/fde": record["metrics"]["fde"],
+            **{
+                f"eval/{name}": value
+                for name, value in record["metrics"].items()
+            },
             "eval/windows": record["windows"],
         }
     )
@@ -680,8 +744,7 @@ def build_evaluation_record(
             "validation_loss": result.checkpoint_validation_loss,
         },
         "metrics": {
-            "ade": result.ade,
-            "fde": result.fde,
+            **result.metrics,
         },
     }
 
@@ -769,8 +832,8 @@ def main() -> None:
     print(f"device={result.device}")
     print(f"split={result.split}")
     print(f"windows={result.windows}")
-    print(f"ade={result.ade:.6f}")
-    print(f"fde={result.fde:.6f}")
+    for name, value in result.metrics.items():
+        print(f"{name}={value:.6f}")
     if not args.no_save_result:
         print(f"result={results_path}")
 
