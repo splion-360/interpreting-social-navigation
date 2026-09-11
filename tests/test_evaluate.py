@@ -232,18 +232,38 @@ def test_print_evaluation_metrics_includes_diagnostic_tables(
 
     print_evaluation_metrics(
         {
-            "keypoint_ade_px": 1.25,
+            "centroid_ade_px": 1.25,
+            "centroid_fde_px": 2.5,
+            "body_heading_error_deg": 15.0,
+            "body_frame_keypoint_ade_px": 0.75,
+            "body_frame_keypoint_fde_px": 1.0,
+            "relative_ordering_error": 0.125,
+            "relative_ordering_error_forward": 0.1,
+            "relative_ordering_error_lateral": 0.15,
             "body_heading_error_deg_by_mouse": [10.0, 20.0, 30.0],
+            "body_frame_keypoint_error_px_by_mouse": np.full(
+                (3, 12), 0.75, dtype=np.float32
+            ).tolist(),
+            "relative_ordering_error_by_mouse_axis": [
+                [0.1, 0.2],
+                [0.0, 0.3],
+                [0.4, 0.5],
+            ],
             "edge_angle_error_deg_by_mouse": edge_angle.tolist(),
             "edge_bone_length_error_px_by_mouse": edge_bone.tolist(),
         }
     )
 
     output = capsys.readouterr().out
-    assert "keypoint_ade_px=1.250000" in output
+    assert "Primary evaluation" in output
+    assert "centroid_ade_px" in output
+    assert "body_frame_keypoint_ade_px" in output
+    assert "relative_ordering_error" in output
     assert "Keypoint indices" in output
     assert "nose" in output
     assert "body_heading_error_deg_by_mouse" in output
+    assert "body_frame_keypoint_error_px_by_mouse" in output
+    assert "relative_ordering_error_by_mouse_axis" in output
     assert "edge_angle_error_deg_by_mouse" in output
     assert "edge_bone_length_error_px_by_mouse" in output
     assert "mouse_0" in output
@@ -264,24 +284,33 @@ def test_diagnostic_table_styles_mark_edges_and_extremes() -> None:
 
     assert min_cells == frozenset(((3, 6), (6, 3)))
     assert max_cells == frozenset(((0, 5), (5, 0)))
-    assert _matrix_cell_style(
-        row_index=0,
-        column_index=1,
-        min_cells=min_cells,
-        max_cells=max_cells,
-    ) == "black on sky_blue1"
-    assert _matrix_cell_style(
-        row_index=3,
-        column_index=6,
-        min_cells=min_cells,
-        max_cells=max_cells,
-    ) == "bold black on green underline"
-    assert _matrix_cell_style(
-        row_index=0,
-        column_index=5,
-        min_cells=min_cells,
-        max_cells=max_cells,
-    ) == "bold white on red"
+    assert (
+        _matrix_cell_style(
+            row_index=0,
+            column_index=1,
+            min_cells=min_cells,
+            max_cells=max_cells,
+        )
+        == "black on sky_blue1"
+    )
+    assert (
+        _matrix_cell_style(
+            row_index=3,
+            column_index=6,
+            min_cells=min_cells,
+            max_cells=max_cells,
+        )
+        == "bold black on green underline"
+    )
+    assert (
+        _matrix_cell_style(
+            row_index=0,
+            column_index=5,
+            min_cells=min_cells,
+            max_cells=max_cells,
+        )
+        == "bold white on red"
+    )
 
 
 def test_save_test_prediction_video_uses_requested_output_path(

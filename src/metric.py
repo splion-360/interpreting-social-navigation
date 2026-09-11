@@ -11,6 +11,8 @@ from constants import MOUSE_SKELETON_EDGES, NUM_KEYPOINTS
 
 
 BODY_HEADING_EDGE = (9, 3)
+BODY_FRAME_ORIGIN_KEYPOINT = 6
+BODY_FRAME_AXES = ("forward", "lateral")
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,13 @@ class PixelMetricBundle:
         keypoint_fde_px: Mean keypoint displacement error at the final frame.
         centroid_ade_px: Mean per-mouse centroid displacement over the horizon.
         centroid_fde_px: Mean per-mouse centroid displacement at the final frame.
+        body_frame_keypoint_ade_px: Mean local-body-frame keypoint error.
+        body_frame_keypoint_fde_px: Final-frame local-body-frame keypoint error.
+        relative_ordering_error: Mean local-body-frame keypoint ordering error.
+        relative_ordering_error_forward: Ordering error along the body axis.
+        relative_ordering_error_lateral: Ordering error across the body axis.
+        body_frame_keypoint_error_px_by_mouse: Per-mouse/keypoint local pose error.
+        relative_ordering_error_by_mouse_axis: Per-mouse ordering error by axis.
         skeleton_orientation_error_deg: Mean pairwise keypoint angle error in degrees.
         bone_length_error_px: Mean pairwise keypoint distance error in pixels.
         body_heading_error_deg: Mean back-axis heading error in degrees.
@@ -34,6 +43,13 @@ class PixelMetricBundle:
     keypoint_fde_px: float
     centroid_ade_px: float
     centroid_fde_px: float
+    body_frame_keypoint_ade_px: float
+    body_frame_keypoint_fde_px: float
+    relative_ordering_error: float
+    relative_ordering_error_forward: float
+    relative_ordering_error_lateral: float
+    body_frame_keypoint_error_px_by_mouse: np.ndarray
+    relative_ordering_error_by_mouse_axis: np.ndarray
     skeleton_orientation_error_deg: float
     bone_length_error_px: float
     body_heading_error_deg: float
@@ -57,6 +73,17 @@ class PixelMetricBundle:
             "keypoint_fde_px": self.keypoint_fde_px,
             "centroid_ade_px": self.centroid_ade_px,
             "centroid_fde_px": self.centroid_fde_px,
+            "body_frame_keypoint_ade_px": self.body_frame_keypoint_ade_px,
+            "body_frame_keypoint_fde_px": self.body_frame_keypoint_fde_px,
+            "relative_ordering_error": self.relative_ordering_error,
+            "relative_ordering_error_forward": self.relative_ordering_error_forward,
+            "relative_ordering_error_lateral": self.relative_ordering_error_lateral,
+            "body_frame_keypoint_error_px_by_mouse": (
+                self.body_frame_keypoint_error_px_by_mouse
+            ),
+            "relative_ordering_error_by_mouse_axis": (
+                self.relative_ordering_error_by_mouse_axis
+            ),
             "skeleton_orientation_error_deg": self.skeleton_orientation_error_deg,
             "bone_length_error_px": self.bone_length_error_px,
             "body_heading_error_deg": self.body_heading_error_deg,
@@ -96,11 +123,31 @@ def compute_pixel_metrics(
         target,
         min_edge_length_px=min_edge_length_px,
     )
+    body_frame_errors = body_frame_keypoint_errors_px(
+        predicted,
+        target,
+        min_edge_length_px=min_edge_length_px,
+    )
+    ordering_by_mouse_axis = relative_ordering_error_by_mouse_axis(
+        predicted,
+        target,
+        min_edge_length_px=min_edge_length_px,
+    )
     return PixelMetricBundle(
         keypoint_ade_px=keypoint_ade_px(predicted, target),
         keypoint_fde_px=keypoint_fde_px(predicted, target),
         centroid_ade_px=centroid_ade_px(predicted, target),
         centroid_fde_px=centroid_fde_px(predicted, target),
+        body_frame_keypoint_ade_px=_nanmean(body_frame_errors),
+        body_frame_keypoint_fde_px=_nanmean(body_frame_errors[-1]),
+        relative_ordering_error=_nanmean(ordering_by_mouse_axis),
+        relative_ordering_error_forward=_nanmean(ordering_by_mouse_axis[:, 0]),
+        relative_ordering_error_lateral=_nanmean(ordering_by_mouse_axis[:, 1]),
+        body_frame_keypoint_error_px_by_mouse=_nanmean_axis(
+            body_frame_errors,
+            axis=0,
+        ),
+        relative_ordering_error_by_mouse_axis=ordering_by_mouse_axis,
         skeleton_orientation_error_deg=_nanmean(edge_angle_matrix),
         bone_length_error_px=_nanmean(edge_bone_matrix),
         body_heading_error_deg=_nanmean(heading_by_mouse),
@@ -211,7 +258,9 @@ def edge_bone_length_error_matrix_px(
 
     predicted_lengths = np.linalg.norm(_pairwise_keypoint_vectors(predicted), axis=-1)
     target_lengths = np.linalg.norm(_pairwise_keypoint_vectors(target), axis=-1)
-    return _clear_pairwise_diagonal(np.abs(predicted_lengths - target_lengths).mean(axis=0))
+    return _clear_pairwise_diagonal(
+        np.abs(predicted_lengths - target_lengths).mean(axis=0)
+    )
 
 
 def body_heading_error_deg(
@@ -260,9 +309,9 @@ def body_heading_error_deg_by_mouse(
     """
 
     rear_keypoint, front_keypoint = BODY_HEADING_EDGE
-    predicted_vectors = predicted[..., front_keypoint, :] - predicted[
-        ..., rear_keypoint, :
-    ]
+    predicted_vectors = (
+        predicted[..., front_keypoint, :] - predicted[..., rear_keypoint, :]
+    )
     target_vectors = target[..., front_keypoint, :] - target[..., rear_keypoint, :]
     angles = _angle_errors_deg(
         predicted_vectors,
@@ -270,6 +319,125 @@ def body_heading_error_deg_by_mouse(
         min_length_px=min_edge_length_px,
     )
     return _nanmean_axis(angles, axis=0)
+
+
+def body_frame_keypoint_errors_px(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    min_edge_length_px: float = 1.0,
+) -> np.ndarray:
+    """Return keypoint errors in the ground-truth mouse body frame.
+
+    Each predicted mouse and target mouse is expressed in the target mouse's
+    body frame for the same timestep. This measures where predicted semantic
+    keypoints land relative to the actual mouse's position and heading.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        min_edge_length_px: Minimum heading-vector length for a valid body frame.
+
+    Returns:
+        Local pose errors shaped `[time, mice, keypoints]`.
+    """
+
+    predicted_local = body_frame_coordinates(
+        predicted,
+        reference_keypoints=target,
+        min_edge_length_px=min_edge_length_px,
+    )
+    target_local = body_frame_coordinates(target, min_edge_length_px=min_edge_length_px)
+    return np.linalg.norm(predicted_local - target_local, axis=-1)
+
+
+def body_frame_coordinates(
+    keypoints: np.ndarray,
+    *,
+    reference_keypoints: np.ndarray | None = None,
+    min_edge_length_px: float = 1.0,
+) -> np.ndarray:
+    """Express keypoints in each mouse's center-back body frame.
+
+    The origin is the center-back keypoint. The forward axis is the tail-base to
+    neck vector, and the lateral axis is its perpendicular. By default, the
+    frame is built from `keypoints`; pass `reference_keypoints` to project one
+    pose into another pose's body frame.
+
+    Args:
+        keypoints: Pose array shaped `[time, mice, keypoints, 2]`.
+        reference_keypoints: Optional pose array that defines the body frame.
+        min_edge_length_px: Minimum heading-vector length for a valid body frame.
+
+    Returns:
+        Local coordinates shaped `[time, mice, keypoints, 2]`, with invalid body
+        frames marked as `nan`.
+    """
+
+    reference = keypoints if reference_keypoints is None else reference_keypoints
+    origin = reference[..., BODY_FRAME_ORIGIN_KEYPOINT, :]
+    rear_keypoint, front_keypoint = BODY_HEADING_EDGE
+    forward = reference[..., front_keypoint, :] - reference[..., rear_keypoint, :]
+    lengths = np.linalg.norm(forward, axis=-1, keepdims=True)
+    valid = lengths >= min_edge_length_px
+    forward_axis = np.divide(
+        forward,
+        np.maximum(lengths, 1e-8),
+        out=np.zeros_like(forward, dtype=np.float32),
+        where=valid,
+    )
+    lateral_axis = np.stack((-forward_axis[..., 1], forward_axis[..., 0]), axis=-1)
+    centered = keypoints - origin[..., None, :]
+    local = np.stack(
+        (
+            np.sum(centered * forward_axis[..., None, :], axis=-1),
+            np.sum(centered * lateral_axis[..., None, :], axis=-1),
+        ),
+        axis=-1,
+    )
+    return np.where(valid[..., None, :], local, np.nan)
+
+
+def relative_ordering_error_by_mouse_axis(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    min_edge_length_px: float = 1.0,
+) -> np.ndarray:
+    """Return local keypoint ordering violations by mouse and body-frame axis.
+
+    The comparison is frame-specific: the predicted pose and ground-truth pose
+    are both expressed in the ground-truth mouse-local coordinate frame for the
+    same timestep.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        min_edge_length_px: Minimum heading-vector length for a valid body frame.
+
+    Returns:
+        Ordering violation rates shaped `[mice, 2]`, where axis 0 is forward and
+        axis 1 is lateral.
+    """
+
+    predicted_local = body_frame_coordinates(
+        predicted,
+        reference_keypoints=target,
+        min_edge_length_px=min_edge_length_px,
+    )
+    target_local = body_frame_coordinates(target, min_edge_length_px=min_edge_length_px)
+    predicted_order = np.sign(_pairwise_axis_offsets(predicted_local))
+    target_order = np.sign(_pairwise_axis_offsets(target_local))
+    violations = predicted_order != target_order
+    valid = (
+        _off_diagonal_pair_mask()[None, None, :, :, None]
+        & ~np.isnan(predicted_order)
+        & ~np.isnan(target_order)
+    )
+    return _nanmean_axes(
+        np.where(valid, violations.astype(np.float32), np.nan),
+        axes=(0, 2, 3),
+    )
 
 
 def skeleton_edge_vectors(keypoints: np.ndarray) -> np.ndarray:
@@ -300,10 +468,24 @@ def _pairwise_keypoint_vectors(keypoints: np.ndarray) -> np.ndarray:
     return keypoints[:, :, None, :, :] - keypoints[:, :, :, None, :]
 
 
+def _pairwise_axis_offsets(local_keypoints: np.ndarray) -> np.ndarray:
+    """Return keypoint-pair offsets for each local body-frame axis."""
+
+    return local_keypoints[:, :, None, :, :] - local_keypoints[:, :, :, None, :]
+
+
+def _off_diagonal_pair_mask() -> np.ndarray:
+    """Return the valid non-self keypoint-pair mask."""
+
+    return ~np.eye(NUM_KEYPOINTS, dtype=bool)
+
+
 def _keypoint_distances(predicted: np.ndarray, target: np.ndarray) -> np.ndarray:
     """Return Euclidean distances for corresponding keypoints."""
 
-    return np.linalg.norm(predicted.astype(np.float32) - target.astype(np.float32), axis=-1)
+    return np.linalg.norm(
+        predicted.astype(np.float32) - target.astype(np.float32), axis=-1
+    )
 
 
 def _centroid_distances(predicted: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -355,6 +537,20 @@ def _nanmean_axis(values: np.ndarray, *, axis: int) -> np.ndarray:
     valid = ~np.isnan(values)
     counts = valid.sum(axis=axis)
     sums = np.where(valid, values, 0.0).sum(axis=axis)
+    return np.divide(
+        sums,
+        counts,
+        out=np.full(sums.shape, np.nan, dtype=np.float32),
+        where=counts > 0,
+    )
+
+
+def _nanmean_axes(values: np.ndarray, *, axes: tuple[int, ...]) -> np.ndarray:
+    """Return a finite-aware mean along multiple axes."""
+
+    valid = ~np.isnan(values)
+    counts = valid.sum(axis=axes)
+    sums = np.where(valid, values, 0.0).sum(axis=axes)
     return np.divide(
         sums,
         counts,

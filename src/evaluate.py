@@ -58,8 +58,20 @@ DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
 DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
 TABLE_METRIC_NAMES = (
     "body_heading_error_deg_by_mouse",
+    "body_frame_keypoint_error_px_by_mouse",
+    "relative_ordering_error_by_mouse_axis",
     "edge_angle_error_deg_by_mouse",
     "edge_bone_length_error_px_by_mouse",
+)
+PRIMARY_METRIC_NAMES = (
+    "centroid_ade_px",
+    "centroid_fde_px",
+    "body_heading_error_deg",
+    "body_frame_keypoint_ade_px",
+    "body_frame_keypoint_fde_px",
+    "relative_ordering_error",
+    "relative_ordering_error_forward",
+    "relative_ordering_error_lateral",
 )
 SKELETON_EDGE_CELLS = frozenset(
     (start, end)
@@ -622,11 +634,11 @@ def print_evaluation_metrics(
     """
 
     output = console or Console()
-    for name, value in metrics.items():
-        if isinstance(value, int | float):
-            output.print(f"{name}={value:.6f}")
+    output.print(_primary_metrics_table(metrics))
 
-    table_metrics = {name: metrics[name] for name in TABLE_METRIC_NAMES if name in metrics}
+    table_metrics = {
+        name: metrics[name] for name in TABLE_METRIC_NAMES if name in metrics
+    }
     if not table_metrics:
         return
 
@@ -645,6 +657,18 @@ def print_evaluation_metrics(
         output.print("[bold]body_heading_error_deg_by_mouse[/bold]")
         output.print(_body_heading_table(heading))
 
+    local_pose = table_metrics.get("body_frame_keypoint_error_px_by_mouse")
+    if local_pose is not None:
+        output.print()
+        output.print("[bold]body_frame_keypoint_error_px_by_mouse[/bold]")
+        output.print(_mouse_keypoint_table(local_pose, title="local pose error px"))
+
+    ordering = table_metrics.get("relative_ordering_error_by_mouse_axis")
+    if ordering is not None:
+        output.print()
+        output.print("[bold]relative_ordering_error_by_mouse_axis[/bold]")
+        output.print(_relative_ordering_table(ordering))
+
     _print_matrix_tables(
         console=output,
         title="edge_angle_error_deg_by_mouse",
@@ -657,6 +681,19 @@ def print_evaluation_metrics(
     )
 
 
+def _primary_metrics_table(metrics: dict[str, Any]) -> Table:
+    """Build the primary scalar metrics table for CLI output."""
+
+    table = Table(title="Primary evaluation metrics", box=box.SIMPLE_HEAVY)
+    table.add_column("metric", style="cyan", no_wrap=True)
+    table.add_column("value", justify="right", no_wrap=True)
+    for name in PRIMARY_METRIC_NAMES:
+        value = metrics.get(name)
+        if isinstance(value, int | float):
+            table.add_row(name, f"{value:.6f}")
+    return table
+
+
 def _keypoint_index_table() -> Table:
     """Build the keypoint-index legend table for CLI output."""
 
@@ -665,6 +702,35 @@ def _keypoint_index_table() -> Table:
     table.add_column("keypoint", style="white", no_wrap=True)
     for index, name in enumerate(KEYPOINT_NAMES):
         table.add_row(f"{index:02d}", name)
+    return table
+
+
+def _mouse_keypoint_table(values: Any, *, title: str) -> Table:
+    """Build a compact per-mouse, per-keypoint metric table."""
+
+    matrix = np.asarray(values, dtype=np.float32)
+    table = Table(title=title, box=box.SIMPLE_HEAVY)
+    table.add_column("mouse", justify="right", style="cyan", no_wrap=True)
+    for index in range(NUM_KEYPOINTS):
+        table.add_column(f"{index:02d}", justify="right", no_wrap=True)
+    for mouse_index, row in enumerate(matrix):
+        table.add_row(
+            str(mouse_index),
+            *(_format_table_value(value) for value in row),
+        )
+    return table
+
+
+def _relative_ordering_table(values: Any) -> Table:
+    """Build the per-mouse body-frame ordering error table."""
+
+    matrix = np.asarray(values, dtype=np.float32)
+    table = Table(title="relative_ordering_error_by_mouse_axis", box=box.SIMPLE_HEAVY)
+    table.add_column("mouse", justify="right", style="cyan", no_wrap=True)
+    table.add_column("forward", justify="right", no_wrap=True)
+    table.add_column("lateral", justify="right", no_wrap=True)
+    for mouse_index, row in enumerate(matrix):
+        table.add_row(str(mouse_index), *(_format_table_value(value) for value in row))
     return table
 
 
@@ -752,7 +818,9 @@ def _matrix_cell_style(
     cell = (row_index, column_index)
     is_skeleton_edge = cell in SKELETON_EDGE_CELLS
     if cell in max_cells:
-        return "bold white on red underline" if is_skeleton_edge else "bold white on red"
+        return (
+            "bold white on red underline" if is_skeleton_edge else "bold white on red"
+        )
     if cell in min_cells:
         return (
             "bold black on green underline"
