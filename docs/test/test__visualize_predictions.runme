@@ -89,8 +89,14 @@ print("video:", result.path)
 ## Run Inference and Save Zoomed One-Mouse Video
 
 This creates one MP4 with two adjacent panels: the actual mouse on the left and
-the sampled model rollout on the right. Use `MOUSE_INDEX` to inspect a specific
-mouse more closely.
+the sampled model rollout on the right. Use `MOUSE_INDEX` to inspect one mouse
+more closely.
+
+Output path:
+
+```text
+outputs/visualizations/{graph_name}/{seq_id}__mouse_{mouse_index}.mp4
+```
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
