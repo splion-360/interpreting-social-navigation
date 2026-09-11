@@ -145,6 +145,162 @@ def _add_keypoint_legend(ax: Axes) -> None:
     )
 
 
+def animate_single_mouse_prediction_comparison(
+    actual_keypoints: np.ndarray,
+    predicted_future_keypoints: np.ndarray,
+    *,
+    observation_length: int,
+    mouse_index: int,
+    sequence_id: str = "sequence",
+    step: int = 1,
+    interval_ms: int = 100,
+    padding_px: float = 40.0,
+) -> animation.FuncAnimation:
+    """Animate one mouse as adjacent actual and rollout panels.
+
+    Args:
+        actual_keypoints: Ground-truth sequence shaped `[time, 3, 12, 2]`.
+        predicted_future_keypoints: Predicted future shaped `[future, 3, 12, 2]`.
+        observation_length: Number of observed frames before prediction starts.
+        mouse_index: Mouse to visualize.
+        sequence_id: Source sequence label shown in the title.
+        step: Animation frame step.
+        interval_ms: Matplotlib animation interval.
+        padding_px: Extra pixels around the selected mouse trajectory.
+
+    Returns:
+        Matplotlib animation with two adjacent zoomed panels.
+    """
+
+    expected_future = actual_keypoints.shape[0] - observation_length
+    if predicted_future_keypoints.shape[0] != expected_future:
+        raise ValueError("predicted_future_keypoints length must match the future horizon")
+
+    actual_mouse = actual_keypoints[:, mouse_index]
+    predicted_future_mouse = predicted_future_keypoints[:, mouse_index]
+    rollout_mouse = np.concatenate(
+        (actual_mouse[:observation_length], predicted_future_mouse), axis=0
+    )
+    x_limits, y_limits = _mouse_zoom_limits(
+        actual_mouse,
+        predicted_future_mouse,
+        padding_px=padding_px,
+    )
+
+    frame_indices = list(range(0, actual_keypoints.shape[0], step))
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.5))
+
+    def update(frame_idx: int) -> tuple[Axes, Axes]:
+        phase = "observed" if frame_idx < observation_length else "future"
+        actual_ax, rollout_ax = axes
+        actual_ax.clear()
+        rollout_ax.clear()
+        _plot_single_mouse_frame(
+            actual_ax,
+            actual_mouse[frame_idx],
+            track=actual_mouse[: frame_idx + 1],
+            title=f"Actual ({phase})",
+            x_limits=x_limits,
+            y_limits=y_limits,
+        )
+        _plot_single_mouse_frame(
+            rollout_ax,
+            rollout_mouse[frame_idx],
+            track=rollout_mouse[: frame_idx + 1],
+            title="Observed context" if frame_idx < observation_length else "Prediction",
+            x_limits=x_limits,
+            y_limits=y_limits,
+            predicted=frame_idx >= observation_length,
+            show_keypoint_legend=True,
+        )
+        fig.suptitle(f"{sequence_id} mouse {mouse_index} frame {frame_idx}")
+        return actual_ax, rollout_ax
+
+    return animation.FuncAnimation(
+        fig, update, frames=frame_indices, interval=interval_ms, blit=False
+    )
+
+
+def _plot_single_mouse_frame(
+    ax: Axes,
+    pose: np.ndarray,
+    *,
+    track: np.ndarray,
+    title: str,
+    x_limits: tuple[float, float],
+    y_limits: tuple[float, float],
+    predicted: bool = False,
+    show_keypoint_legend: bool = False,
+) -> None:
+    """Plot one mouse frame inside fixed zoom limits.
+
+    Args:
+        ax: Matplotlib axes that receives the mouse frame.
+        pose: Mouse keypoints shaped `[12, 2]`.
+        track: Mouse trajectory history shaped `[time, 12, 2]`.
+        title: Panel title.
+        x_limits: Zoomed x-axis limits.
+        y_limits: Zoomed y-axis limits.
+        predicted: Draw pose with prediction markers when true.
+        show_keypoint_legend: Add keypoint legend to this panel.
+    """
+
+    ax.set_xlim(*x_limits)
+    ax.set_ylim(*y_limits)
+    ax.set_aspect("equal")
+    ax.set_title(title)
+    ax.axis("off")
+
+    for keypoint_idx, color in enumerate(KEYPOINT_COLORS):
+        path = track[:, keypoint_idx]
+        ax.plot(path[:, 0], path[:, 1], color=color, linewidth=0.9, alpha=0.45)
+
+    marker = "x" if predicted else "o"
+    line_style = "--" if predicted else "-"
+    ax.scatter(pose[:, 0], pose[:, 1], s=18, marker=marker, color=KEYPOINT_COLORS)
+    for start, end in MOUSE_SKELETON_EDGES:
+        segment = pose[[start, end]]
+        ax.plot(
+            segment[:, 0],
+            segment[:, 1],
+            color=KEYPOINT_COLORS[start],
+            linewidth=1.2,
+            linestyle=line_style,
+        )
+
+    if show_keypoint_legend:
+        _add_keypoint_legend(ax)
+
+
+def _mouse_zoom_limits(
+    actual_mouse: np.ndarray,
+    predicted_future_mouse: np.ndarray,
+    *,
+    padding_px: float,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Compute fixed zoom limits around one mouse rollout.
+
+    Args:
+        actual_mouse: Ground-truth mouse keypoints shaped `[time, 12, 2]`.
+        predicted_future_mouse: Predicted mouse keypoints shaped `[future, 12, 2]`.
+        padding_px: Extra pixels around the trajectory bounds.
+
+    Returns:
+        x-axis limits and reversed y-axis limits for image coordinates.
+    """
+
+    points = np.concatenate(
+        (actual_mouse.reshape(-1, 2), predicted_future_mouse.reshape(-1, 2)),
+        axis=0,
+    )
+    x_min, y_min = np.min(points, axis=0) - padding_px
+    x_max, y_max = np.max(points, axis=0) + padding_px
+    return (
+        (max(0.0, float(x_min)), min(float(FRAME_WIDTH), float(x_max))),
+        (min(float(FRAME_HEIGHT), float(y_max)), max(0.0, float(y_min))),
+    )
+
+
 def animate_pose_sequence(
     keypoints: np.ndarray,
     *,
@@ -238,6 +394,7 @@ __all__ = [
     "MOUSE_SKELETON_EDGES",
     "animate_pose_sequence",
     "animate_prediction_comparison",
+    "animate_single_mouse_prediction_comparison",
     "plot_pose_frame",
     "save_animation",
 ]

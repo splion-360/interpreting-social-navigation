@@ -26,7 +26,11 @@ from data import (
     WindowSpec,
     split_sequence_ids,
 )
-from data.visualization import animate_prediction_comparison, save_animation
+from data.visualization import (
+    animate_prediction_comparison,
+    animate_single_mouse_prediction_comparison,
+    save_animation,
+)
 from loss import gaussian_2d_parameters
 from metric import compute_pixel_metrics
 from models import FlatSocialAttentionModel
@@ -345,6 +349,120 @@ def save_test_prediction_video(
         Metadata for the saved video.
     """
 
+    window, actual_keypoints, predicted_future = _sample_test_prediction(
+        config=config,
+        test_config=test_config,
+        sequence_id=sequence_id,
+        window_index=window_index,
+        checkpoint_path=checkpoint_path,
+        seed=seed,
+    )
+    animation_obj = animate_prediction_comparison(
+        actual_keypoints=actual_keypoints,
+        predicted_future_keypoints=predicted_future,
+        observation_length=config.observation_length,
+        sequence_id=window.sequence_id,
+        step=1,
+        interval_ms=interval_ms,
+    )
+    output_path = output_root / config.graph_variant / f"{window.sequence_id}.mp4"
+    saved_path = save_animation(animation_obj, output_path, fps=fps)
+    return PredictionVideoResult(
+        path=saved_path,
+        sequence_id=window.sequence_id,
+        start_frame=window.start_frame,
+        graph_variant=config.graph_variant,
+    )
+
+
+def save_single_mouse_prediction_video(
+    *,
+    config: FlatFitConfig,
+    test_config: TestConfig,
+    checkpoint_path: Path,
+    mouse_index: int,
+    sequence_id: str | None = None,
+    window_index: int = 0,
+    output_root: Path = Path("outputs/visualizations"),
+    fps: int = 8,
+    interval_ms: int = 120,
+    seed: int | None = None,
+) -> PredictionVideoResult:
+    """Run test-set inference and save a zoomed one-mouse comparison MP4.
+
+    Args:
+        config: Training configuration that defines the model and graph variant.
+        test_config: Held-out test configuration with the test `.npy` path.
+        checkpoint_path: Local checkpoint containing model weights.
+        mouse_index: Mouse index to visualize, from `0` to `2`.
+        sequence_id: Optional MABe sequence ID. Defaults to the first test sequence.
+        window_index: Deterministic window index within the selected sequence set.
+        output_root: Base output folder. The graph variant is appended.
+        fps: Frames per second for the saved MP4.
+        interval_ms: Matplotlib animation interval.
+        seed: Optional random seed for reproducible Gaussian sampling.
+
+    Returns:
+        Metadata for the saved video.
+    """
+
+    if not 0 <= mouse_index < NUM_MICE:
+        raise ValueError(f"mouse_index must be between 0 and {NUM_MICE - 1}")
+
+    window, actual_keypoints, predicted_future = _sample_test_prediction(
+        config=config,
+        test_config=test_config,
+        sequence_id=sequence_id,
+        window_index=window_index,
+        checkpoint_path=checkpoint_path,
+        seed=seed,
+    )
+    animation_obj = animate_single_mouse_prediction_comparison(
+        actual_keypoints=actual_keypoints,
+        predicted_future_keypoints=predicted_future,
+        observation_length=config.observation_length,
+        mouse_index=mouse_index,
+        sequence_id=window.sequence_id,
+        step=1,
+        interval_ms=interval_ms,
+    )
+    output_path = (
+        output_root
+        / config.graph_variant
+        / f"{window.sequence_id}__mouse_{mouse_index}.mp4"
+    )
+    saved_path = save_animation(animation_obj, output_path, fps=fps)
+    return PredictionVideoResult(
+        path=saved_path,
+        sequence_id=window.sequence_id,
+        start_frame=window.start_frame,
+        graph_variant=config.graph_variant,
+    )
+
+
+def _sample_test_prediction(
+    *,
+    config: FlatFitConfig,
+    test_config: TestConfig,
+    sequence_id: str | None,
+    window_index: int,
+    checkpoint_path: Path,
+    seed: int | None,
+) -> tuple[Window, np.ndarray, np.ndarray]:
+    """Sample one normalized test window and return pixel-space prediction arrays.
+
+    Args:
+        config: Training configuration that defines the model and graph variant.
+        test_config: Held-out test configuration with the test `.npy` path.
+        sequence_id: Optional MABe sequence ID.
+        window_index: Deterministic window index within the selected sequence set.
+        checkpoint_path: Local checkpoint containing model weights.
+        seed: Optional random seed for reproducible Gaussian sampling.
+
+    Returns:
+        Source window, actual keypoints, and predicted future in pixel coordinates.
+    """
+
     if config.graph_variant not in KEYPOINT_GRAPH_VARIANTS:
         raise ValueError("prediction videos require a keypoint graph")
 
@@ -387,22 +505,7 @@ def save_test_prediction_video(
             COORDINATES,
         )
     )
-    animation_obj = animate_prediction_comparison(
-        actual_keypoints=actual_keypoints,
-        predicted_future_keypoints=predicted_future,
-        observation_length=config.observation_length,
-        sequence_id=window.sequence_id,
-        step=1,
-        interval_ms=interval_ms,
-    )
-    output_path = output_root / config.graph_variant / f"{window.sequence_id}.mp4"
-    saved_path = save_animation(animation_obj, output_path, fps=fps)
-    return PredictionVideoResult(
-        path=saved_path,
-        sequence_id=window.sequence_id,
-        start_frame=window.start_frame,
-        graph_variant=config.graph_variant,
-    )
+    return window, actual_keypoints, predicted_future
 
 
 def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:

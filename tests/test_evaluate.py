@@ -17,6 +17,7 @@ from evaluate import (
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
     save_evaluation_record,
+    save_single_mouse_prediction_video,
     save_test_prediction_video,
 )
 from models import FlatSocialAttentionModel
@@ -285,6 +286,82 @@ def test_save_test_prediction_video_uses_requested_output_path(
     assert saved["actual_shape"] == (20, 3, 12, 2)
     assert saved["predicted_shape"] == (12, 3, 12, 2)
     assert saved["observation_length"] == 8
+
+
+def test_save_single_mouse_prediction_video_uses_mouse_output_path(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    train_path = tmp_path / "mouse_triplet_train.npy"
+    test_path = tmp_path / "mouse_triplet_test.npy"
+    checkpoint_path = tmp_path / "flat_best.pt"
+    output_root = tmp_path / "outputs" / "visualizations"
+    write_mabe_file(train_path, sequence_prefix="train")
+    write_mabe_file(test_path, sequence_prefix="test", sequences=1)
+    model = FlatSocialAttentionModel()
+    torch.save({"model_state_dict": model.state_dict(), "epoch": 50}, checkpoint_path)
+
+    saved = {}
+
+    def fake_animate_single_mouse_prediction_comparison(
+        actual_keypoints,
+        predicted_future_keypoints,
+        *,
+        observation_length,
+        mouse_index,
+        sequence_id,
+        step,
+        interval_ms,
+    ):
+        saved["actual_shape"] = actual_keypoints.shape
+        saved["predicted_shape"] = predicted_future_keypoints.shape
+        saved["observation_length"] = observation_length
+        saved["mouse_index"] = mouse_index
+        saved["sequence_id"] = sequence_id
+        saved["interval_ms"] = interval_ms
+        return object()
+
+    def fake_save_animation(animation_obj, path, fps):
+        del animation_obj
+        saved["path"] = Path(path)
+        saved["fps"] = fps
+        return Path(path)
+
+    monkeypatch.setattr(
+        evaluate_module,
+        "animate_single_mouse_prediction_comparison",
+        fake_animate_single_mouse_prediction_comparison,
+    )
+    monkeypatch.setattr(evaluate_module, "save_animation", fake_save_animation)
+
+    result = save_single_mouse_prediction_video(
+        config=FlatFitConfig(
+            data_path=train_path,
+            graph_variant="dense_keypoint",
+            device="cpu",
+            window_length=20,
+            observation_length=8,
+            prediction_length=12,
+            stride=20,
+        ),
+        test_config=evaluate_module.TestConfig(data_path=test_path),
+        checkpoint_path=checkpoint_path,
+        mouse_index=1,
+        sequence_id="test_0",
+        output_root=output_root,
+        fps=6,
+        seed=1,
+    )
+
+    assert result.path == output_root / "dense_keypoint" / "test_0__mouse_1.mp4"
+    assert result.sequence_id == "test_0"
+    assert result.start_frame == 0
+    assert saved["path"] == result.path
+    assert saved["fps"] == 6
+    assert saved["actual_shape"] == (20, 3, 12, 2)
+    assert saved["predicted_shape"] == (12, 3, 12, 2)
+    assert saved["observation_length"] == 8
+    assert saved["mouse_index"] == 1
 
 
 def test_mouse_level_checkpoint_evaluation_requires_decoder(tmp_path) -> None:

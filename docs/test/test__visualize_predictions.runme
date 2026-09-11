@@ -86,6 +86,59 @@ print("graph:", result.graph_variant)
 print("video:", result.path)
 ```
 
+## Run Inference and Save Zoomed One-Mouse Video
+
+This creates one MP4 with two adjacent panels: the actual mouse on the left and
+the sampled model rollout on the right. Use `MOUSE_INDEX` to inspect a specific
+mouse more closely.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from dataclasses import replace
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from evaluate import load_test_config, save_single_mouse_prediction_video
+from train import load_flat_fit_config
+
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TEST_CONFIG = repo_root / "src/config/test.yml"
+CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
+SEQ_ID = "07FMZMD2TNPY7W3W48KA"
+WINDOW_INDEX = 0
+MOUSE_INDEX = 0
+SEED = 42
+DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+
+train_config = load_flat_fit_config(TRAIN_CONFIG)
+if DEVICE is not None:
+    train_config = replace(train_config, device=DEVICE)
+test_config = load_test_config(TEST_CONFIG)
+
+result = save_single_mouse_prediction_video(
+    config=train_config,
+    test_config=test_config,
+    checkpoint_path=CHECKPOINT,
+    mouse_index=MOUSE_INDEX,
+    sequence_id=SEQ_ID,
+    window_index=WINDOW_INDEX,
+    output_root=repo_root / "outputs/visualizations",
+    fps=8,
+    interval_ms=120,
+    seed=SEED,
+)
+
+print("sequence_id:", result.sequence_id)
+print("start_frame:", result.start_frame)
+print("graph:", result.graph_variant)
+print("mouse_index:", MOUSE_INDEX)
+print("video:", result.path)
+```
+
 ## Notes
 
 - The model receives normalized coordinates.
