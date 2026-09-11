@@ -52,7 +52,7 @@ class TestConfig:
         data_path: Path to the held-out MABe test file.
         results_path: Local JSONL ledger for evaluation records.
         max_windows: Optional cap on test windows.
-        seed: Optional sampling seed.
+        seed: Sampling seed.
         wandb: Whether to log evaluation metrics to W&B.
         wandb_project: W&B project for evaluation logging.
         wandb_run_name: Optional W&B run name for evaluation logging.
@@ -61,7 +61,7 @@ class TestConfig:
     data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
     results_path: Path = DEFAULT_RESULTS_PATH
     max_windows: int | None = 100
-    seed: int | None = None
+    seed: int = 42
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
     wandb_run_name: str | None = None
@@ -755,13 +755,12 @@ def main() -> None:
         or args.max_validation_windows
         or (test_config.max_windows if test_config is not None else None)
     )
+    train_config = load_flat_fit_config(args.config)
     seed = (
         args.seed
         if args.seed is not None
-        else (test_config.seed if test_config is not None else None)
+        else (test_config.seed if test_config is not None else train_config.seed)
     )
-
-    train_config = load_flat_fit_config(args.config)
     wandb_enabled = (
         args.wandb
         if args.wandb is not None
