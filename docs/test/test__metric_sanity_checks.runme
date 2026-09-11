@@ -1,0 +1,92 @@
+---
+cwd: ../..
+---
+
+# Metric Sanity Checks
+
+These checks verify what the pixel-space metrics measure before using them on model outputs.
+
+MABe mouse-triplet coordinates are reported in pixels. We are not reporting cm/m because this dataset release does not provide a reliable arena-scale conversion for these `.npy` files.
+
+## Perfect Prediction
+
+Expected:
+
+- all errors are zero
+
+## Pure Translation
+
+Expected:
+
+- keypoint and centroid trajectory errors are non-zero
+- skeleton orientation error is zero
+- bone-length error is zero
+
+## Pure Rotation
+
+Expected:
+
+- skeleton orientation error is about 90 degrees
+- bone-length error is zero
+
+## Uniform Scaling
+
+Expected:
+
+- bone-length error is non-zero
+- skeleton orientation error is zero
+
+## Collapsed Edge
+
+Expected:
+
+- collapsed predicted edges are excluded from orientation error
+- bone-length error still increases because the body geometry collapsed
+
+## Run Sanity Checks
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pathlib import Path
+import sys
+
+import numpy as np
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+sys.path.insert(0, str(repo_root / "src"))
+
+from metric import compute_pixel_metrics
+
+
+def base_pose() -> np.ndarray:
+    pose = np.zeros((1, 1, 12, 2), dtype=np.float32)
+    for keypoint_idx in range(12):
+        pose[0, 0, keypoint_idx] = np.array([keypoint_idx, 0], dtype=np.float32)
+    return pose
+
+
+def print_metrics(case: str, predicted: np.ndarray, target: np.ndarray) -> None:
+    metrics = compute_pixel_metrics(predicted, target).to_dict()
+    print(f"\n{case}")
+    for name, value in metrics.items():
+        print(f"  {name}: {value:.4f}")
+
+
+target = base_pose()
+
+print_metrics("perfect prediction", target.copy(), target)
+
+translated = target + np.array([10, 0], dtype=np.float32)
+print_metrics("pure translation by 10 px", translated, target)
+
+rotated = np.zeros_like(target)
+rotated[..., 0] = -target[..., 1]
+rotated[..., 1] = target[..., 0]
+print_metrics("pure 90 degree rotation around origin", rotated, target)
+
+scaled = target * 2.0
+print_metrics("uniform 2x scaling", scaled, target)
+
+collapsed = target.copy()
+collapsed[..., :] = collapsed[..., 0:1, :]
+print_metrics("collapsed predicted skeleton", collapsed, target)
+```
