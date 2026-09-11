@@ -22,12 +22,12 @@ class PixelMetricBundle:
         keypoint_fde_px: Mean keypoint displacement error at the final frame.
         centroid_ade_px: Mean per-mouse centroid displacement over the horizon.
         centroid_fde_px: Mean per-mouse centroid displacement at the final frame.
-        skeleton_orientation_error_deg: Mean anatomical edge angle error in degrees.
-        bone_length_error_px: Mean anatomical edge length error in pixels.
+        skeleton_orientation_error_deg: Mean pairwise keypoint angle error in degrees.
+        bone_length_error_px: Mean pairwise keypoint distance error in pixels.
         body_heading_error_deg: Mean back-axis heading error in degrees.
         body_heading_error_deg_by_mouse: Per-mouse back-axis heading error.
-        edge_angle_error_deg_by_mouse: Sparse per-mouse edge angle matrices.
-        edge_bone_length_error_px_by_mouse: Sparse per-mouse bone error matrices.
+        edge_angle_error_deg_by_mouse: Dense per-mouse pairwise angle matrices.
+        edge_bone_length_error_px_by_mouse: Dense per-mouse pairwise distance matrices.
     """
 
     keypoint_ade_px: float
@@ -140,7 +140,7 @@ def skeleton_orientation_error_deg(
     *,
     min_edge_length_px: float = 1.0,
 ) -> float:
-    """Return mean angle error across anatomical skeleton edge vectors.
+    """Return mean angle error across all keypoint-pair vectors.
 
     Args:
         predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
@@ -161,7 +161,7 @@ def skeleton_orientation_error_deg(
 
 
 def bone_length_error_px(predicted: np.ndarray, target: np.ndarray) -> float:
-    """Return mean anatomical edge length error in pixels."""
+    """Return mean pairwise keypoint distance error in pixels."""
 
     return _nanmean(edge_bone_length_error_matrix_px(predicted, target))
 
@@ -172,48 +172,46 @@ def edge_angle_error_matrix_deg(
     *,
     min_edge_length_px: float = 1.0,
 ) -> np.ndarray:
-    """Return per-mouse anatomical edge angle error matrices.
+    """Return per-mouse pairwise keypoint angle error matrices.
 
     Args:
         predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
         target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
-        min_edge_length_px: Minimum true/predicted edge length included.
+        min_edge_length_px: Minimum true/predicted pair length included.
 
     Returns:
-        Sparse angle matrices shaped `[3, 12, 12]`. Anatomical edges are
-        populated symmetrically; non-edges and diagonals are `nan`.
+        Dense angle matrices shaped `[3, 12, 12]`. Every off-diagonal keypoint
+        pair is populated; diagonals are `nan`.
     """
 
-    predicted_vectors = skeleton_edge_vectors(predicted)
-    target_vectors = skeleton_edge_vectors(target)
+    predicted_vectors = _pairwise_keypoint_vectors(predicted)
+    target_vectors = _pairwise_keypoint_vectors(target)
     angles = _angle_errors_deg(
         predicted_vectors,
         target_vectors,
         min_length_px=min_edge_length_px,
     )
-    edge_means = _nanmean_axis(angles, axis=0)
-    return _edge_values_to_sparse_matrix(edge_means)
+    return _clear_pairwise_diagonal(_nanmean_axis(angles, axis=0))
 
 
 def edge_bone_length_error_matrix_px(
     predicted: np.ndarray,
     target: np.ndarray,
 ) -> np.ndarray:
-    """Return per-mouse anatomical edge length error matrices.
+    """Return per-mouse pairwise keypoint distance error matrices.
 
     Args:
         predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
         target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
 
     Returns:
-        Sparse bone-length matrices shaped `[3, 12, 12]`. Anatomical edges are
-        populated symmetrically; non-edges and diagonals are `nan`.
+        Dense distance-error matrices shaped `[3, 12, 12]`. Every off-diagonal
+        keypoint pair is populated; diagonals are `nan`.
     """
 
-    predicted_lengths = np.linalg.norm(skeleton_edge_vectors(predicted), axis=-1)
-    target_lengths = np.linalg.norm(skeleton_edge_vectors(target), axis=-1)
-    edge_means = np.abs(predicted_lengths - target_lengths).mean(axis=0)
-    return _edge_values_to_sparse_matrix(edge_means)
+    predicted_lengths = np.linalg.norm(_pairwise_keypoint_vectors(predicted), axis=-1)
+    target_lengths = np.linalg.norm(_pairwise_keypoint_vectors(target), axis=-1)
+    return _clear_pairwise_diagonal(np.abs(predicted_lengths - target_lengths).mean(axis=0))
 
 
 def body_heading_error_deg(
@@ -288,6 +286,20 @@ def skeleton_edge_vectors(keypoints: np.ndarray) -> np.ndarray:
     return keypoints[..., ends, :] - keypoints[..., starts, :]
 
 
+def _pairwise_keypoint_vectors(keypoints: np.ndarray) -> np.ndarray:
+    """Return every within-mouse keypoint-pair vector.
+
+    Args:
+        keypoints: Pose array shaped `[time, mice, keypoints, 2]`.
+
+    Returns:
+        Pairwise vectors shaped `[time, mice, keypoints, keypoints, 2]`, where
+        each cell `[i, j]` stores the vector from keypoint `i` to keypoint `j`.
+    """
+
+    return keypoints[:, :, None, :, :] - keypoints[:, :, :, None, :]
+
+
 def _keypoint_distances(predicted: np.ndarray, target: np.ndarray) -> np.ndarray:
     """Return Euclidean distances for corresponding keypoints."""
 
@@ -319,18 +331,13 @@ def _angle_errors_deg(
     return np.where(valid, angles, np.nan)
 
 
-def _edge_values_to_sparse_matrix(edge_values: np.ndarray) -> np.ndarray:
-    """Map per-edge values into symmetric `[mice, 12, 12]` matrices."""
+def _clear_pairwise_diagonal(matrix: np.ndarray) -> np.ndarray:
+    """Mark same-keypoint pairwise entries as `nan`."""
 
-    matrix = np.full(
-        (edge_values.shape[0], NUM_KEYPOINTS, NUM_KEYPOINTS),
-        np.nan,
-        dtype=np.float32,
-    )
-    for edge_idx, (start, end) in enumerate(MOUSE_SKELETON_EDGES):
-        matrix[:, start, end] = edge_values[:, edge_idx]
-        matrix[:, end, start] = edge_values[:, edge_idx]
-    return matrix
+    cleared = matrix.astype(np.float32, copy=True)
+    keypoint_indices = np.arange(NUM_KEYPOINTS)
+    cleared[:, keypoint_indices, keypoint_indices] = np.nan
+    return cleared
 
 
 def _nanmean(values: np.ndarray) -> float:

@@ -640,7 +640,7 @@ def _format_body_heading_table(values: Any) -> str:
 
 
 def _print_matrix_tables(*, title: str, values: Any) -> None:
-    """Print one sparse keypoint matrix per mouse when values are present."""
+    """Print one dense keypoint-pair matrix per mouse when values are present."""
 
     if values is None:
         return
@@ -655,7 +655,7 @@ def _print_matrix_tables(*, title: str, values: Any) -> None:
 
 
 def _format_keypoint_matrix_table(matrix: np.ndarray) -> str:
-    """Format one sparse `[12, 12]` keypoint matrix for CLI output."""
+    """Format one dense `[12, 12]` keypoint-pair matrix for CLI output."""
 
     header = "kp       " + " ".join(
         f"{index:>7}" for index in (f"{idx:02d}" for idx in range(NUM_KEYPOINTS))
@@ -668,7 +668,7 @@ def _format_keypoint_matrix_table(matrix: np.ndarray) -> str:
 
 
 def _format_table_value(value: Any) -> str:
-    """Format one metric table cell, using `.` for missing non-edges."""
+    """Format one metric table cell, using `.` for same-keypoint entries."""
 
     if value is None:
         return "."

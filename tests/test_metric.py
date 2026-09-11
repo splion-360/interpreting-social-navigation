@@ -43,7 +43,8 @@ def test_pixel_metrics_are_zero_for_perfect_prediction() -> None:
     assert metrics.edge_angle_error_deg_by_mouse.shape == (1, 12, 12)
     assert metrics.edge_bone_length_error_px_by_mouse.shape == (1, 12, 12)
     assert metrics.to_dict()["keypoint_ade_px"] == 0.0
-    assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][5] is None
+    assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][0] is None
+    assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][5] == 0.0
 
 
 def test_translation_affects_trajectory_not_pose_structure() -> None:
@@ -73,15 +74,16 @@ def test_bone_length_error_detects_uniform_scaling() -> None:
     predicted = target * 2.0
     expected = np.mean(
         [
-            abs((end - start) * 2.0 - (end - start))
-            for start, end in MOUSE_SKELETON_EDGES
+            abs(pair_distance * 2.0 - pair_distance)
+            for pair_distance in range(1, 12)
+            for _ in range(2 * (12 - pair_distance))
         ]
     )
 
     np.testing.assert_allclose(bone_length_error_px(predicted, target), expected)
 
 
-def test_edge_bone_length_matrix_identifies_the_distorted_edge() -> None:
+def test_edge_bone_length_matrix_reports_all_keypoint_pairs() -> None:
     target = make_pose()
     predicted = target.copy()
     predicted[..., 11, 0] += 3.0
@@ -91,10 +93,11 @@ def test_edge_bone_length_matrix_identifies_the_distorted_edge() -> None:
     assert matrix.shape == (1, 12, 12)
     assert matrix[0, 10, 11] == 3.0
     assert matrix[0, 11, 10] == 3.0
-    assert np.isnan(matrix[0, 0, 5])
+    assert matrix[0, 0, 5] == 0.0
+    assert np.isnan(matrix[0, 0, 0])
 
 
-def test_edge_angle_matrix_identifies_the_rotated_edge() -> None:
+def test_edge_angle_matrix_reports_all_keypoint_pairs() -> None:
     target = make_pose()
     predicted = target.copy()
     predicted[..., 11, :] = np.array([10.0, 1.0], dtype=np.float32)
@@ -104,7 +107,8 @@ def test_edge_angle_matrix_identifies_the_rotated_edge() -> None:
     assert matrix.shape == (1, 12, 12)
     np.testing.assert_allclose(matrix[0, 10, 11], 90.0)
     np.testing.assert_allclose(matrix[0, 11, 10], 90.0)
-    assert np.isnan(matrix[0, 0, 5])
+    assert matrix[0, 0, 5] == 0.0
+    assert np.isnan(matrix[0, 0, 0])
 
 
 def test_body_heading_error_uses_tail_base_to_neck_axis() -> None:
