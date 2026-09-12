@@ -1,0 +1,88 @@
+---
+cwd: ../..
+---
+
+# Test Motion Baselines
+
+Evaluate deterministic non-training baselines on the held-out MABe test windows.
+These numbers are the floor that trained trajectory models should beat.
+
+## Run Baseline Evaluation
+
+This cell evaluates persistence, rigid constant velocity, and per-keypoint
+constant velocity with the same pixel-space metric suite used for checkpoint
+evaluation.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from evaluate import (
+    build_baseline_evaluation_record,
+    evaluate_motion_baselines,
+    load_motion_baseline_config,
+    load_test_config,
+    print_evaluation_metrics,
+    save_evaluation_record,
+)
+from train import load_flat_fit_config
+
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+BASELINE_CONFIG = repo_root / "src/config/motion_baselines__evaluate.yml"
+TEST_CONFIG = repo_root / "src/config/test.yml"
+SPLIT = "test"
+MAX_WINDOWS = None  # use test.yml; set a small integer for faster iteration
+
+train_config = load_flat_fit_config(TRAIN_CONFIG)
+baseline_config = load_motion_baseline_config(BASELINE_CONFIG)
+test_config = load_test_config(TEST_CONFIG)
+max_windows = MAX_WINDOWS if MAX_WINDOWS is not None else test_config.max_windows
+
+results = evaluate_motion_baselines(
+    train_config=train_config,
+    baseline_config=baseline_config,
+    split=SPLIT,
+    test_data_path=test_config.data_path,
+    max_windows=max_windows,
+    show_progress=True,
+)
+
+for result in results:
+    record = build_baseline_evaluation_record(
+        result=result,
+        train_config=train_config,
+        train_config_path=TRAIN_CONFIG,
+        baseline_config_path=BASELINE_CONFIG,
+        split=SPLIT,
+        test_config_path=TEST_CONFIG,
+        test_data_path=test_config.data_path,
+        max_windows=max_windows,
+        seed=baseline_config.seed,
+    )
+    save_evaluation_record(record, baseline_config.results_path)
+    print(f"\nbaseline={result.baseline}")
+    print(f"windows={result.windows}")
+    print_evaluation_metrics(result.metrics)
+
+print("result:", baseline_config.results_path)
+```
+
+## CLI Equivalent
+
+```sh
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines__evaluate.yml --split test
+```
+
+## Interpretation
+
+- `persistence` answers how far a mouse drifts if we simply freeze the last
+  observed pose.
+- `rigid_constant_velocity` tests whether translating each mouse as a rigid body
+  is already a strong shape-preserving baseline.
+- `keypoint_constant_velocity` tests whether independent keypoint motion helps
+  trajectory metrics while possibly harming pose structure.

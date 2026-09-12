@@ -1,0 +1,9 @@
+baselines:
+  - persistence
+  - rigid_constant_velocity
+  - keypoint_constant_velocity
+results_path: outputs/evaluations/baselines/results.jsonl
+seed: 42
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name: motion-baselines

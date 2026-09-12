@@ -16,6 +16,8 @@ from evaluate import (
     _matrix_cell_style,
     build_evaluation_record,
     evaluate_flat_checkpoint,
+    evaluate_motion_baseline,
+    load_motion_baseline_config,
     load_test_config,
     print_evaluation_metrics,
     rollout_flat_keypoint_model,
@@ -162,6 +164,63 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
     assert config.wandb is True
     assert config.wandb_project == "eval-project"
     assert config.wandb_run_name == "eval-run"
+
+
+def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
+    config_path = tmp_path / "motion_baselines__evaluate.yml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "baselines:",
+                "  - persistence",
+                "  - rigid_constant_velocity",
+                f"results_path: {tmp_path / 'baseline_results.jsonl'}",
+                "seed: 42",
+                "wandb: false",
+                "wandb_project: baseline-project",
+                "wandb_run_name: baseline-run",
+            ]
+        )
+    )
+
+    config = load_motion_baseline_config(config_path)
+
+    assert config.baselines == ("persistence", "rigid_constant_velocity")
+    assert config.results_path == tmp_path / "baseline_results.jsonl"
+    assert config.seed == 42
+    assert config.wandb is False
+    assert config.wandb_project == "baseline-project"
+    assert config.wandb_run_name == "baseline-run"
+
+
+def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
+    train_path = tmp_path / "mouse_triplet_train.npy"
+    test_path = tmp_path / "mouse_triplet_test.npy"
+    write_mabe_file(train_path, sequence_prefix="train")
+    write_mabe_file(test_path, sequence_prefix="test", sequences=2)
+    config = FlatFitConfig(
+        data_path=train_path,
+        window_length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+        max_validation_windows=1,
+    )
+
+    result = evaluate_motion_baseline(
+        train_config=config,
+        baseline="persistence",
+        split="test",
+        test_data_path=test_path,
+        max_windows=1,
+        show_progress=False,
+    )
+
+    assert result.baseline == "persistence"
+    assert result.split == "test"
+    assert result.windows == 1
+    assert "centroid_ade_px" in result.metrics
+    assert "relative_ordering_error" in result.metrics
 
 
 def test_save_evaluation_record_appends_jsonl(tmp_path) -> None:

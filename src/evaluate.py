@@ -21,6 +21,7 @@ from rich.text import Text
 from torch import Tensor
 from tqdm.auto import tqdm
 
+from baseline import BaselineName, predict_motion_baseline, valid_baseline_names
 from constants import (
     COORDINATES,
     KEYPOINT_NAMES,
@@ -36,11 +37,6 @@ from data import (
     WindowSpec,
     split_sequence_ids,
 )
-from data.visualization import (
-    animate_prediction_comparison,
-    animate_single_mouse_prediction_comparison,
-    save_animation,
-)
 from loss import gaussian_2d_parameters
 from metric import compute_pixel_metrics
 from models import FlatSocialAttentionModel
@@ -55,6 +51,7 @@ from train import (
 
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
+DEFAULT_BASELINE_CONFIG_PATH = Path("src/config/motion_baselines__evaluate.yml")
 DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
 TABLE_METRIC_NAMES = (
     "centroid_offset_px_by_mouse",
@@ -81,6 +78,9 @@ SKELETON_EDGE_CELLS = frozenset(
     for edge in MOUSE_SKELETON_EDGES
     for start, end in (edge, (edge[1], edge[0]))
 )
+animate_prediction_comparison: Any | None = None
+animate_single_mouse_prediction_comparison: Any | None = None
+save_animation: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,27 @@ class TestConfig:
     data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
     results_path: Path = DEFAULT_RESULTS_PATH
     max_windows: int | None = 100
+    seed: int = 42
+    wandb: bool = False
+    wandb_project: str = "interpreting-social-navigation"
+    wandb_run_name: str | None = None
+
+
+@dataclass(frozen=True)
+class MotionBaselineConfig:
+    """Configuration for deterministic motion-baseline evaluation.
+
+    Attributes:
+        baselines: Baseline strategies to evaluate.
+        results_path: Local JSONL ledger for baseline evaluation records.
+        seed: Sampling seed recorded for lineage.
+        wandb: Whether to log baseline metrics to W&B.
+        wandb_project: W&B project for baseline evaluation logging.
+        wandb_run_name: Optional W&B run name prefix for baseline logging.
+    """
+
+    baselines: tuple[BaselineName, ...] = valid_baseline_names()
+    results_path: Path = Path("outputs/evaluations/baselines/results.jsonl")
     seed: int = 42
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
@@ -140,6 +161,23 @@ class EvaluationResult:
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
+
+
+@dataclass(frozen=True)
+class BaselineEvaluationResult:
+    """Aggregate metrics for one deterministic motion baseline.
+
+    Attributes:
+        baseline: Baseline strategy name.
+        split: Evaluation split name.
+        windows: Number of windows evaluated.
+        metrics: Pixel-space evaluation metrics.
+    """
+
+    baseline: BaselineName
+    split: str
+    windows: int
+    metrics: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -354,6 +392,101 @@ def evaluate_flat_checkpoint(
     )
 
 
+def evaluate_motion_baseline(
+    *,
+    train_config: FlatFitConfig,
+    baseline: BaselineName,
+    split: Literal["validation", "test"] = "test",
+    test_data_path: Path | None = None,
+    max_windows: int | None = None,
+    show_progress: bool = True,
+) -> BaselineEvaluationResult:
+    """Evaluate one deterministic baseline on validation or held-out test windows.
+
+    Args:
+        train_config: Training configuration defining window shape and normalizer.
+        baseline: Baseline strategy name.
+        split: Evaluation split, either validation from train data or test data.
+        test_data_path: Held-out test file used only when `split` is `test`.
+        max_windows: Optional cap on evaluated windows.
+        show_progress: Whether to print window progress.
+
+    Returns:
+        Aggregated pixel-space metrics for the baseline.
+    """
+
+    windows, normalizer = _build_evaluation_data(
+        config=train_config,
+        split=split,
+        test_data_path=test_data_path,
+        max_windows=max_windows,
+    )
+    metric_values: dict[str, list[Any]] = {}
+    iterator = tqdm(
+        range(len(windows)),
+        desc=f"Evaluating {baseline}",
+        disable=not show_progress,
+    )
+    for window_index in iterator:
+        window = windows[window_index]
+        observed_keypoints = normalizer.inverse_transform(window.observed_keypoints)
+        target_future = normalizer.inverse_transform(window.future_keypoints)
+        prediction = predict_motion_baseline(
+            baseline,
+            observed_keypoints=observed_keypoints,
+            prediction_length=windows.spec.prediction_length,
+        )
+        metrics = compute_pixel_metrics(
+            prediction.future_keypoints,
+            target_future,
+        ).to_numpy_dict()
+        for name, value in metrics.items():
+            metric_values.setdefault(name, []).append(value)
+
+    return BaselineEvaluationResult(
+        baseline=baseline,
+        split=split,
+        windows=len(windows),
+        metrics=_aggregate_metric_values(metric_values),
+    )
+
+
+def evaluate_motion_baselines(
+    *,
+    train_config: FlatFitConfig,
+    baseline_config: MotionBaselineConfig,
+    split: Literal["validation", "test"] = "test",
+    test_data_path: Path | None = None,
+    max_windows: int | None = None,
+    show_progress: bool = True,
+) -> list[BaselineEvaluationResult]:
+    """Evaluate every configured deterministic motion baseline.
+
+    Args:
+        train_config: Training configuration defining window shape and normalizer.
+        baseline_config: Baseline strategies and logging defaults.
+        split: Evaluation split, either validation or held-out test.
+        test_data_path: Held-out test file used only when `split` is `test`.
+        max_windows: Optional cap on evaluated windows.
+        show_progress: Whether to print window progress.
+
+    Returns:
+        Aggregate result for each configured baseline.
+    """
+
+    return [
+        evaluate_motion_baseline(
+            train_config=train_config,
+            baseline=baseline,
+            split=split,
+            test_data_path=test_data_path,
+            max_windows=max_windows,
+            show_progress=show_progress,
+        )
+        for baseline in baseline_config.baselines
+    ]
+
+
 def save_test_prediction_video(
     *,
     config: FlatFitConfig,
@@ -391,7 +524,8 @@ def save_test_prediction_video(
         checkpoint_path=checkpoint_path,
         seed=seed,
     )
-    animation_obj = animate_prediction_comparison(
+    animate, save = _prediction_visualization_functions()
+    animation_obj = animate(
         actual_keypoints=actual_keypoints,
         predicted_future_keypoints=predicted_future,
         observation_length=config.observation_length,
@@ -400,7 +534,7 @@ def save_test_prediction_video(
         interval_ms=interval_ms,
     )
     output_path = output_root / config.graph_variant / f"{window.sequence_id}.mp4"
-    saved_path = save_animation(animation_obj, output_path, fps=fps)
+    saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(
         path=saved_path,
         sequence_id=window.sequence_id,
@@ -451,7 +585,8 @@ def save_single_mouse_prediction_video(
         checkpoint_path=checkpoint_path,
         seed=seed,
     )
-    animation_obj = animate_single_mouse_prediction_comparison(
+    animate, save = _single_mouse_visualization_functions()
+    animation_obj = animate(
         actual_keypoints=actual_keypoints,
         predicted_future_keypoints=predicted_future,
         observation_length=config.observation_length,
@@ -465,7 +600,7 @@ def save_single_mouse_prediction_video(
         / config.graph_variant
         / f"{window.sequence_id}__mouse_{mouse_index}.mp4"
     )
-    saved_path = save_animation(animation_obj, output_path, fps=fps)
+    saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(
         path=saved_path,
         sequence_id=window.sequence_id,
@@ -540,6 +675,36 @@ def _sample_test_prediction(
         )
     )
     return window, actual_keypoints, predicted_future
+
+
+def _prediction_visualization_functions() -> tuple[Any, Any]:
+    """Load triplet visualization functions when video generation is requested."""
+
+    global animate_prediction_comparison, save_animation
+    if animate_prediction_comparison is None or save_animation is None:
+        from data.visualization import (
+            animate_prediction_comparison as loaded_animate,
+        )
+        from data.visualization import save_animation as loaded_save
+
+        animate_prediction_comparison = loaded_animate
+        save_animation = loaded_save
+    return animate_prediction_comparison, save_animation
+
+
+def _single_mouse_visualization_functions() -> tuple[Any, Any]:
+    """Load one-mouse visualization functions when video generation is requested."""
+
+    global animate_single_mouse_prediction_comparison, save_animation
+    if animate_single_mouse_prediction_comparison is None or save_animation is None:
+        from data.visualization import (
+            animate_single_mouse_prediction_comparison as loaded_animate,
+        )
+        from data.visualization import save_animation as loaded_save
+
+        animate_single_mouse_prediction_comparison = loaded_animate
+        save_animation = loaded_save
+    return animate_single_mouse_prediction_comparison, save_animation
 
 
 def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
@@ -1063,6 +1228,39 @@ def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:
     return TestConfig(**values)
 
 
+def load_motion_baseline_config(
+    path: Path = DEFAULT_BASELINE_CONFIG_PATH,
+) -> MotionBaselineConfig:
+    """Load deterministic baseline evaluation configuration.
+
+    Args:
+        path: YAML configuration file.
+
+    Returns:
+        Fully typed baseline evaluation configuration.
+    """
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    baselines = tuple(raw.get("baselines", MotionBaselineConfig.baselines))
+    valid_names = set(valid_baseline_names())
+    unknown = sorted(set(baselines) - valid_names)
+    if unknown:
+        raise ValueError(f"unknown baseline names: {unknown}")
+
+    values = {
+        "baselines": baselines,
+        "results_path": raw.get("results_path", MotionBaselineConfig.results_path),
+        "seed": raw.get("seed", MotionBaselineConfig.seed),
+        "wandb": raw.get("wandb", MotionBaselineConfig.wandb),
+        "wandb_project": raw.get("wandb_project", MotionBaselineConfig.wandb_project),
+        "wandb_run_name": raw.get(
+            "wandb_run_name", MotionBaselineConfig.wandb_run_name
+        ),
+    }
+    values["results_path"] = Path(values["results_path"])
+    return MotionBaselineConfig(**values)
+
+
 def save_evaluation_record(record: dict[str, Any], path: Path) -> None:
     """Append one evaluation record to a local JSONL ledger.
 
@@ -1176,6 +1374,61 @@ def build_evaluation_record(
     }
 
 
+def build_baseline_evaluation_record(
+    *,
+    result: BaselineEvaluationResult,
+    train_config: FlatFitConfig,
+    train_config_path: Path,
+    baseline_config_path: Path,
+    split: str,
+    test_config_path: Path | None,
+    test_data_path: Path | None,
+    max_windows: int | None,
+    seed: int | None,
+) -> dict[str, Any]:
+    """Build a durable metadata record for one baseline evaluation.
+
+    Args:
+        result: Aggregate baseline metrics.
+        train_config: Training configuration used for windowing and normalization.
+        train_config_path: Path to the training YAML.
+        baseline_config_path: Path to the baseline YAML.
+        split: Evaluation split name.
+        test_config_path: Test YAML path when evaluating the held-out split.
+        test_data_path: Test file path when evaluating the held-out split.
+        max_windows: Window cap used for evaluation.
+        seed: Seed recorded for lineage.
+
+    Returns:
+        JSON-serializable evaluation record.
+    """
+
+    return {
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "split": split,
+        "train_config_path": str(train_config_path),
+        "baseline_config_path": str(baseline_config_path),
+        "test_config_path": str(test_config_path) if test_config_path else None,
+        "test_data_path": str(test_data_path) if test_data_path else None,
+        "windows": result.windows,
+        "max_windows": max_windows,
+        "sampling": "deterministic",
+        "seed": seed,
+        "model": {
+            "family": "motion_baseline",
+            "baseline": result.baseline,
+            "graph_variant": train_config.graph_variant,
+            "window_length": train_config.window_length,
+            "observation_length": train_config.observation_length,
+            "prediction_length": train_config.prediction_length,
+            "stride": train_config.stride,
+        },
+        "metrics": {
+            **result.metrics,
+        },
+    }
+
+
 def main() -> None:
     """Run checkpoint evaluation from the command line."""
 
@@ -1185,7 +1438,8 @@ def main() -> None:
         type=Path,
         default=Path("src/config/dense_keypoint__train.yml"),
     )
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--baseline-config", type=Path)
     parser.add_argument("--split", choices=["validation", "test"], default="validation")
     parser.add_argument("--test-config", type=Path, default=DEFAULT_TEST_CONFIG_PATH)
     parser.add_argument("--test-data", type=Path)
@@ -1199,7 +1453,17 @@ def main() -> None:
     parser.add_argument("--seed", type=int)
     args = parser.parse_args()
 
+    if args.checkpoint is None and args.baseline_config is None:
+        parser.error("either --checkpoint or --baseline-config is required")
+    if args.checkpoint is not None and args.baseline_config is not None:
+        parser.error("use either --checkpoint or --baseline-config, not both")
+
     test_config = load_test_config(args.test_config) if args.split == "test" else None
+    baseline_config = (
+        load_motion_baseline_config(args.baseline_config)
+        if args.baseline_config is not None
+        else None
+    )
     test_data_path = args.test_data or (
         test_config.data_path if test_config is not None else None
     )
@@ -1212,24 +1476,83 @@ def main() -> None:
     seed = (
         args.seed
         if args.seed is not None
-        else (test_config.seed if test_config is not None else train_config.seed)
+        else (
+            baseline_config.seed
+            if baseline_config is not None
+            else (test_config.seed if test_config is not None else train_config.seed)
+        )
     )
     wandb_enabled = (
         args.wandb
         if args.wandb is not None
-        else (test_config.wandb if test_config is not None else False)
+        else (
+            baseline_config.wandb
+            if baseline_config is not None
+            else (test_config.wandb if test_config is not None else False)
+        )
     )
     wandb_project = args.wandb_project or (
-        test_config.wandb_project
-        if test_config is not None
-        else train_config.wandb_project
+        baseline_config.wandb_project
+        if baseline_config is not None
+        else (
+            test_config.wandb_project
+            if test_config is not None
+            else train_config.wandb_project
+        )
     )
     wandb_run_name = args.wandb_run_name or (
-        test_config.wandb_run_name if test_config is not None else None
+        baseline_config.wandb_run_name
+        if baseline_config is not None
+        else (test_config.wandb_run_name if test_config is not None else None)
     )
     results_path = args.results_path or (
-        test_config.results_path if test_config is not None else DEFAULT_RESULTS_PATH
+        baseline_config.results_path
+        if baseline_config is not None
+        else (
+            test_config.results_path
+            if test_config is not None
+            else DEFAULT_RESULTS_PATH
+        )
     )
+
+    if baseline_config is not None:
+        results = evaluate_motion_baselines(
+            train_config=train_config,
+            baseline_config=baseline_config,
+            split=args.split,
+            test_data_path=test_data_path,
+            max_windows=max_windows,
+            show_progress=True,
+        )
+        for result in results:
+            record = build_baseline_evaluation_record(
+                result=result,
+                train_config=train_config,
+                train_config_path=args.config,
+                baseline_config_path=args.baseline_config,
+                split=args.split,
+                test_config_path=args.test_config if args.split == "test" else None,
+                test_data_path=test_data_path,
+                max_windows=max_windows,
+                seed=seed,
+            )
+            if not args.no_save_result:
+                save_evaluation_record(record, results_path)
+            if wandb_enabled:
+                log_evaluation_to_wandb(
+                    record=record,
+                    project=wandb_project,
+                    run_name=(
+                        f"{wandb_run_name}-{result.baseline}"
+                        if wandb_run_name
+                        else None
+                    ),
+                )
+            print(f"\nbaseline={result.baseline}")
+            print_evaluation_metrics(result.metrics)
+        if not args.no_save_result:
+            print(f"result={results_path}")
+        return
 
     result = evaluate_flat_checkpoint(
         config=train_config,

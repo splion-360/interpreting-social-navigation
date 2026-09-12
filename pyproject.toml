@@ -47,6 +47,7 @@ explicit = true
 [tool.hatch.build.targets.wheel]
 only-include = [
     "src/config",
+    "src/baseline.py",
     "src/data",
     "src/evaluate.py",
     "src/loss.py",
@@ -120,6 +121,7 @@ ignore = [
 force-single-line = false
 lines-after-imports = 2
 known-first-party = [
+    "baseline",
     "config",
     "constants",
     "data",
