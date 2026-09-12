@@ -75,6 +75,8 @@ PRIMARY_METRIC_NAMES = (
     "displacement_magnitude_error_px",
     "displacement_direction_error_deg",
     "displacement_gain",
+    "skeleton_orientation_error_deg",
+    "bone_length_error_px",
     "body_heading_error_deg",
     "relative_ordering_error",
     "relative_ordering_error_forward",
@@ -262,7 +264,6 @@ class EvaluationResult:
         checkpoint_validation_loss: Validation loss stored in the checkpoint.
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
-        evaluation_seconds: Wall-clock time spent predicting and scoring windows.
     """
 
     split: str
@@ -286,6 +287,7 @@ class BaselineEvaluationResult:
         metrics: Pixel-space evaluation metrics.
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
+        evaluation_seconds: Wall-clock time spent predicting and scoring windows.
     """
 
     baseline: BaselineName

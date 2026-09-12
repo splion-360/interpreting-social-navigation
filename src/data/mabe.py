@@ -327,7 +327,16 @@ class MabeWindowDataset:
         max_windows: int | None,
         index_window_length: int | None,
     ) -> tuple[tuple[str, int], ...]:
-        """Build deterministic `(sequence_id, start_frame)` window pointers."""
+        """Build deterministic `(sequence_id, start_frame)` window pointers.
+
+        Args:
+            max_windows: Optional maximum number of pointers to return.
+            index_window_length: Optional length used to restrict valid starts while
+                leaving the window length returned by ``__getitem__`` unchanged.
+
+        Returns:
+            Sequence and start-frame pointers in deterministic order.
+        """
 
         index: list[tuple[str, int]] = []
         required_length = index_window_length or self.spec.length

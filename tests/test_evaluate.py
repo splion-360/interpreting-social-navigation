@@ -454,9 +454,21 @@ def test_baseline_record_persists_motion_strata() -> None:
             "counts": {"low": 1, "medium": 1, "high": 1},
         },
         metrics_by_motion={
-            "low": {"centroid_ade_px": 1.0},
-            "medium": {"centroid_ade_px": 2.0},
-            "high": {"centroid_ade_px": 3.0},
+            "low": {
+                "centroid_ade_px": 1.0,
+                "skeleton_orientation_error_deg": 4.0,
+                "bone_length_error_px": 7.0,
+            },
+            "medium": {
+                "centroid_ade_px": 2.0,
+                "skeleton_orientation_error_deg": 5.0,
+                "bone_length_error_px": 8.0,
+            },
+            "high": {
+                "centroid_ade_px": 3.0,
+                "skeleton_orientation_error_deg": 6.0,
+                "bone_length_error_px": 9.0,
+            },
         },
         evaluation_seconds=1.25,
     )
@@ -551,9 +563,21 @@ def test_print_motion_stratified_metrics_includes_counts_and_thresholds(
 ) -> None:
     print_motion_stratified_metrics(
         metrics_by_motion={
-            "low": {"centroid_ade_px": 1.0},
-            "medium": {"centroid_ade_px": 2.0},
-            "high": {"centroid_ade_px": 3.0},
+            "low": {
+                "centroid_ade_px": 1.0,
+                "skeleton_orientation_error_deg": 4.0,
+                "bone_length_error_px": 7.0,
+            },
+            "medium": {
+                "centroid_ade_px": 2.0,
+                "skeleton_orientation_error_deg": 5.0,
+                "bone_length_error_px": 8.0,
+            },
+            "high": {
+                "centroid_ade_px": 3.0,
+                "skeleton_orientation_error_deg": 6.0,
+                "bone_length_error_px": 9.0,
+            },
         },
         motion_profile={
             "score": "mean_mouse_centroid_displacement_px",
@@ -570,6 +594,8 @@ def test_print_motion_stratified_metrics_includes_counts_and_thresholds(
     assert "low <= 4.000 px" in output
     assert "medium <= 9.000 px" in output
     assert "centroid_ade_px" in output
+    assert "skeleton_orientation_error_deg" in output
+    assert "bone_length_error_px" in output
 
 
 def test_diagnostic_table_styles_mark_edges_and_extremes() -> None:
