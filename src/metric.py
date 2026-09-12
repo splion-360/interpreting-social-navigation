@@ -27,6 +27,11 @@ class PixelMetricBundle:
         centroid_x_offset_px: Signed mean centroid x-offset in image coordinates.
         centroid_y_offset_px: Signed mean centroid y-offset in image coordinates.
         centroid_offset_px_by_mouse: Signed per-mouse centroid offset.
+        centroid_velocity_error_px_per_frame: Mean centroid velocity-vector error.
+        keypoint_velocity_error_px_per_frame: Mean keypoint velocity-vector error.
+        displacement_magnitude_error_px: Mean net centroid travel-distance error.
+        displacement_direction_error_deg: Mean net centroid direction error.
+        displacement_gain: Predicted-to-target net centroid displacement ratio.
         relative_ordering_error: Mean local-body-frame keypoint ordering error.
         relative_ordering_error_forward: Ordering error along the body axis.
         relative_ordering_error_lateral: Ordering error across the body axis.
@@ -47,6 +52,11 @@ class PixelMetricBundle:
     centroid_x_offset_px: float
     centroid_y_offset_px: float
     centroid_offset_px_by_mouse: np.ndarray
+    centroid_velocity_error_px_per_frame: float
+    keypoint_velocity_error_px_per_frame: float
+    displacement_magnitude_error_px: float
+    displacement_direction_error_deg: float
+    displacement_gain: float
     relative_ordering_error: float
     relative_ordering_error_forward: float
     relative_ordering_error_lateral: float
@@ -78,6 +88,15 @@ class PixelMetricBundle:
             "centroid_x_offset_px": self.centroid_x_offset_px,
             "centroid_y_offset_px": self.centroid_y_offset_px,
             "centroid_offset_px_by_mouse": self.centroid_offset_px_by_mouse,
+            "centroid_velocity_error_px_per_frame": (
+                self.centroid_velocity_error_px_per_frame
+            ),
+            "keypoint_velocity_error_px_per_frame": (
+                self.keypoint_velocity_error_px_per_frame
+            ),
+            "displacement_magnitude_error_px": self.displacement_magnitude_error_px,
+            "displacement_direction_error_deg": (self.displacement_direction_error_deg),
+            "displacement_gain": self.displacement_gain,
             "relative_ordering_error": self.relative_ordering_error,
             "relative_ordering_error_forward": self.relative_ordering_error_forward,
             "relative_ordering_error_lateral": self.relative_ordering_error_lateral,
@@ -102,6 +121,7 @@ def compute_pixel_metrics(
     predicted: np.ndarray,
     target: np.ndarray,
     *,
+    initial_pose: np.ndarray | None = None,
     min_edge_length_px: float = 1.0,
 ) -> PixelMetricBundle:
     """Compute trajectory, pose, and structure metrics in pixel coordinates.
@@ -109,6 +129,8 @@ def compute_pixel_metrics(
     Args:
         predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
         target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose immediately before the prediction horizon.
+            When omitted, the first target frame is used as the motion reference.
         min_edge_length_px: Minimum true/predicted edge length for orientation.
 
     Returns:
@@ -137,6 +159,7 @@ def compute_pixel_metrics(
         min_edge_length_px=min_edge_length_px,
     )
     centroid_offsets = centroid_offset_px_by_mouse(predicted, target)
+    motion_origin = target[0] if initial_pose is None else initial_pose
     return PixelMetricBundle(
         keypoint_ade_px=keypoint_ade_px(predicted, target),
         keypoint_fde_px=keypoint_fde_px(predicted, target),
@@ -145,6 +168,35 @@ def compute_pixel_metrics(
         centroid_x_offset_px=float(centroid_offsets[:, 0].mean()),
         centroid_y_offset_px=float(centroid_offsets[:, 1].mean()),
         centroid_offset_px_by_mouse=centroid_offsets,
+        centroid_velocity_error_px_per_frame=(
+            centroid_velocity_error_px_per_frame(
+                predicted,
+                target,
+                initial_pose=motion_origin,
+            )
+        ),
+        keypoint_velocity_error_px_per_frame=(
+            keypoint_velocity_error_px_per_frame(
+                predicted,
+                target,
+                initial_pose=motion_origin,
+            )
+        ),
+        displacement_magnitude_error_px=displacement_magnitude_error_px(
+            predicted,
+            target,
+            initial_pose=motion_origin,
+        ),
+        displacement_direction_error_deg=displacement_direction_error_deg(
+            predicted,
+            target,
+            initial_pose=motion_origin,
+        ),
+        displacement_gain=displacement_gain(
+            predicted,
+            target,
+            initial_pose=motion_origin,
+        ),
         relative_ordering_error=_nanmean(ordering_by_mouse_axis),
         relative_ordering_error_forward=_nanmean(ordering_by_mouse_axis[:, 0]),
         relative_ordering_error_lateral=_nanmean(ordering_by_mouse_axis[:, 1]),
@@ -203,6 +255,181 @@ def centroid_offset_px_by_mouse(
     predicted_centroids = predicted.astype(np.float32).mean(axis=2)
     target_centroids = target.astype(np.float32).mean(axis=2)
     return (predicted_centroids - target_centroids).mean(axis=0)
+
+
+def centroid_velocity_error_px_per_frame(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+) -> float:
+    """Return mean per-frame centroid velocity-vector error.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+
+    Returns:
+        Mean Euclidean velocity error in pixels per frame.
+    """
+
+    predicted_centroids = predicted.astype(np.float32).mean(axis=2)
+    target_centroids = target.astype(np.float32).mean(axis=2)
+    initial_centroids = initial_pose.astype(np.float32).mean(axis=1)
+    predicted_velocity = np.diff(
+        np.concatenate((initial_centroids[None], predicted_centroids), axis=0),
+        axis=0,
+    )
+    target_velocity = np.diff(
+        np.concatenate((initial_centroids[None], target_centroids), axis=0),
+        axis=0,
+    )
+    return float(np.linalg.norm(predicted_velocity - target_velocity, axis=-1).mean())
+
+
+def keypoint_velocity_error_px_per_frame(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+) -> float:
+    """Return mean per-frame keypoint velocity-vector error.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+
+    Returns:
+        Mean Euclidean velocity error in pixels per frame.
+    """
+
+    predicted_velocity = np.diff(
+        np.concatenate((initial_pose[None], predicted), axis=0),
+        axis=0,
+    )
+    target_velocity = np.diff(
+        np.concatenate((initial_pose[None], target), axis=0),
+        axis=0,
+    )
+    return float(np.linalg.norm(predicted_velocity - target_velocity, axis=-1).mean())
+
+
+def displacement_magnitude_error_px(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+) -> float:
+    """Return mean error in net centroid displacement magnitude.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+
+    Returns:
+        Mean absolute travel-distance error in pixels.
+    """
+
+    predicted_displacement, target_displacement = _centroid_displacements(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+    )
+    predicted_magnitude = np.linalg.norm(predicted_displacement, axis=-1)
+    target_magnitude = np.linalg.norm(target_displacement, axis=-1)
+    return float(np.abs(predicted_magnitude - target_magnitude).mean())
+
+
+def displacement_direction_error_deg(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+    min_displacement_px: float = 1.0,
+) -> float:
+    """Return mean angle error between predicted and target net displacement.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+        min_displacement_px: Minimum displacement needed to define a direction.
+
+    Returns:
+        Mean direction error in degrees, or `nan` when motion is too small.
+    """
+
+    predicted_displacement, target_displacement = _centroid_displacements(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+    )
+    return _nanmean(
+        _angle_errors_deg(
+            predicted_displacement,
+            target_displacement,
+            min_length_px=min_displacement_px,
+        )
+    )
+
+
+def displacement_gain(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+    min_displacement_px: float = 1.0,
+) -> float:
+    """Return predicted-to-target net centroid displacement ratio.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+        min_displacement_px: Minimum target displacement included in the ratio.
+
+    Returns:
+        Mean displacement ratio. One is ideal, zero is persistence, and values
+        above one indicate over-predicted travel.
+    """
+
+    predicted_displacement, target_displacement = _centroid_displacements(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+    )
+    predicted_magnitude = np.linalg.norm(predicted_displacement, axis=-1)
+    target_magnitude = np.linalg.norm(target_displacement, axis=-1)
+    valid = target_magnitude >= min_displacement_px
+    ratios = np.divide(
+        predicted_magnitude,
+        target_magnitude,
+        out=np.full(target_magnitude.shape, np.nan, dtype=np.float32),
+        where=valid,
+    )
+    return _nanmean(ratios)
+
+
+def ground_truth_motion_px(
+    initial_pose: np.ndarray,
+    target_future: np.ndarray,
+) -> float:
+    """Return mean per-mouse centroid travel over a prediction horizon.
+
+    Args:
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+        target_future: Ground-truth future shaped `[time, mice, keypoints, 2]`.
+
+    Returns:
+        Mean final centroid displacement across mice in pixels.
+    """
+
+    initial_centroids = initial_pose.astype(np.float32).mean(axis=1)
+    final_centroids = target_future[-1].astype(np.float32).mean(axis=1)
+    return float(np.linalg.norm(final_centroids - initial_centroids, axis=-1).mean())
 
 
 def skeleton_orientation_error_deg(
@@ -518,6 +745,23 @@ def _centroid_distances(predicted: np.ndarray, target: np.ndarray) -> np.ndarray
     predicted_centroids = predicted.astype(np.float32).mean(axis=2)
     target_centroids = target.astype(np.float32).mean(axis=2)
     return np.linalg.norm(predicted_centroids - target_centroids, axis=-1)
+
+
+def _centroid_displacements(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return final predicted and target centroid displacement vectors."""
+
+    initial_centroids = initial_pose.astype(np.float32).mean(axis=1)
+    predicted_centroids = predicted.astype(np.float32).mean(axis=2)
+    target_centroids = target.astype(np.float32).mean(axis=2)
+    return (
+        predicted_centroids[-1] - initial_centroids,
+        target_centroids[-1] - initial_centroids,
+    )
 
 
 def _angle_errors_deg(

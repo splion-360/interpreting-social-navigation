@@ -38,7 +38,7 @@ from data import (
     split_sequence_ids,
 )
 from loss import gaussian_2d_parameters
-from metric import compute_pixel_metrics
+from metric import compute_pixel_metrics, ground_truth_motion_px
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
 from train import (
@@ -52,7 +52,8 @@ from train import (
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
 DEFAULT_BASELINE_CONFIG_PATH = Path("src/config/motion_baselines__evaluate.yml")
-DEFAULT_RESULTS_PATH = Path("outputs/evaluations/results.jsonl")
+DEFAULT_RESULTS_ROOT = Path("outputs/evaluations")
+DEFAULT_RESULTS_PATH = DEFAULT_RESULTS_ROOT / "dense_keypoint" / "results.jsonl"
 TABLE_METRIC_NAMES = (
     "centroid_offset_px_by_mouse",
     "body_heading_error_deg_by_mouse",
@@ -68,11 +69,18 @@ PRIMARY_METRIC_NAMES = (
     "keypoint_fde_px",
     "centroid_x_offset_px",
     "centroid_y_offset_px",
+    "centroid_velocity_error_px_per_frame",
+    "keypoint_velocity_error_px_per_frame",
+    "displacement_magnitude_error_px",
+    "displacement_direction_error_deg",
+    "displacement_gain",
     "body_heading_error_deg",
     "relative_ordering_error",
     "relative_ordering_error_forward",
     "relative_ordering_error_lateral",
 )
+MOTION_STRATA = ("low", "medium", "high")
+MotionStratum = Literal["low", "medium", "high"]
 SKELETON_EDGE_CELLS = frozenset(
     (start, end)
     for edge in MOUSE_SKELETON_EDGES
@@ -89,7 +97,7 @@ class TestConfig:
 
     Attributes:
         data_path: Path to the held-out MABe test file.
-        results_path: Local JSONL ledger for evaluation records.
+        results_path: Optional local JSONL ledger for evaluation records.
         max_windows: Optional cap on test windows.
         seed: Sampling seed.
         wandb: Whether to log evaluation metrics to W&B.
@@ -98,7 +106,7 @@ class TestConfig:
     """
 
     data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
-    results_path: Path = DEFAULT_RESULTS_PATH
+    results_path: Path | None = None
     max_windows: int | None = 100
     seed: int = 42
     wandb: bool = False
@@ -120,11 +128,70 @@ class MotionBaselineConfig:
     """
 
     baselines: tuple[BaselineName, ...] = valid_baseline_names()
-    results_path: Path = Path("outputs/evaluations/baselines/results.jsonl")
+    results_path: Path = DEFAULT_RESULTS_ROOT / "motion_baselines" / "results.jsonl"
     seed: int = 42
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
     wandb_run_name: str | None = None
+
+
+@dataclass(frozen=True)
+class MotionStratification:
+    """Ground-truth motion strata for a fixed collection of windows.
+
+    Attributes:
+        labels: Per-window low-, medium-, or high-motion labels.
+        low_max_px: Upper tertile boundary for low-motion windows.
+        medium_max_px: Upper tertile boundary for medium-motion windows.
+    """
+
+    labels: tuple[MotionStratum, ...]
+    low_max_px: float
+    medium_max_px: float
+
+    @property
+    def counts(self) -> dict[str, int]:
+        """Return the number of windows assigned to each stratum."""
+
+        return {name: self.labels.count(name) for name in MOTION_STRATA}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-ready motion-profile metadata."""
+
+        return {
+            "score": "mean_mouse_centroid_displacement_px",
+            "thresholds_px": {
+                "low_max": self.low_max_px,
+                "medium_max": self.medium_max_px,
+            },
+            "counts": self.counts,
+        }
+
+
+def stratify_motion_scores(scores_px: np.ndarray) -> MotionStratification:
+    """Partition window motion scores at their lower and upper tertiles.
+
+    Args:
+        scores_px: One ground-truth centroid-displacement score per window.
+
+    Returns:
+        Deterministic labels and the pixel thresholds used to create them.
+    """
+
+    low_max, medium_max = np.quantile(scores_px, (1.0 / 3.0, 2.0 / 3.0))
+    labels: list[MotionStratum] = []
+    for score in scores_px:
+        if score <= low_max:
+            labels.append("low")
+        elif score <= medium_max:
+            labels.append("medium")
+        else:
+            labels.append("high")
+    return MotionStratification(
+        labels=tuple(labels),
+        low_max_px=float(low_max),
+        medium_max_px=float(medium_max),
+    )
 
 
 @dataclass(frozen=True)
@@ -153,6 +220,8 @@ class EvaluationResult:
         device: Device used for model inference.
         checkpoint_epoch: Epoch stored in the evaluated checkpoint, if available.
         checkpoint_validation_loss: Validation loss stored in the checkpoint.
+        motion_profile: Ground-truth motion thresholds and window counts.
+        metrics_by_motion: Aggregate metrics for each motion stratum.
     """
 
     split: str
@@ -161,6 +230,8 @@ class EvaluationResult:
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
+    motion_profile: dict[str, Any] | None = None
+    metrics_by_motion: dict[str, dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -172,12 +243,16 @@ class BaselineEvaluationResult:
         split: Evaluation split name.
         windows: Number of windows evaluated.
         metrics: Pixel-space evaluation metrics.
+        motion_profile: Ground-truth motion thresholds and window counts.
+        metrics_by_motion: Aggregate metrics for each motion stratum.
     """
 
     baseline: BaselineName
     split: str
     windows: int
     metrics: dict[str, Any]
+    motion_profile: dict[str, Any]
+    metrics_by_motion: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -362,6 +437,10 @@ def evaluate_flat_checkpoint(
         generator.manual_seed(seed)
 
     metric_values: dict[str, list[Any]] = {}
+    motion_profile = _build_motion_profile(windows, normalizer)
+    metrics_by_motion: dict[str, dict[str, list[Any]]] = {
+        name: {} for name in MOTION_STRATA
+    }
     with torch.no_grad():
         for window_index in tqdm(range(len(windows)), desc="Evaluating on test data"):
             window = windows[window_index]
@@ -379,8 +458,11 @@ def evaluate_flat_checkpoint(
                 normalizer=normalizer,
                 prediction_length=windows.spec.prediction_length,
             )
-            for name, value in metrics.items():
-                metric_values.setdefault(name, []).append(value)
+            _append_metric_values(metric_values, metrics)
+            _append_metric_values(
+                metrics_by_motion[motion_profile.labels[window_index]],
+                metrics,
+            )
 
     return EvaluationResult(
         split=split,
@@ -389,6 +471,8 @@ def evaluate_flat_checkpoint(
         device=str(device),
         checkpoint_epoch=checkpoint.get("epoch"),
         checkpoint_validation_loss=checkpoint.get("validation_loss"),
+        motion_profile=motion_profile.to_dict(),
+        metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
     )
 
 
@@ -422,6 +506,10 @@ def evaluate_motion_baseline(
         max_windows=max_windows,
     )
     metric_values: dict[str, list[Any]] = {}
+    motion_profile = _build_motion_profile(windows, normalizer)
+    metrics_by_motion: dict[str, dict[str, list[Any]]] = {
+        name: {} for name in MOTION_STRATA
+    }
     iterator = tqdm(
         range(len(windows)),
         desc=f"Evaluating {baseline}",
@@ -439,15 +527,21 @@ def evaluate_motion_baseline(
         metrics = compute_pixel_metrics(
             prediction.future_keypoints,
             target_future,
+            initial_pose=observed_keypoints[-1],
         ).to_numpy_dict()
-        for name, value in metrics.items():
-            metric_values.setdefault(name, []).append(value)
+        _append_metric_values(metric_values, metrics)
+        _append_metric_values(
+            metrics_by_motion[motion_profile.labels[window_index]],
+            metrics,
+        )
 
     return BaselineEvaluationResult(
         baseline=baseline,
         split=split,
         windows=len(windows),
         metrics=_aggregate_metric_values(metric_values),
+        motion_profile=motion_profile.to_dict(),
+        metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
     )
 
 
@@ -740,8 +834,60 @@ def _window_pixel_metrics(
             COORDINATES,
         )
     )
+    initial_pose = normalizer.inverse_transform(window.observed_keypoints[-1])
     target_future = normalizer.inverse_transform(window.future_keypoints)
-    return compute_pixel_metrics(predicted_future, target_future).to_numpy_dict()
+    return compute_pixel_metrics(
+        predicted_future,
+        target_future,
+        initial_pose=initial_pose,
+    ).to_numpy_dict()
+
+
+def _build_motion_profile(
+    windows: MabeWindowDataset,
+    normalizer: PoseNormalizer,
+) -> MotionStratification:
+    """Build ground-truth motion strata for fixed evaluation windows.
+
+    Args:
+        windows: Selected normalized evaluation windows.
+        normalizer: Transform used to restore pixel coordinates.
+
+    Returns:
+        Tertile-based motion labels derived without model predictions.
+    """
+
+    scores = []
+    for window_index in range(len(windows)):
+        window = windows[window_index]
+        scores.append(
+            ground_truth_motion_px(
+                normalizer.inverse_transform(window.observed_keypoints[-1]),
+                normalizer.inverse_transform(window.future_keypoints),
+            )
+        )
+    return stratify_motion_scores(np.asarray(scores, dtype=np.float32))
+
+
+def _append_metric_values(
+    destination: dict[str, list[Any]],
+    metrics: dict[str, float | np.ndarray],
+) -> None:
+    """Append one window's metrics to an aggregate accumulator."""
+
+    for name, value in metrics.items():
+        destination.setdefault(name, []).append(value)
+
+
+def _aggregate_metrics_by_motion(
+    values_by_motion: dict[str, dict[str, list[Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Aggregate metric accumulators separately for each motion stratum."""
+
+    return {
+        stratum: _aggregate_metric_values(values) if values else {}
+        for stratum, values in values_by_motion.items()
+    }
 
 
 def _aggregate_metric_values(metric_values: dict[str, list[Any]]) -> dict[str, Any]:
@@ -762,7 +908,11 @@ def _aggregate_metric_values(metric_values: dict[str, list[Any]]) -> dict[str, A
                 _nanmean_stacked([np.asarray(value) for value in values])
             )
         else:
-            aggregates[name] = float(np.mean(values))
+            scalar_values = np.asarray(values, dtype=np.float32)
+            finite_values = scalar_values[~np.isnan(scalar_values)]
+            aggregates[name] = (
+                float(finite_values.mean()) if finite_values.size else float("nan")
+            )
     return aggregates
 
 
@@ -854,6 +1004,52 @@ def print_evaluation_metrics(
         title="edge_bone_length_error_px_by_mouse",
         values=table_metrics.get("edge_bone_length_error_px_by_mouse"),
     )
+
+
+def print_motion_stratified_metrics(
+    *,
+    metrics_by_motion: dict[str, dict[str, Any]],
+    motion_profile: dict[str, Any],
+    console: Console | None = None,
+) -> None:
+    """Print primary metrics grouped by ground-truth window motion.
+
+    Args:
+        metrics_by_motion: Aggregate metrics keyed by motion stratum.
+        motion_profile: Score definition, thresholds, and stratum counts.
+        console: Optional Rich console for tests or custom render settings.
+    """
+
+    output = console or Console()
+    counts = motion_profile["counts"]
+    thresholds = motion_profile["thresholds_px"]
+    table = Table(
+        title="Metrics by ground-truth motion stratum",
+        caption=(
+            f"low <= {thresholds['low_max']:.3f} px; "
+            f"medium <= {thresholds['medium_max']:.3f} px; high above"
+        ),
+        box=box.SIMPLE_HEAVY,
+    )
+    table.add_column("metric", style="cyan", no_wrap=True)
+    for stratum in MOTION_STRATA:
+        table.add_column(
+            f"{stratum} (n={counts[stratum]})",
+            justify="right",
+            no_wrap=True,
+        )
+    for name in PRIMARY_METRIC_NAMES:
+        values = [metrics_by_motion[stratum].get(name) for stratum in MOTION_STRATA]
+        if not any(isinstance(value, int | float) for value in values):
+            continue
+        table.add_row(
+            name,
+            *(
+                f"{value:.6f}" if isinstance(value, int | float) else "-"
+                for value in values
+            ),
+        )
+    output.print(table)
 
 
 def _primary_metrics_table(metrics: dict[str, Any]) -> Table:
@@ -1224,7 +1420,8 @@ def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:
         "wandb_run_name": raw.get("wandb_run_name", TestConfig.wandb_run_name),
     }
     values["data_path"] = Path(values["data_path"])
-    values["results_path"] = Path(values["results_path"])
+    if values["results_path"] is not None:
+        values["results_path"] = Path(values["results_path"])
     return TestConfig(**values)
 
 
@@ -1272,6 +1469,19 @@ def save_evaluation_record(record: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def default_model_results_path(train_config: FlatFitConfig) -> Path:
+    """Return the default JSONL ledger path for a model evaluation.
+
+    Args:
+        train_config: Training configuration that identifies the graph variant.
+
+    Returns:
+        Source-specific path under the evaluation output directory.
+    """
+
+    return DEFAULT_RESULTS_ROOT / train_config.graph_variant / "results.jsonl"
 
 
 def log_evaluation_to_wandb(
@@ -1371,6 +1581,8 @@ def build_evaluation_record(
         "metrics": {
             **result.metrics,
         },
+        "motion_profile": result.motion_profile,
+        "metrics_by_motion": result.metrics_by_motion,
     }
 
 
@@ -1426,7 +1638,37 @@ def build_baseline_evaluation_record(
         "metrics": {
             **result.metrics,
         },
+        "motion_profile": result.motion_profile,
+        "metrics_by_motion": result.metrics_by_motion,
     }
+
+
+def _resolve_results_path(
+    *,
+    explicit_path: Path | None,
+    baseline_config: MotionBaselineConfig | None,
+    test_config: TestConfig | None,
+    train_config: FlatFitConfig,
+) -> Path:
+    """Resolve the source-specific result ledger path for an evaluation run.
+
+    Args:
+        explicit_path: CLI override path.
+        baseline_config: Baseline config when evaluating deterministic baselines.
+        test_config: Held-out test config when evaluating the test split.
+        train_config: Training config used by model/checkpoint evaluation.
+
+    Returns:
+        JSONL path where this evaluation record should be appended.
+    """
+
+    if explicit_path is not None:
+        return explicit_path
+    if baseline_config is not None:
+        return baseline_config.results_path
+    if test_config is not None and test_config.results_path is not None:
+        return test_config.results_path
+    return default_model_results_path(train_config)
 
 
 def main() -> None:
@@ -1505,14 +1747,11 @@ def main() -> None:
         if baseline_config is not None
         else (test_config.wandb_run_name if test_config is not None else None)
     )
-    results_path = args.results_path or (
-        baseline_config.results_path
-        if baseline_config is not None
-        else (
-            test_config.results_path
-            if test_config is not None
-            else DEFAULT_RESULTS_PATH
-        )
+    results_path = _resolve_results_path(
+        explicit_path=args.results_path,
+        baseline_config=baseline_config,
+        test_config=test_config,
+        train_config=train_config,
     )
 
     if baseline_config is not None:
@@ -1550,6 +1789,10 @@ def main() -> None:
                 )
             print(f"\nbaseline={result.baseline}")
             print_evaluation_metrics(result.metrics)
+            print_motion_stratified_metrics(
+                metrics_by_motion=result.metrics_by_motion,
+                motion_profile=result.motion_profile,
+            )
         if not args.no_save_result:
             print(f"result={results_path}")
         return
@@ -1583,6 +1826,11 @@ def main() -> None:
             run_name=wandb_run_name,
         )
     print_evaluation_metrics(result.metrics)
+    if result.metrics_by_motion is not None and result.motion_profile is not None:
+        print_motion_stratified_metrics(
+            metrics_by_motion=result.metrics_by_motion,
+            motion_profile=result.motion_profile,
+        )
     if not args.no_save_result:
         print(f"result={results_path}")
 

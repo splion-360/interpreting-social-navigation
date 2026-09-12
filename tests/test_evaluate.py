@@ -11,20 +11,26 @@ import torch
 import evaluate as evaluate_module
 from evaluate import (
     EvaluationResult,
+    _aggregate_metric_values,
     _build_evaluation_windows,
     _extreme_pair_cells,
     _matrix_cell_style,
+    _resolve_results_path,
+    build_baseline_evaluation_record,
     build_evaluation_record,
+    default_model_results_path,
     evaluate_flat_checkpoint,
     evaluate_motion_baseline,
     load_motion_baseline_config,
     load_test_config,
     print_evaluation_metrics,
+    print_motion_stratified_metrics,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
     save_evaluation_record,
     save_single_mouse_prediction_video,
     save_test_prediction_video,
+    stratify_motion_scores,
 )
 from models import FlatSocialAttentionModel
 from st_graph import build_dense_keypoint_graph
@@ -61,6 +67,23 @@ def test_sample_bivariate_gaussian_returns_coordinate_samples() -> None:
 
     assert samples.shape == (2, 36, 2)
     assert torch.isfinite(samples).all()
+
+
+def test_motion_stratification_is_deterministic_and_balanced() -> None:
+    profile = stratify_motion_scores(
+        np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    )
+
+    assert profile.labels == ("low", "low", "medium", "medium", "high", "high")
+    assert profile.counts == {"low": 2, "medium": 2, "high": 2}
+    assert profile.low_max_px == pytest.approx(5.0 / 3.0)
+    assert profile.medium_max_px == pytest.approx(10.0 / 3.0)
+
+
+def test_scalar_metric_aggregation_ignores_undefined_windows() -> None:
+    metrics = _aggregate_metric_values({"direction_error_deg": [np.nan, 90.0]})
+
+    assert metrics["direction_error_deg"] == 90.0
 
 
 def test_rollout_reuses_sampled_positions_to_recompute_edges(
@@ -166,6 +189,22 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
     assert config.wandb_run_name == "eval-run"
 
 
+def test_load_test_config_allows_source_specific_default_results_path(tmp_path) -> None:
+    config_path = tmp_path / "test.yml"
+    config_path.write_text(
+        "\n".join(
+            [
+                f"data_path: {tmp_path / 'mouse_triplet_test.npy'}",
+                "results_path: null",
+            ]
+        )
+    )
+
+    config = load_test_config(config_path)
+
+    assert config.results_path is None
+
+
 def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
     config_path = tmp_path / "motion_baselines__evaluate.yml"
     config_path.write_text(
@@ -191,6 +230,26 @@ def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
     assert config.wandb is False
     assert config.wandb_project == "baseline-project"
     assert config.wandb_run_name == "baseline-run"
+
+
+def test_model_evaluation_results_path_defaults_to_graph_variant() -> None:
+    config = FlatFitConfig(graph_variant="dense_keypoint")
+
+    assert default_model_results_path(config) == Path(
+        "outputs/evaluations/dense_keypoint/results.jsonl"
+    )
+
+
+def test_results_path_resolution_keeps_baselines_separate() -> None:
+    train_config = FlatFitConfig(graph_variant="dense_keypoint")
+    baseline_config = evaluate_module.MotionBaselineConfig()
+
+    assert _resolve_results_path(
+        explicit_path=None,
+        baseline_config=baseline_config,
+        test_config=evaluate_module.TestConfig(results_path=None),
+        train_config=train_config,
+    ) == Path("outputs/evaluations/motion_baselines/results.jsonl")
 
 
 def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
@@ -220,7 +279,11 @@ def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
     assert result.split == "test"
     assert result.windows == 1
     assert "centroid_ade_px" in result.metrics
+    assert "centroid_velocity_error_px_per_frame" in result.metrics
+    assert "displacement_gain" in result.metrics
     assert "relative_ordering_error" in result.metrics
+    assert sum(result.motion_profile["counts"].values()) == 1
+    assert set(result.metrics_by_motion) == {"low", "medium", "high"}
 
 
 def test_save_evaluation_record_appends_jsonl(tmp_path) -> None:
@@ -277,6 +340,40 @@ def test_build_evaluation_record_tracks_lineage() -> None:
         "bone_length_error_px": 4.0,
     }
     assert record["sampling"] == "bivariate_gaussian"
+
+
+def test_baseline_record_persists_motion_strata() -> None:
+    result = evaluate_module.BaselineEvaluationResult(
+        baseline="persistence",
+        split="test",
+        windows=3,
+        metrics={"centroid_ade_px": 2.0},
+        motion_profile={
+            "score": "mean_mouse_centroid_displacement_px",
+            "thresholds_px": {"low_max": 1.0, "medium_max": 2.0},
+            "counts": {"low": 1, "medium": 1, "high": 1},
+        },
+        metrics_by_motion={
+            "low": {"centroid_ade_px": 1.0},
+            "medium": {"centroid_ade_px": 2.0},
+            "high": {"centroid_ade_px": 3.0},
+        },
+    )
+
+    record = build_baseline_evaluation_record(
+        result=result,
+        train_config=FlatFitConfig(),
+        train_config_path=Path("src/config/dense_keypoint__train.yml"),
+        baseline_config_path=Path("src/config/motion_baselines__evaluate.yml"),
+        split="test",
+        test_config_path=Path("src/config/test.yml"),
+        test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
+        max_windows=3,
+        seed=42,
+    )
+
+    assert record["motion_profile"] == result.motion_profile
+    assert record["metrics_by_motion"] == result.metrics_by_motion
 
 
 def test_print_evaluation_metrics_includes_diagnostic_tables(
@@ -337,6 +434,32 @@ def test_print_evaluation_metrics_includes_diagnostic_tables(
     assert "mouse_0" in output
     assert "  12.50" in output
     assert "   4.25" in output
+
+
+def test_print_motion_stratified_metrics_includes_counts_and_thresholds(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    print_motion_stratified_metrics(
+        metrics_by_motion={
+            "low": {"centroid_ade_px": 1.0},
+            "medium": {"centroid_ade_px": 2.0},
+            "high": {"centroid_ade_px": 3.0},
+        },
+        motion_profile={
+            "score": "mean_mouse_centroid_displacement_px",
+            "thresholds_px": {"low_max": 4.0, "medium_max": 9.0},
+            "counts": {"low": 2, "medium": 3, "high": 4},
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "Metrics by ground-truth motion stratum" in output
+    assert "low (n=2)" in output
+    assert "medium (n=3)" in output
+    assert "high (n=4)" in output
+    assert "low <= 4.000 px" in output
+    assert "medium <= 9.000 px" in output
+    assert "centroid_ade_px" in output
 
 
 def test_diagnostic_table_styles_mark_edges_and_extremes() -> None:

@@ -1,5 +1,5 @@
 data_path: data/MaBe/mouse_triplet_test.npy
-results_path: outputs/evaluations/results.jsonl
+results_path: null
 max_windows: 500
 seed: 42
 wandb: false

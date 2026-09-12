@@ -10,11 +10,17 @@ from metric import (
     centroid_ade_px,
     centroid_fde_px,
     centroid_offset_px_by_mouse,
+    centroid_velocity_error_px_per_frame,
     compute_pixel_metrics,
+    displacement_direction_error_deg,
+    displacement_gain,
+    displacement_magnitude_error_px,
     edge_angle_error_matrix_deg,
     edge_bone_length_error_matrix_px,
+    ground_truth_motion_px,
     keypoint_ade_px,
     keypoint_fde_px,
+    keypoint_velocity_error_px_per_frame,
     relative_ordering_error_by_mouse_axis,
     skeleton_edge_vectors,
     skeleton_orientation_error_deg,
@@ -56,6 +62,72 @@ def test_pixel_metrics_are_zero_for_perfect_prediction() -> None:
     assert metrics.to_dict()["keypoint_ade_px"] == 0.0
     assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][0] is None
     assert metrics.to_dict()["edge_angle_error_deg_by_mouse"][0][0][5] == 0.0
+
+
+def test_motion_metrics_distinguish_persistence_from_target_motion() -> None:
+    initial_pose = np.zeros((1, 12, 2), dtype=np.float32)
+    target = np.zeros((3, 1, 12, 2), dtype=np.float32)
+    target[:, :, :, 0] = np.array([1.0, 2.0, 3.0])[:, None, None]
+    persistence = np.zeros_like(target)
+
+    assert (
+        centroid_velocity_error_px_per_frame(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+        )
+        == 1.0
+    )
+    assert (
+        keypoint_velocity_error_px_per_frame(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+        )
+        == 1.0
+    )
+    assert (
+        displacement_magnitude_error_px(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+        )
+        == 3.0
+    )
+    assert (
+        displacement_gain(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+        )
+        == 0.0
+    )
+
+
+def test_displacement_direction_error_measures_net_motion_angle() -> None:
+    initial_pose = np.zeros((1, 12, 2), dtype=np.float32)
+    target = np.zeros((2, 1, 12, 2), dtype=np.float32)
+    predicted = np.zeros_like(target)
+    target[:, :, :, 0] = np.array([1.0, 2.0])[:, None, None]
+    predicted[:, :, :, 1] = np.array([1.0, 2.0])[:, None, None]
+
+    assert (
+        displacement_direction_error_deg(
+            predicted,
+            target,
+            initial_pose=initial_pose,
+        )
+        == 90.0
+    )
+
+
+def test_ground_truth_motion_is_mean_mouse_centroid_displacement() -> None:
+    initial_pose = np.zeros((2, 12, 2), dtype=np.float32)
+    target = np.zeros((2, 2, 12, 2), dtype=np.float32)
+    target[-1, 0, :, 0] = 3.0
+    target[-1, 1, :, 0] = 5.0
+
+    assert ground_truth_motion_px(initial_pose, target) == 4.0
 
 
 def test_translation_affects_trajectory_and_actual_frame_pose_not_structure() -> None:
