@@ -25,6 +25,7 @@ from evaluate import (
     load_test_config,
     print_evaluation_metrics,
     print_motion_stratified_metrics,
+    resolve_baseline_window_config,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
     save_evaluation_record,
@@ -162,6 +163,59 @@ def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     assert len(test) == 1
 
 
+def test_horizon_comparison_uses_identical_sequence_start_windows(tmp_path) -> None:
+    train_path = tmp_path / "mouse_triplet_train.npy"
+    test_path = tmp_path / "mouse_triplet_test.npy"
+    payload = {
+        "vocabulary": [],
+        "sequences": {
+            f"test_{index}": {"keypoints": make_keypoints(frames=100)}
+            for index in range(2)
+        },
+    }
+    write_mabe_file(train_path, sequence_prefix="train")
+    np.save(test_path, np.asarray(payload, dtype=object))
+    short_config = FlatFitConfig(
+        data_path=train_path,
+        window_length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+    )
+    long_config = FlatFitConfig(
+        data_path=train_path,
+        window_length=68,
+        observation_length=8,
+        prediction_length=60,
+        stride=20,
+    )
+
+    short_windows = _build_evaluation_windows(
+        config=short_config,
+        split="test",
+        test_data_path=test_path,
+        max_windows=None,
+        index_window_length=68,
+    )
+    long_windows = _build_evaluation_windows(
+        config=long_config,
+        split="test",
+        test_data_path=test_path,
+        max_windows=None,
+        index_window_length=68,
+    )
+
+    short_keys = [
+        (short_windows[index].sequence_id, short_windows[index].start_frame)
+        for index in range(len(short_windows))
+    ]
+    long_keys = [
+        (long_windows[index].sequence_id, long_windows[index].start_frame)
+        for index in range(len(long_windows))
+    ]
+    assert short_keys == long_keys
+
+
 def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
     config_path = tmp_path / "test.yml"
     config_path.write_text(
@@ -206,13 +260,19 @@ def test_load_test_config_allows_source_specific_default_results_path(tmp_path) 
 
 
 def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
-    config_path = tmp_path / "motion_baselines__evaluate.yml"
+    config_path = tmp_path / "motion_baselines_pred30__evaluate.yml"
     config_path.write_text(
         "\n".join(
             [
                 "baselines:",
                 "  - persistence",
                 "  - rigid_constant_velocity",
+                "observation_length: 8",
+                "prediction_length: 30",
+                "comparison_prediction_length: 60",
+                "stride: 20",
+                "max_windows: 1000",
+                "frame_rate_hz: 30.0",
                 f"results_path: {tmp_path / 'baseline_results.jsonl'}",
                 "seed: 42",
                 "wandb: false",
@@ -225,11 +285,40 @@ def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
     config = load_motion_baseline_config(config_path)
 
     assert config.baselines == ("persistence", "rigid_constant_velocity")
+    assert config.observation_length == 8
+    assert config.prediction_length == 30
+    assert config.comparison_prediction_length == 60
+    assert config.stride == 20
+    assert config.max_windows == 1000
+    assert config.frame_rate_hz == 30.0
     assert config.results_path == tmp_path / "baseline_results.jsonl"
     assert config.seed == 42
     assert config.wandb is False
     assert config.wandb_project == "baseline-project"
     assert config.wandb_run_name == "baseline-run"
+
+
+def test_baseline_window_config_changes_only_the_horizon_contract() -> None:
+    train_config = FlatFitConfig(
+        observation_length=8,
+        prediction_length=12,
+        window_length=20,
+        stride=20,
+        graph_variant="dense_keypoint",
+    )
+    baseline_config = evaluate_module.MotionBaselineConfig(
+        observation_length=8,
+        prediction_length=60,
+        stride=20,
+    )
+
+    resolved = resolve_baseline_window_config(train_config, baseline_config)
+
+    assert resolved.observation_length == 8
+    assert resolved.prediction_length == 60
+    assert resolved.window_length == 68
+    assert resolved.stride == 20
+    assert resolved.graph_variant == "dense_keypoint"
 
 
 def test_model_evaluation_results_path_defaults_to_graph_variant() -> None:
@@ -249,7 +338,7 @@ def test_results_path_resolution_keeps_baselines_separate() -> None:
         baseline_config=baseline_config,
         test_config=evaluate_module.TestConfig(results_path=None),
         train_config=train_config,
-    ) == Path("outputs/evaluations/motion_baselines/results.jsonl")
+    ) == Path("outputs/evaluations/motion_baselines/pred12/results.jsonl")
 
 
 def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
@@ -299,6 +388,17 @@ def test_save_evaluation_record_appends_jsonl(tmp_path) -> None:
     assert results_path.read_text().strip() == (
         '{"metrics": {"ade": 1.25, "fde": 2.5}, "split": "test", "windows": 2}'
     )
+
+
+def test_save_evaluation_record_writes_undefined_metrics_as_json_null(tmp_path) -> None:
+    results_path = tmp_path / "results.jsonl"
+
+    save_evaluation_record(
+        {"metrics": {"displacement_direction_error_deg": float("nan")}},
+        results_path,
+    )
+
+    assert '"displacement_direction_error_deg": null' in results_path.read_text()
 
 
 def test_build_evaluation_record_tracks_lineage() -> None:
@@ -358,13 +458,20 @@ def test_baseline_record_persists_motion_strata() -> None:
             "medium": {"centroid_ade_px": 2.0},
             "high": {"centroid_ade_px": 3.0},
         },
+        evaluation_seconds=1.25,
+    )
+    baseline_config = evaluate_module.MotionBaselineConfig(
+        observation_length=8,
+        prediction_length=30,
+        frame_rate_hz=30.0,
     )
 
     record = build_baseline_evaluation_record(
         result=result,
         train_config=FlatFitConfig(),
         train_config_path=Path("src/config/dense_keypoint__train.yml"),
-        baseline_config_path=Path("src/config/motion_baselines__evaluate.yml"),
+        baseline_config=baseline_config,
+        baseline_config_path=Path("src/config/motion_baselines_pred30__evaluate.yml"),
         split="test",
         test_config_path=Path("src/config/test.yml"),
         test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
@@ -374,6 +481,9 @@ def test_baseline_record_persists_motion_strata() -> None:
 
     assert record["motion_profile"] == result.motion_profile
     assert record["metrics_by_motion"] == result.metrics_by_motion
+    assert record["runtime_seconds"] == 1.25
+    assert record["frame_rate_hz"] == 30.0
+    assert record["prediction_horizon_seconds"] == 1.0
 
 
 def test_print_evaluation_metrics_includes_diagnostic_tables(

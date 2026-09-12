@@ -2,21 +2,32 @@
 cwd: ../..
 ---
 
-# Test Motion Baselines
+# Test Motion Baselines Across Horizons
 
-Evaluate deterministic non-training baselines on the held-out MABe test windows.
-These numbers are the floor that trained trajectory models should beat.
+Measure when persistence and constant-velocity assumptions stop being competitive.
+All experiments use the held-out MABe test file, eight observed frames, seed 42,
+and the same sampled windows. Only the prediction horizon changes.
 
-## Run Baseline Evaluation
+| Config | Observed | Predicted | Future duration |
+| --- | ---: | ---: | ---: |
+| `pred12` | 8 frames | 12 frames | 0.4 s |
+| `pred30` | 8 frames | 30 frames | 1.0 s |
+| `pred60` | 8 frames | 60 frames | 2.0 s |
+
+## Run the benchmark
 
 This cell evaluates persistence, rigid constant velocity, and per-keypoint
-constant velocity with the same pixel-space metric suite used for checkpoint
-evaluation.
+constant velocity. It appends one record per baseline to the horizon-specific
+JSONL ledger and prints overall and motion-stratified tables.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 import os
 from pathlib import Path
 import sys
+
+from rich import box
+from rich.console import Console
+from rich.table import Table
 
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
 os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
@@ -27,62 +38,119 @@ from evaluate import (
     evaluate_motion_baselines,
     load_motion_baseline_config,
     load_test_config,
-    print_evaluation_metrics,
+    print_motion_stratified_metrics,
+    resolve_baseline_window_config,
     save_evaluation_record,
 )
 from train import load_flat_fit_config
 
 TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
-BASELINE_CONFIG = repo_root / "src/config/motion_baselines__evaluate.yml"
 TEST_CONFIG = repo_root / "src/config/test.yml"
-SPLIT = "test"
-MAX_WINDOWS = None  # use test.yml; set a small integer for faster iteration
-
-train_config = load_flat_fit_config(TRAIN_CONFIG)
-baseline_config = load_motion_baseline_config(BASELINE_CONFIG)
-test_config = load_test_config(TEST_CONFIG)
-max_windows = MAX_WINDOWS if MAX_WINDOWS is not None else test_config.max_windows
-
-results = evaluate_motion_baselines(
-    train_config=train_config,
-    baseline_config=baseline_config,
-    split=SPLIT,
-    test_data_path=test_config.data_path,
-    max_windows=max_windows,
-    show_progress=True,
+BASELINE_CONFIGS = (
+    repo_root / "src/config/motion_baselines_pred12__evaluate.yml",
+    repo_root / "src/config/motion_baselines_pred30__evaluate.yml",
+    repo_root / "src/config/motion_baselines_pred60__evaluate.yml",
 )
 
-for result in results:
-    record = build_baseline_evaluation_record(
-        result=result,
-        train_config=train_config,
-        train_config_path=TRAIN_CONFIG,
-        baseline_config_path=BASELINE_CONFIG,
-        split=SPLIT,
-        test_config_path=TEST_CONFIG,
-        test_data_path=test_config.data_path,
-        max_windows=max_windows,
-        seed=baseline_config.seed,
-    )
-    save_evaluation_record(record, baseline_config.results_path)
-    print(f"\nbaseline={result.baseline}")
-    print(f"windows={result.windows}")
-    print_evaluation_metrics(result.metrics)
+base_train_config = load_flat_fit_config(TRAIN_CONFIG)
+test_config = load_test_config(TEST_CONFIG)
+records = []
 
-print("result:", baseline_config.results_path)
+for baseline_config_path in BASELINE_CONFIGS:
+    baseline_config = load_motion_baseline_config(baseline_config_path)
+    train_config = resolve_baseline_window_config(base_train_config, baseline_config)
+    results = evaluate_motion_baselines(
+        train_config=train_config,
+        baseline_config=baseline_config,
+        split="test",
+        test_data_path=test_config.data_path,
+        max_windows=baseline_config.max_windows,
+        show_progress=True,
+    )
+    for result in results:
+        record = build_baseline_evaluation_record(
+            result=result,
+            train_config=train_config,
+            train_config_path=TRAIN_CONFIG,
+            baseline_config=baseline_config,
+            baseline_config_path=baseline_config_path,
+            split="test",
+            test_config_path=TEST_CONFIG,
+            test_data_path=test_config.data_path,
+            max_windows=baseline_config.max_windows,
+            seed=baseline_config.seed,
+        )
+        save_evaluation_record(record, baseline_config.results_path)
+        records.append(record)
+        print(f"\n{result.baseline}: prediction={train_config.prediction_length} frames")
+        print_motion_stratified_metrics(
+            metrics_by_motion=result.metrics_by_motion,
+            motion_profile=result.motion_profile,
+        )
+
+table = Table(title="Motion-baseline difficulty curve", box=box.SIMPLE_HEAVY)
+for column in ("horizon", "baseline", "cADE px", "cFDE px", "DME px", "DG", "seconds"):
+    table.add_column(column, justify="right" if column != "baseline" else "left")
+for record in records:
+    metrics = record["metrics"]
+    table.add_row(
+        str(record["model"]["prediction_length"]),
+        record["model"]["baseline"],
+        f'{metrics["centroid_ade_px"]:.3f}',
+        f'{metrics["centroid_fde_px"]:.3f}',
+        f'{metrics["displacement_magnitude_error_px"]:.3f}',
+        f'{metrics["displacement_gain"]:.3f}',
+        f'{record["runtime_seconds"]:.2f}',
+    )
+Console().print(table)
 ```
 
-## CLI Equivalent
+## CLI equivalents
+
+Run one horizon independently when iterating:
 
 ```sh
-python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines__evaluate.yml --split test
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred12__evaluate.yml --split test
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred30__evaluate.yml --split test
+python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred60__evaluate.yml --split test
 ```
+
+Results are stored separately under
+`outputs/evaluations/motion_baselines/pred{12,30,60}/results.jsonl`.
+
+## Recorded 1,000-window results
+
+The aligned held-out run produced the following aggregate values. Lower is
+better for the error columns; displacement gain is best at 1.0.
+
+| Horizon | Baseline | cADE px | cFDE px | kADE px | kFDE px | DME px | DG |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 12 | persistence | 6.484 | 10.886 | 8.154 | 13.335 | 10.886 | 0.000 |
+| 12 | rigid constant velocity | 6.467 | 11.788 | 8.232 | 14.223 | 8.289 | 1.728 |
+| 12 | keypoint constant velocity | 6.467 | 11.788 | 9.789 | 17.378 | 8.289 | 1.728 |
+| 30 | persistence | 13.228 | 23.543 | 15.835 | 27.281 | 23.543 | 0.000 |
+| 30 | rigid constant velocity | 16.139 | 32.615 | 18.514 | 35.480 | 24.711 | 2.900 |
+| 30 | keypoint constant velocity | 16.139 | 32.615 | 22.790 | 44.196 | 24.711 | 2.900 |
+| 60 | persistence | 23.182 | 41.378 | 26.655 | 46.186 | 41.378 | 0.000 |
+| 60 | rigid constant velocity | 33.872 | 69.235 | 36.611 | 72.451 | 52.644 | 4.607 |
+| 60 | keypoint constant velocity | 33.872 | 69.235 | 45.473 | 90.566 | 52.644 | 4.607 |
+
+Persistence cFDE by ground-truth motion stratum makes the aggregate result more
+interpretable:
+
+| Horizon | Low motion | Medium motion | High motion |
+| ---: | ---: | ---: | ---: |
+| 12 | 1.354 px | 4.585 px | 26.748 px |
+| 30 | 1.935 px | 8.431 px | 60.327 px |
+| 60 | 2.592 px | 15.550 px | 106.108 px |
 
 ## Interpretation
 
-- `persistence` answers how far a mouse drifts if we simply freeze the last
-  observed pose.
-- `rigid_constant_velocity` tests whether translating each mouse as a rigid body
-  is already a strong shape-preserving baseline.
-- `keypoint_constant_velocity` tests whether independent keypoint motion helps
-  trajectory metrics while possibly harming pose structure.
+- Persistence predicts zero displacement, so its displacement gain is zero.
+- Displacement direction is undefined for persistence because a zero vector has
+  no direction; DME and displacement gain capture this failure.
+- Compare models within each horizon and motion stratum. Increasing errors with
+  horizon establish a difficulty curve; aggregate errors alone can hide failure
+  on high-motion windows.
+- Do not remove low-motion windows. The strata diagnose the distribution without
+  redefining valid mouse behavior.

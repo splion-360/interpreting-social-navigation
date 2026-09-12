@@ -302,6 +302,8 @@ class MabeWindowDataset:
         fill_missing: Whether to fill zero-valued keypoint holes before returning a window.
         normalizer: Optional training-fitted normalizer.
         max_windows: Optional cap for debug subsets.
+        index_window_length: Optional longer window length used only to determine
+            valid start frames for comparisons across forecasting horizons.
     """
 
     def __init__(
@@ -312,20 +314,26 @@ class MabeWindowDataset:
         fill_missing: bool = True,
         normalizer: PoseNormalizer | None = None,
         max_windows: int | None = None,
+        index_window_length: int | None = None,
     ) -> None:
         self.sequences = {sequence.sequence_id: sequence for sequence in sequences}
         self.spec = spec or WindowSpec()
         self.fill_missing = fill_missing
         self.normalizer = normalizer
-        self._index = self._build_index(max_windows)
+        self._index = self._build_index(max_windows, index_window_length)
 
-    def _build_index(self, max_windows: int | None) -> tuple[tuple[str, int], ...]:
+    def _build_index(
+        self,
+        max_windows: int | None,
+        index_window_length: int | None,
+    ) -> tuple[tuple[str, int], ...]:
         """Build deterministic `(sequence_id, start_frame)` window pointers."""
 
         index: list[tuple[str, int]] = []
+        required_length = index_window_length or self.spec.length
         for sequence_id in sorted(self.sequences):
             sequence = self.sequences[sequence_id]
-            stop = sequence.num_frames - self.spec.length + 1
+            stop = sequence.num_frames - required_length + 1
             for start in range(0, max(0, stop), self.spec.stride):
                 index.append((sequence_id, start))
                 if max_windows is not None and len(index) >= max_windows:

@@ -1,0 +1,15 @@
+baselines:
+  - persistence
+  - rigid_constant_velocity
+  - keypoint_constant_velocity
+observation_length: 8
+prediction_length: 30
+comparison_prediction_length: 60
+stride: 20
+max_windows: 1000
+frame_rate_hz: 30.0
+results_path: outputs/evaluations/motion_baselines/pred30/results.jsonl
+seed: 42
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name: motion-baselines-pred30
