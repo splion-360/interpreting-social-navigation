@@ -188,6 +188,41 @@ def build_single_mouse_dense_keypoint_graph(keypoints: np.ndarray) -> GraphSeque
     )
 
 
+def build_within_mouse_dense_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
+    """Build a triplet graph with independent dense keypoint graphs per mouse.
+
+    Each mouse keeps dense keypoint-to-keypoint slots within its own body, but
+    no spatial edge connects keypoints from different mice. With three mice and
+    twelve keypoints per mouse, this yields 36 nodes and 432 edge slots.
+
+    Args:
+        keypoints: Pose sequence shaped `[time, 3, 12, 2]`.
+
+    Returns:
+        Graph sequence with three disconnected within-mouse keypoint graphs.
+    """
+
+    _ensure_pose_shape(keypoints)
+    nodes = keypoints.astype(np.float32).reshape(
+        keypoints.shape[0], NUM_MICE * NUM_KEYPOINTS, COORDINATES
+    )
+    edge_specs = tuple(
+        EdgeSpec(
+            source=flat_keypoint_node_id(mouse_id, source_keypoint),
+            target=flat_keypoint_node_id(mouse_id, target_keypoint),
+            kind="temporal" if source_keypoint == target_keypoint else "spatial",
+        )
+        for mouse_id in range(NUM_MICE)
+        for source_keypoint in range(NUM_KEYPOINTS)
+        for target_keypoint in range(NUM_KEYPOINTS)
+    )
+    return _build_graph_sequence(
+        variant="within_mouse_dense_keypoint",
+        nodes=nodes,
+        edge_specs=edge_specs,
+    )
+
+
 def build_mouse_level_graph(keypoints: np.ndarray) -> GraphSequence:
     """Build a mouse-level graph from per-mouse pose centroids.
 

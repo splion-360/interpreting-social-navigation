@@ -88,6 +88,7 @@ from st_graph import (
     build_dense_keypoint_graph,
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
+    build_within_mouse_dense_keypoint_graph,
 )
 
 dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
@@ -100,12 +101,18 @@ window = MabeWindowDataset(
 
 flat_graph = build_flat_sparse_keypoint_graph(window.keypoints)
 dense_graph = build_dense_keypoint_graph(window.keypoints)
+within_mouse_graph = build_within_mouse_dense_keypoint_graph(window.keypoints)
 mouse_graph = build_mouse_level_graph(window.keypoints)
 
 print("sequence:", window.sequence_id)
 print("window:", window.keypoints.shape)
 print("sparse nodes/edges:", flat_graph.nodes.shape, flat_graph.edge_features.shape)
 print("dense nodes/edges:", dense_graph.nodes.shape, dense_graph.edge_features.shape)
+print(
+    "within-mouse nodes/edges:",
+    within_mouse_graph.nodes.shape,
+    within_mouse_graph.edge_features.shape,
+)
 print("mouse nodes/edges:", mouse_graph.nodes.shape, mouse_graph.edge_features.shape)
 ```
 
@@ -113,6 +120,7 @@ print("mouse nodes/edges:", mouse_graph.nodes.shape, mouse_graph.edge_features.s
 
 - Sparse keypoint graph: 36 nodes, one per mouse keypoint, with 900 edge slots. It connects cross-mouse keypoints only and keeps same-mouse structure out of the graph.
 - Dense keypoint graph: 36 nodes with 1,296 edge slots. Diagonal slots are temporal self-edges; off-diagonal slots are directed spatial edges, including within-mouse keypoint relationships.
+- Within-mouse keypoint graph: 36 nodes with 432 edge slots. It keeps dense keypoint structure inside each mouse and removes cross-mouse spatial edges.
 - Mouse-level graph: 3 centroid nodes with directed inter-mouse spatial edges. This is the seam for the future hierarchical model.
 - The dense keypoint graph is the preferred flat baseline because each keypoint can attend to every other keypoint.
 - `scripts/st_graph.py` is kept as migration reference while reusable graph code moves into `src/st_graph.py`.

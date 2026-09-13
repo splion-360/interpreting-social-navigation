@@ -1,0 +1,122 @@
+---
+cwd: ../..
+runme:
+  id: 01M25WITHINMOUSE5FPS
+  version: v3
+---
+
+# Train Flat Within-Mouse Triplet 5 FPS Experiment
+
+This workflow trains the flat Social Attention architecture on all three mice
+while limiting spatial attention to keypoints from the same mouse. Cross-mouse
+spatial edges are removed, but each mouse is still predicted in the shared arena
+coordinate system.
+
+## Hypothesis
+
+If the flat dense triplet model struggles because cross-mouse keypoint edges add
+noise, this variant should improve pose, structure, and ordering metrics while
+possibly weakening social-interaction trajectory cues. Compare the result
+against the flat dense triplet and flat dense single-mouse runs.
+
+## Inspect configuration
+
+```sh {"id":"01M25WITHINMOUSE5FPSCONFIG","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/train.py fit --config src/config/train__flat_within_mouse_triplet_5fps.yml --show-config
+```
+
+## Train
+
+```sh {"id":"01M25WITHINMOUSE5FPSTRAIN","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/train.py fit --config src/config/train__flat_within_mouse_triplet_5fps.yml --wandb
+```
+
+## Benchmark
+
+Run this after training produces
+`checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt`.
+
+```sh {"id":"01M25WITHINMOUSE5FPSBENCH","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/benchmark.py --config src/config/benchmark__flat_within_mouse_triplet_5fps.yml
+```
+
+## Compare experiment records
+
+Run this after the dense triplet, single-mouse, and within-mouse benchmark
+records exist. It prints the latest overall metrics from each experiment so the
+cross-mouse edge ablation can be read side by side.
+
+```python {"id":"01M25WITHINMOUSE5FPSCOMPARE","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+
+
+records = {
+    "flat_dense_triplet_5fps": Path(
+        "outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl"
+    ),
+    "flat_dense_single_mouse_5fps": Path(
+        "outputs/evaluations/flat_dense_single_mouse_5fps/benchmark_16_24/results.jsonl"
+    ),
+    "flat_within_mouse_triplet_5fps": Path(
+        "outputs/evaluations/flat_within_mouse_triplet_5fps/benchmark_16_24/results.jsonl"
+    ),
+}
+
+metric_names = (
+    "centroid_ade_px",
+    "centroid_fde_px",
+    "body_heading_error_deg",
+    "body_frame_keypoint_ade_px",
+    "body_frame_keypoint_fde_px",
+    "relative_ordering_error",
+)
+
+table = Table(title="Latest 5 FPS experiment comparison")
+table.add_column("experiment", style="cyan")
+table.add_column("method")
+for metric_name in metric_names:
+    table.add_column(metric_name, justify="right")
+
+for experiment, path in records.items():
+    if not path.exists():
+        table.add_row(experiment, "missing", *("-" for _ in metric_names))
+        continue
+
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    record = json.loads(lines[-1])
+    for method_name, method in record["methods"].items():
+        metrics = method["metrics"]
+        table.add_row(
+            experiment,
+            method_name,
+            *(f"{metrics[name]:.3f}" for name in metric_names),
+        )
+
+Console().print(table)
+```
+
+## Results
+
+Fill this after the benchmark run completes. Compare against the same 5 FPS
+16→24 setup so differences come from graph structure, not from the temporal
+window.
+
+- W&B run:
+- W&B checkpoint artifact:
+- Results JSONL:
+  `outputs/evaluations/flat_within_mouse_triplet_5fps/benchmark_16_24/results.jsonl`
+- Interpretation:
+
+| Method | cFDE | kFDE | CVE | KVE | BHE | ROE | Notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| persistence | | | | | | | |
+| constant_velocity | | | | | | | |
+| flat_dense_triplet_5fps | | | | | | | |
+| flat_dense_single_mouse_5fps | | | | | | | |
+| flat_within_mouse_triplet_5fps | | | | | | | |

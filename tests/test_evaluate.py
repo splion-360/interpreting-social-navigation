@@ -395,6 +395,17 @@ def test_model_evaluation_results_path_defaults_to_graph_variant() -> None:
     )
 
 
+def test_model_evaluation_results_path_uses_experiment_slug() -> None:
+    config = FlatFitConfig(
+        graph_variant="within_mouse_dense_keypoint",
+        frame_step=6,
+    )
+
+    assert default_model_results_path(config) == Path(
+        "outputs/evaluations/flat_within_mouse_triplet_5fps/results.jsonl"
+    )
+
+
 def test_results_path_resolution_keeps_baselines_separate() -> None:
     train_config = FlatFitConfig(graph_variant="dense_keypoint")
     baseline_config = evaluate_module.MotionBaselineConfig()

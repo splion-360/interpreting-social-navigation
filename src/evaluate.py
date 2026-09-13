@@ -61,6 +61,7 @@ KEYPOINT_GRAPH_VARIANTS = {
     "dense_keypoint",
     "flat_sparse_keypoint",
     "single_mouse_dense_keypoint",
+    "within_mouse_dense_keypoint",
 }
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test__mabe.yml")
 DEFAULT_BASELINE_CONFIG_PATH = Path(
@@ -1598,6 +1599,7 @@ def _experiment_slug(graph_variant: str) -> str:
         "flat_sparse_keypoint": "flat_sparse_triplet",
         "mouse_level": "flat_mouse_level",
         "single_mouse_dense_keypoint": "flat_dense_single_mouse",
+        "within_mouse_dense_keypoint": "flat_within_mouse_triplet",
     }.get(graph_variant, graph_variant)
 
 

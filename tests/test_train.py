@@ -218,6 +218,16 @@ def test_variant_train_configs_load_from_src_config() -> None:
             6,
             4,
         ),
+        "flat_within_mouse_triplet_5fps": (
+            Path("src/config/train__flat_within_mouse_triplet_5fps.yml"),
+            "within_mouse_dense_keypoint",
+            10,
+            40,
+            16,
+            24,
+            6,
+            4,
+        ),
         "flat_sparse_triplet_30fps": (
             Path("src/config/train__flat_sparse_triplet_30fps.yml"),
             "flat_sparse_keypoint",
@@ -264,6 +274,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
         assert config.motion_sampling is (
             variant.startswith("flat_dense_triplet")
             or variant.startswith("flat_dense_single_mouse")
+            or variant.startswith("flat_within_mouse_triplet")
         )
 
 

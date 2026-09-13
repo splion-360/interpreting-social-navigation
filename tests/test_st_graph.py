@@ -8,6 +8,7 @@ from st_graph import (
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
     build_single_mouse_dense_keypoint_graph,
+    build_within_mouse_dense_keypoint_graph,
     flat_keypoint_node_id,
 )
 
@@ -67,6 +68,21 @@ def test_single_mouse_dense_keypoint_graph_has_one_slot_per_node_pair() -> None:
     assert len(graph.edges_present[1]) == 12 * 12
 
 
+def test_within_mouse_dense_keypoint_graph_has_independent_mouse_graphs() -> None:
+    keypoints = make_keypoints()
+
+    graph = build_within_mouse_dense_keypoint_graph(keypoints)
+
+    assert graph.variant == "within_mouse_dense_keypoint"
+    assert graph.nodes.shape == (3, 36, 2)
+    assert graph.edge_features.shape == (3, 3 * 12 * 12, 2)
+    assert graph.edge_count == 3 * 12 * 12
+    assert len(set(graph.edge_specs)) == graph.edge_count
+    assert graph.nodes_present[0] == tuple(range(36))
+    assert len(graph.edges_present[0]) == 3 * 12 * 11
+    assert len(graph.edges_present[1]) == 3 * 12 * 12
+
+
 def test_flat_keypoint_graph_uses_stable_node_ids() -> None:
     keypoints = make_keypoints()
 
@@ -96,6 +112,27 @@ def test_single_mouse_dense_graph_uses_dense_source_target_indexing() -> None:
 
     assert graph.edge_id(source=1, target=3, kind="spatial") == 15
     assert graph.edge_id(source=3, target=3, kind="temporal") == 39
+
+
+def test_within_mouse_dense_graph_uses_mouse_local_dense_indexing() -> None:
+    graph = build_within_mouse_dense_keypoint_graph(make_keypoints())
+    source = flat_keypoint_node_id(mouse_id=2, keypoint_id=1)
+    target = flat_keypoint_node_id(mouse_id=2, keypoint_id=3)
+    temporal = flat_keypoint_node_id(mouse_id=1, keypoint_id=3)
+
+    assert graph.edge_id(source=source, target=target, kind="spatial") == 303
+    assert graph.edge_id(source=temporal, target=temporal, kind="temporal") == 183
+
+
+def test_within_mouse_dense_graph_excludes_cross_mouse_edges() -> None:
+    graph = build_within_mouse_dense_keypoint_graph(make_keypoints())
+
+    with pytest.raises(ValueError):
+        graph.edge_id(
+            source=flat_keypoint_node_id(mouse_id=0, keypoint_id=1),
+            target=flat_keypoint_node_id(mouse_id=2, keypoint_id=1),
+            kind="spatial",
+        )
 
 
 def test_flat_keypoint_graph_features_match_source_minus_target_vectors() -> None:
@@ -160,6 +197,27 @@ def test_single_mouse_dense_graph_features_match_source_minus_target_vectors() -
     )
 
 
+def test_within_mouse_dense_graph_features_match_source_minus_target_vectors() -> None:
+    keypoints = make_keypoints()
+
+    graph = build_within_mouse_dense_keypoint_graph(keypoints)
+    temporal = flat_keypoint_node_id(mouse_id=2, keypoint_id=0)
+    temporal_edge = graph.edge_id(source=temporal, target=temporal, kind="temporal")
+    source = flat_keypoint_node_id(mouse_id=2, keypoint_id=1)
+    target = flat_keypoint_node_id(mouse_id=2, keypoint_id=3)
+    spatial_edge = graph.edge_id(source=source, target=target, kind="spatial")
+
+    assert temporal_edge not in graph.edges_present[0]
+    assert temporal_edge in graph.edges_present[1]
+    np.testing.assert_array_equal(
+        graph.edge_features[1, temporal_edge], np.array([-1, -2])
+    )
+    np.testing.assert_array_equal(
+        graph.edge_features[0, spatial_edge],
+        keypoints[0, 2, 1] - keypoints[0, 2, 3],
+    )
+
+
 def test_mouse_level_graph_uses_three_mouse_centroids() -> None:
     keypoints = make_keypoints()
 
@@ -203,3 +261,6 @@ def test_graph_builders_reject_wrong_pose_shape() -> None:
 
     with pytest.raises(ValueError, match="keypoints must be shaped"):
         build_single_mouse_dense_keypoint_graph(make_keypoints())
+
+    with pytest.raises(ValueError, match="keypoints must be shaped"):
+        build_within_mouse_dense_keypoint_graph(keypoints)

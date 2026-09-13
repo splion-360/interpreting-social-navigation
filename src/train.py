@@ -46,6 +46,7 @@ from st_graph import (
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
     build_single_mouse_dense_keypoint_graph,
+    build_within_mouse_dense_keypoint_graph,
 )
 
 
@@ -61,11 +62,13 @@ GRAPH_BUILDERS = {
     "flat_sparse_keypoint": build_flat_sparse_keypoint_graph,
     "mouse_level": build_mouse_level_graph,
     "single_mouse_dense_keypoint": build_single_mouse_dense_keypoint_graph,
+    "within_mouse_dense_keypoint": build_within_mouse_dense_keypoint_graph,
 }
 VALIDATION_METRIC_GRAPH_VARIANTS = {
     "dense_keypoint",
     "flat_sparse_keypoint",
     "single_mouse_dense_keypoint",
+    "within_mouse_dense_keypoint",
 }
 VALIDATION_METRIC_ALIASES = {
     "centroid_ade_px": "cADE",

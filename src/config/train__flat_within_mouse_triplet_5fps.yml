@@ -1,0 +1,35 @@
+model: flat
+data_path: data/mabe/raw/mouse_triplet_train.npy
+epochs: 50
+batch_size: 4
+window_length: 40
+observation_length: 16
+prediction_length: 24
+graph_variant: within_mouse_dense_keypoint
+stride: 20
+frame_step: 6
+source_fps: 30.0
+max_train_windows: 800
+max_validation_windows: 200
+validation_fraction: 0.2
+motion_sampling: true
+motion_score: mean_keypoint_speed_px_s
+workers: 4
+motion_group_mix:
+  low: 0.2
+  medium: 0.4
+  high: 0.4
+learning_rate: 0.001
+grad_clip: 10.0
+seed: 42
+device: cuda
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name: flat-within-mouse-triplet-5fps
+checkpoint_dir: checkpoints/flat_within_mouse_triplet_5fps
+save_checkpoints: true
+checkpoint_frequency: 10
+wandb_artifact_name: flat-within-mouse-triplet-5fps-best-checkpoint
+resume_checkpoint: null
+resume_wandb_artifact: null
+resume_download_dir: checkpoints/wandb
