@@ -2,155 +2,87 @@
 cwd: ../..
 ---
 
-# Test Motion Baselines Across Horizons
+# Compare Social Attention With Motion Baselines
 
-Measure when persistence and constant-velocity assumptions stop being competitive.
-All experiments use the held-out MABe test file, eight observed frames, seed 42,
-and the same sampled windows. Only the prediction horizon changes.
+Evaluate the trained dense-keypoint model and three deterministic predictors on
+the same held-out MABe windows. Every method observes 8 frames and predicts the
+next 12 frames. Ground-truth motion tertiles define the low-, medium-, and
+high-motion slices once and are shared by all methods.
 
-| Config | Observed | Predicted | Future duration |
-| --- | ---: | ---: | ---: |
-| `pred12` | 8 frames | 12 frames | 0.4 s |
-| `pred30` | 8 frames | 30 frames | 1.0 s |
-| `pred60` | 8 frames | 60 frames | 2.0 s |
+| Method | Description |
+| --- | --- |
+| Persistence | Repeats the final observed pose. |
+| Rigid constant velocity | Translates the final pose using centroid velocity. |
+| Keypoint constant velocity | Extrapolates every keypoint independently. |
+| Social Attention | Samples autoregressively from `flat_best.pt`. |
 
-## Run the benchmark
+## Run the fair comparison
 
-This cell evaluates persistence, rigid constant velocity, and per-keypoint
-constant velocity. It appends one record per baseline to the horizon-specific
-JSONL ledger and prints overall and motion-stratified tables.
+This inference-only cell evaluates 1,000 windows with seed 42, prints Rich tables
+for the overall distribution and each motion slice, and appends one combined
+record to `outputs/evaluations/dense_keypoint/comparison_8_12/results.jsonl`.
+Values in parentheses are relative error improvements over persistence: positive
+is better, negative is worse, and blank means the reference is undefined or zero.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 import os
 from pathlib import Path
 import sys
 
-from rich import box
-from rich.console import Console
-from rich.table import Table
-
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
 os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
 sys.path.insert(0, str(repo_root / "src"))
 
-from evaluate import (
-    build_baseline_evaluation_record,
-    evaluate_motion_baselines,
-    load_motion_baseline_config,
-    load_test_config,
-    print_motion_stratified_metrics,
-    resolve_baseline_window_config,
-    save_evaluation_record,
-)
-from train import load_flat_fit_config
+from compare import load_comparison_config, print_comparison_tables, run_comparison
 
-TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
-TEST_CONFIG = repo_root / "src/config/test.yml"
-BASELINE_CONFIGS = (
-    repo_root / "src/config/motion_baselines_pred12__evaluate.yml",
-    repo_root / "src/config/motion_baselines_pred30__evaluate.yml",
-    repo_root / "src/config/motion_baselines_pred60__evaluate.yml",
-)
-
-base_train_config = load_flat_fit_config(TRAIN_CONFIG)
-test_config = load_test_config(TEST_CONFIG)
-records = []
-
-for baseline_config_path in BASELINE_CONFIGS:
-    baseline_config = load_motion_baseline_config(baseline_config_path)
-    train_config = resolve_baseline_window_config(base_train_config, baseline_config)
-    results = evaluate_motion_baselines(
-        train_config=train_config,
-        baseline_config=baseline_config,
-        split="test",
-        test_data_path=test_config.data_path,
-        max_windows=baseline_config.max_windows,
-        show_progress=True,
-    )
-    for result in results:
-        record = build_baseline_evaluation_record(
-            result=result,
-            train_config=train_config,
-            train_config_path=TRAIN_CONFIG,
-            baseline_config=baseline_config,
-            baseline_config_path=baseline_config_path,
-            split="test",
-            test_config_path=TEST_CONFIG,
-            test_data_path=test_config.data_path,
-            max_windows=baseline_config.max_windows,
-            seed=baseline_config.seed,
-        )
-        save_evaluation_record(record, baseline_config.results_path)
-        records.append(record)
-        print(f"\n{result.baseline}: prediction={train_config.prediction_length} frames")
-        print_motion_stratified_metrics(
-            metrics_by_motion=result.metrics_by_motion,
-            motion_profile=result.motion_profile,
-        )
-
-table = Table(title="Motion-baseline difficulty curve", box=box.SIMPLE_HEAVY)
-for column in ("horizon", "baseline", "cADE px", "cFDE px", "DME px", "DG", "seconds"):
-    table.add_column(column, justify="right" if column != "baseline" else "left")
-for record in records:
-    metrics = record["metrics"]
-    table.add_row(
-        str(record["model"]["prediction_length"]),
-        record["model"]["baseline"],
-        f'{metrics["centroid_ade_px"]:.3f}',
-        f'{metrics["centroid_fde_px"]:.3f}',
-        f'{metrics["displacement_magnitude_error_px"]:.3f}',
-        f'{metrics["displacement_gain"]:.3f}',
-        f'{record["runtime_seconds"]:.2f}',
-    )
-Console().print(table)
+config = load_comparison_config(repo_root / "src/config/dense_keypoint__compare.yml")
+record = run_comparison(config)
+print_comparison_tables(record)
 ```
 
-## CLI equivalents
+## CLI equivalent
 
-Run one horizon independently when iterating:
+Run the same comparison from the repository root:
 
 ```sh
-python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred12__evaluate.yml --split test
-python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred30__evaluate.yml --split test
-python src/evaluate.py --config src/config/dense_keypoint__train.yml --test-config src/config/test.yml --baseline-config src/config/motion_baselines_pred60__evaluate.yml --split test
+python src/compare.py --config src/config/dense_keypoint__compare.yml
 ```
 
-Results are stored separately under
-`outputs/evaluations/motion_baselines/pred{12,30,60}/results.jsonl`.
+## Reading the result
 
-## Recorded 1,000-window results
+Use trajectory metrics (`centroid_*`, `keypoint_*`) to judge spatial prediction,
+pose and structure metrics to diagnose body fidelity, ordering metrics to detect
+keypoint inversions, and motion metrics to detect static or overextended
+predictions. Do not combine these into one score.
 
-The aligned held-out run produced the following aggregate values. Lower is
-better for the error columns; displacement gain is best at 1.0.
+The primary question is whether Social Attention improves over persistence in
+the medium- and high-motion slices. Strong aggregate performance without those
+improvements would mean that low-motion windows are masking model failure.
 
-| Horizon | Baseline | cADE px | cFDE px | kADE px | kFDE px | DME px | DG |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 12 | persistence | 6.484 | 10.886 | 8.154 | 13.335 | 10.886 | 0.000 |
-| 12 | rigid constant velocity | 6.467 | 11.788 | 8.232 | 14.223 | 8.289 | 1.728 |
-| 12 | keypoint constant velocity | 6.467 | 11.788 | 9.789 | 17.378 | 8.289 | 1.728 |
-| 30 | persistence | 13.228 | 23.543 | 15.835 | 27.281 | 23.543 | 0.000 |
-| 30 | rigid constant velocity | 16.139 | 32.615 | 18.514 | 35.480 | 24.711 | 2.900 |
-| 30 | keypoint constant velocity | 16.139 | 32.615 | 22.790 | 44.196 | 24.711 | 2.900 |
-| 60 | persistence | 23.182 | 41.378 | 26.655 | 46.186 | 41.378 | 0.000 |
-| 60 | rigid constant velocity | 33.872 | 69.235 | 36.611 | 72.451 | 52.644 | 4.607 |
-| 60 | keypoint constant velocity | 33.872 | 69.235 | 45.473 | 90.566 | 52.644 | 4.607 |
+## Recorded result
 
-Persistence cFDE by ground-truth motion stratum makes the aggregate result more
-interpretable:
+The checkpoint at epoch 45 was evaluated on 1,000 windows. These aggregate
+metrics are all lower-is-better:
 
-| Horizon | Low motion | Medium motion | High motion |
-| ---: | ---: | ---: | ---: |
-| 12 | 1.354 px | 4.585 px | 26.748 px |
-| 30 | 1.935 px | 8.431 px | 60.327 px |
-| 60 | 2.592 px | 15.550 px | 106.108 px |
+| Method | cADE px | cFDE px | kADE px | kFDE px | BHE deg | BLE px | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | 6.615 | 11.183 | 8.321 | 13.687 | 7.136 | 3.658 | 0.068 |
+| Rigid constant velocity | 6.602 | 12.126 | 8.394 | 14.592 | 7.136 | 3.658 | 0.069 |
+| Keypoint constant velocity | 6.602 | 12.126 | 9.962 | 17.775 | 9.091 | 7.201 | 0.089 |
+| Social Attention | 32.277 | 55.358 | 38.891 | 62.468 | 31.931 | 19.060 | 0.248 |
 
-## Interpretation
+Centroid FDE exposes how the comparison changes with ground-truth motion:
 
-- Persistence predicts zero displacement, so its displacement gain is zero.
-- Displacement direction is undefined for persistence because a zero vector has
-  no direction; DME and displacement gain capture this failure.
-- Compare models within each horizon and motion stratum. Increasing errors with
-  horizon establish a difficulty curve; aggregate errors alone can hide failure
-  on high-motion windows.
-- Do not remove low-motion windows. The strata diagnose the distribution without
-  redefining valid mouse behavior.
+| Motion slice | Persistence | Rigid CV | Keypoint CV | Social Attention |
+| --- | ---: | ---: | ---: | ---: |
+| Low | 1.379 px | 3.516 px | 3.516 px | 54.516 px |
+| Medium | 4.789 px | 8.823 px | 8.823 px | 49.866 px |
+| High | 27.411 px | 24.063 px | 24.063 px | 61.694 px |
+
+The trained model does not beat persistence in any slice. Its overall centroid
+FDE is 395.0% worse and keypoint FDE is 356.4% worse than persistence. Rigid
+constant velocity only becomes useful in the high-motion slice, where centroid
+FDE improves by 12.2% over persistence. The learned result is one seeded
+Gaussian rollout per window, so future uncertainty experiments should repeat
+sampling or report best-of-N separately rather than mixing that question into
+this baseline comparison.

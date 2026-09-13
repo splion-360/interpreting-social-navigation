@@ -4,7 +4,7 @@ baselines:
   - keypoint_constant_velocity
 observation_length: 8
 prediction_length: 12
-comparison_prediction_length: 60
+comparison_prediction_length: 12
 stride: 20
 max_windows: 1000
 frame_rate_hz: 30.0
