@@ -14,6 +14,7 @@ import yaml
 from torch import Tensor
 from tqdm import tqdm
 
+from constants import DEFAULT_SOURCE_FPS
 from data import (
     MabeDataset,
     MabeSequence,
@@ -102,7 +103,9 @@ class FlatFitConfig:
         observation_length: Number of conditioning frames.
         prediction_length: Number of forecast target frames.
         graph_variant: Graph builder used for flat model inputs.
-        stride: Frame stride between windows.
+        stride: Raw-frame gap between consecutive window starts.
+        frame_step: Raw-frame gap between sampled frames inside one window.
+        source_fps: Source dataset frame rate before temporal downsampling.
         max_train_windows: Optional training-window cap for debug runs.
         max_validation_windows: Optional validation-window cap for debug runs.
         validation_fraction: Fraction of sequences used for validation.
@@ -131,6 +134,8 @@ class FlatFitConfig:
     prediction_length: int = 12
     graph_variant: str = "dense_keypoint"
     stride: int = 20
+    frame_step: int = 1
+    source_fps: float = DEFAULT_SOURCE_FPS
     max_train_windows: int | None = None
     max_validation_windows: int | None = None
     validation_fraction: float = 0.2
@@ -148,6 +153,14 @@ class FlatFitConfig:
     resume_checkpoint: Path | None = None
     resume_wandb_artifact: str | None = None
     resume_download_dir: Path = Path("checkpoints/wandb")
+
+    def __post_init__(self) -> None:
+        """Validate timing values that affect sampling and metric units."""
+
+        if self.frame_step < 1:
+            raise ValueError("frame_step must be at least 1")
+        if self.source_fps <= 0:
+            raise ValueError("source_fps must be positive")
 
 
 @dataclass(frozen=True)
@@ -423,6 +436,7 @@ def _build_window_datasets(
         observation_length=config.observation_length,
         prediction_length=config.prediction_length,
         stride=config.stride,
+        frame_step=config.frame_step,
     )
     train_windows = MabeWindowDataset(
         dataset.select(train_ids),
@@ -593,6 +607,9 @@ def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
             "prediction_length": config.prediction_length,
             "graph_variant": config.graph_variant,
             "stride": config.stride,
+            "frame_step": config.frame_step,
+            "source_fps": config.source_fps,
+            "effective_fps": config.source_fps / config.frame_step,
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
             "seed": config.seed,
@@ -853,6 +870,16 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                 "observation_length": train_windows.spec.observation_length,
                 "prediction_length": train_windows.spec.prediction_length,
                 "stride": train_windows.spec.stride,
+                "frame_step": train_windows.spec.frame_step,
+                "raw_span": train_windows.spec.raw_span,
+                "source_fps": config.source_fps,
+                "effective_fps": config.source_fps / config.frame_step,
+                "observation_seconds": (
+                    config.observation_length * config.frame_step / config.source_fps
+                ),
+                "prediction_seconds": (
+                    config.prediction_length * config.frame_step / config.source_fps
+                ),
             },
             "normalization": {
                 "method": "forward/backward fill intermittent missing keypoints, preserve fully missing keypoints as zero, scale observed pixel coordinates by image width/height",
@@ -1035,6 +1062,8 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "prediction_length": args.prediction_length,
         "graph_variant": args.graph_variant,
         "stride": args.stride,
+        "frame_step": args.frame_step,
+        "source_fps": args.source_fps,
         "max_train_windows": args.max_train_windows,
         "max_validation_windows": args.max_validation_windows,
         "validation_fraction": args.validation_fraction,
@@ -1096,6 +1125,8 @@ def main() -> None:
     fit.add_argument("--prediction-length", type=int)
     fit.add_argument("--graph-variant", choices=sorted(GRAPH_BUILDERS))
     fit.add_argument("--stride", type=int)
+    fit.add_argument("--frame-step", type=int)
+    fit.add_argument("--source-fps", type=float)
     fit.add_argument("--max-train-windows", type=int)
     fit.add_argument("--max-validation-windows", type=int)
     fit.add_argument("--validation-fraction", type=float)

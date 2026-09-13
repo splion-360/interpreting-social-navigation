@@ -11,6 +11,7 @@ from metric import (
     centroid_fde_px,
     centroid_offset_px_by_mouse,
     centroid_velocity_error_px_per_frame,
+    centroid_velocity_error_px_s,
     compute_pixel_metrics,
     displacement_direction_error_deg,
     displacement_gain,
@@ -21,6 +22,7 @@ from metric import (
     keypoint_ade_px,
     keypoint_fde_px,
     keypoint_velocity_error_px_per_frame,
+    keypoint_velocity_error_px_s,
     relative_ordering_error_by_mouse_axis,
     skeleton_edge_vectors,
     skeleton_orientation_error_deg,
@@ -70,6 +72,24 @@ def test_motion_metrics_distinguish_persistence_from_target_motion() -> None:
     target[:, :, :, 0] = np.array([1.0, 2.0, 3.0])[:, None, None]
     persistence = np.zeros_like(target)
 
+    assert (
+        centroid_velocity_error_px_s(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+            seconds_per_step=0.5,
+        )
+        == 2.0
+    )
+    assert (
+        keypoint_velocity_error_px_s(
+            persistence,
+            target,
+            initial_pose=initial_pose,
+            seconds_per_step=0.5,
+        )
+        == 2.0
+    )
     assert (
         centroid_velocity_error_px_per_frame(
             persistence,

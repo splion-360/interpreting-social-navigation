@@ -82,6 +82,8 @@ def build_comparison_record(
     observation_length: int,
     prediction_length: int,
     seed: int,
+    frame_step: int = 1,
+    source_fps: float = 30.0,
 ) -> dict[str, Any]:
     """Build a record after verifying the shared evaluation contract.
 
@@ -90,6 +92,8 @@ def build_comparison_record(
         observation_length: Number of input frames used by every method.
         prediction_length: Number of future frames predicted by every method.
         seed: Evaluation seed shared by stochastic methods.
+        frame_step: Raw-frame gap between sampled trajectory steps.
+        source_fps: Source dataset frame rate before temporal downsampling.
 
     Returns:
         JSON-ready result with raw metrics and improvements over persistence.
@@ -140,6 +144,11 @@ def build_comparison_record(
         "window_contract": {
             "observation_length": observation_length,
             "prediction_length": prediction_length,
+            "frame_step": frame_step,
+            "source_fps": source_fps,
+            "effective_fps": source_fps / frame_step,
+            "observation_seconds": observation_length * frame_step / source_fps,
+            "prediction_seconds": prediction_length * frame_step / source_fps,
             "windows": reference.windows,
             "seed": seed,
             "window_digest": reference.window_digest,

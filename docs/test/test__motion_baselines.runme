@@ -51,9 +51,9 @@ python src/compare.py --config src/config/dense_keypoint__compare.yml
 ## Reading the result
 
 Use trajectory metrics (`centroid_*`, `keypoint_*`) to judge spatial prediction,
-pose and structure metrics to diagnose body fidelity, ordering metrics to detect
-keypoint inversions, and motion metrics to detect static or overextended
-predictions. Do not combine these into one score.
+`CVE`/`KVE` velocity errors to judge first-derivative motion, pose and structure
+metrics to diagnose body fidelity, and ordering metrics to detect keypoint
+inversions. Do not combine these into one score.
 
 The primary question is whether Social Attention improves over persistence in
 the medium- and high-motion slices. Strong aggregate performance without those

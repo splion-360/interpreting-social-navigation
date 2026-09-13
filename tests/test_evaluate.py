@@ -272,7 +272,8 @@ def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
                 "comparison_prediction_length: 60",
                 "stride: 20",
                 "max_windows: 1000",
-                "frame_rate_hz: 30.0",
+                "source_fps: 30.0",
+                "frame_step: 12",
                 f"results_path: {tmp_path / 'baseline_results.jsonl'}",
                 "seed: 42",
                 "wandb: false",
@@ -290,7 +291,8 @@ def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
     assert config.comparison_prediction_length == 60
     assert config.stride == 20
     assert config.max_windows == 1000
-    assert config.frame_rate_hz == 30.0
+    assert config.source_fps == 30.0
+    assert config.frame_step == 12
     assert config.results_path == tmp_path / "baseline_results.jsonl"
     assert config.seed == 42
     assert config.wandb is False
@@ -310,6 +312,8 @@ def test_baseline_window_config_changes_only_the_horizon_contract() -> None:
         observation_length=8,
         prediction_length=60,
         stride=20,
+        frame_step=12,
+        source_fps=30.0,
     )
 
     resolved = resolve_baseline_window_config(train_config, baseline_config)
@@ -318,6 +322,8 @@ def test_baseline_window_config_changes_only_the_horizon_contract() -> None:
     assert resolved.prediction_length == 60
     assert resolved.window_length == 68
     assert resolved.stride == 20
+    assert resolved.frame_step == 12
+    assert resolved.source_fps == 30.0
     assert resolved.graph_variant == "dense_keypoint"
 
 
@@ -368,7 +374,7 @@ def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
     assert result.split == "test"
     assert result.windows == 1
     assert "centroid_ade_px" in result.metrics
-    assert "centroid_velocity_error_px_per_frame" in result.metrics
+    assert "centroid_velocity_error_px_s" in result.metrics
     assert "displacement_gain" in result.metrics
     assert "relative_ordering_error" in result.metrics
     assert sum(result.motion_profile["counts"].values()) == 1
@@ -475,7 +481,8 @@ def test_baseline_record_persists_motion_strata() -> None:
     baseline_config = evaluate_module.MotionBaselineConfig(
         observation_length=8,
         prediction_length=30,
-        frame_rate_hz=30.0,
+        source_fps=30.0,
+        frame_step=12,
     )
 
     record = build_baseline_evaluation_record(
@@ -494,8 +501,10 @@ def test_baseline_record_persists_motion_strata() -> None:
     assert record["motion_profile"] == result.motion_profile
     assert record["metrics_by_motion"] == result.metrics_by_motion
     assert record["runtime_seconds"] == 1.25
-    assert record["frame_rate_hz"] == 30.0
-    assert record["prediction_horizon_seconds"] == 1.0
+    assert record["source_fps"] == 30.0
+    assert record["frame_step"] == 12
+    assert record["effective_fps"] == 2.5
+    assert record["prediction_horizon_seconds"] == 12.0
 
 
 def test_print_evaluation_metrics_includes_diagnostic_tables(

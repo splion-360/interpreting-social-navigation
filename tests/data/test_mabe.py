@@ -14,6 +14,7 @@ from data import (
     WindowSpec,
     fill_missing_keypoints,
     split_sequence_ids,
+    temporal_sampling_diagnostics,
 )
 
 
@@ -111,6 +112,69 @@ def test_window_dataset_returns_contiguous_windows_with_annotations() -> None:
     assert window.observed_keypoints.shape == (2, 3, 12, 2)
     assert window.future_keypoints.shape == (3, 3, 12, 2)
     np.testing.assert_array_equal(window.annotations, np.array([[2, 3, 4, 5, 6]], dtype=np.float32))
+
+
+def test_window_dataset_samples_with_frame_step_inside_window() -> None:
+    dataset = MabeDataset.from_dict(
+        {
+            "sequences": {
+                "seq": {
+                    "keypoints": make_keypoints(frames=260),
+                    "annotations": np.arange(260, dtype=np.float32).reshape(1, 260),
+                },
+            },
+        }
+    )
+    spec = WindowSpec(
+        length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+        frame_step=12,
+    )
+    windows = MabeWindowDataset(dataset.select(["seq"]), spec)
+
+    window = windows[0]
+
+    np.testing.assert_array_equal(window.frame_indices, np.arange(0, 240, 12)[:20])
+    assert window.start_frame == 0
+    assert windows.window_keys[1] == ("seq", 20)
+    np.testing.assert_array_equal(
+        window.keypoints,
+        make_keypoints(frames=260)[window.frame_indices],
+    )
+    np.testing.assert_array_equal(
+        window.annotations,
+        np.arange(0, 240, 12, dtype=np.float32)[:20].reshape(1, 20),
+    )
+    assert spec.raw_span == 229
+
+
+def test_temporal_sampling_diagnostics_reports_motion_retention() -> None:
+    keypoints = np.zeros((240, 3, 12, 2), dtype=np.float32)
+    keypoints[..., 0] = np.arange(1, 241, dtype=np.float32)[:, None, None]
+    dataset = MabeDataset.from_dict({"sequences": {"seq": {"keypoints": keypoints}}})
+    spec = WindowSpec(
+        length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+        frame_step=12,
+    )
+
+    diagnostics = temporal_sampling_diagnostics(
+        dataset.select(["seq"]),
+        spec=spec,
+        source_fps=30.0,
+        max_windows=1,
+    )
+
+    assert diagnostics.effective_fps == 2.5
+    assert diagnostics.observation_seconds == 3.2
+    assert diagnostics.prediction_seconds == 4.8
+    assert diagnostics.raw_span == 229
+    assert diagnostics.retained_motion_ratio_mean == 1.0
+    assert diagnostics.worst_windows[0]["last_sampled_frame"] == 228
 
 
 def test_pose_normalizer_round_trips_filled_keypoints() -> None:

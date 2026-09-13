@@ -67,6 +67,11 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
     assert record["window_contract"] == {
         "observation_length": 8,
         "prediction_length": 12,
+        "frame_step": 1,
+        "source_fps": 30.0,
+        "effective_fps": 30.0,
+        "observation_seconds": 8 / 30,
+        "prediction_seconds": 12 / 30,
         "windows": 3,
         "seed": 42,
         "window_digest": "shared-window-digest",

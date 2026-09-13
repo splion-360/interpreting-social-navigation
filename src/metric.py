@@ -20,8 +20,8 @@ PRIMARY_METRIC_NAMES = (
     "keypoint_fde_px",
     "centroid_x_offset_px",
     "centroid_y_offset_px",
-    "centroid_velocity_error_px_per_frame",
-    "keypoint_velocity_error_px_per_frame",
+    "centroid_velocity_error_px_s",
+    "keypoint_velocity_error_px_s",
     "displacement_magnitude_error_px",
     "displacement_direction_error_deg",
     "displacement_gain",
@@ -38,8 +38,8 @@ RELATIVE_ERROR_METRIC_NAMES = frozenset(
         "centroid_fde_px",
         "keypoint_ade_px",
         "keypoint_fde_px",
-        "centroid_velocity_error_px_per_frame",
-        "keypoint_velocity_error_px_per_frame",
+        "centroid_velocity_error_px_s",
+        "keypoint_velocity_error_px_s",
         "displacement_magnitude_error_px",
         "displacement_direction_error_deg",
         "skeleton_orientation_error_deg",
@@ -64,8 +64,8 @@ class PixelMetricBundle:
         centroid_x_offset_px: Signed mean centroid x-offset in image coordinates.
         centroid_y_offset_px: Signed mean centroid y-offset in image coordinates.
         centroid_offset_px_by_mouse: Signed per-mouse centroid offset.
-        centroid_velocity_error_px_per_frame: Mean centroid velocity-vector error.
-        keypoint_velocity_error_px_per_frame: Mean keypoint velocity-vector error.
+        centroid_velocity_error_px_s: Mean centroid velocity-vector error.
+        keypoint_velocity_error_px_s: Mean keypoint velocity-vector error.
         displacement_magnitude_error_px: Mean net centroid travel-distance error.
         displacement_direction_error_deg: Mean net centroid direction error.
         displacement_gain: Predicted-to-target net centroid displacement ratio.
@@ -89,8 +89,8 @@ class PixelMetricBundle:
     centroid_x_offset_px: float
     centroid_y_offset_px: float
     centroid_offset_px_by_mouse: np.ndarray
-    centroid_velocity_error_px_per_frame: float
-    keypoint_velocity_error_px_per_frame: float
+    centroid_velocity_error_px_s: float
+    keypoint_velocity_error_px_s: float
     displacement_magnitude_error_px: float
     displacement_direction_error_deg: float
     displacement_gain: float
@@ -125,12 +125,8 @@ class PixelMetricBundle:
             "centroid_x_offset_px": self.centroid_x_offset_px,
             "centroid_y_offset_px": self.centroid_y_offset_px,
             "centroid_offset_px_by_mouse": self.centroid_offset_px_by_mouse,
-            "centroid_velocity_error_px_per_frame": (
-                self.centroid_velocity_error_px_per_frame
-            ),
-            "keypoint_velocity_error_px_per_frame": (
-                self.keypoint_velocity_error_px_per_frame
-            ),
+            "centroid_velocity_error_px_s": self.centroid_velocity_error_px_s,
+            "keypoint_velocity_error_px_s": self.keypoint_velocity_error_px_s,
             "displacement_magnitude_error_px": self.displacement_magnitude_error_px,
             "displacement_direction_error_deg": (self.displacement_direction_error_deg),
             "displacement_gain": self.displacement_gain,
@@ -160,6 +156,7 @@ def compute_pixel_metrics(
     *,
     initial_pose: np.ndarray | None = None,
     min_edge_length_px: float = 1.0,
+    seconds_per_step: float = 1.0,
 ) -> PixelMetricBundle:
     """Compute trajectory, pose, and structure metrics in pixel coordinates.
 
@@ -169,6 +166,7 @@ def compute_pixel_metrics(
         initial_pose: Final observed pose immediately before the prediction horizon.
             When omitted, the first target frame is used as the motion reference.
         min_edge_length_px: Minimum true/predicted edge length for orientation.
+        seconds_per_step: Seconds represented by each sampled prediction step.
 
     Returns:
         Pixel-space metric bundle for the predicted horizon.
@@ -205,18 +203,20 @@ def compute_pixel_metrics(
         centroid_x_offset_px=float(centroid_offsets[:, 0].mean()),
         centroid_y_offset_px=float(centroid_offsets[:, 1].mean()),
         centroid_offset_px_by_mouse=centroid_offsets,
-        centroid_velocity_error_px_per_frame=(
-            centroid_velocity_error_px_per_frame(
+        centroid_velocity_error_px_s=(
+            centroid_velocity_error_px_s(
                 predicted,
                 target,
                 initial_pose=motion_origin,
+                seconds_per_step=seconds_per_step,
             )
         ),
-        keypoint_velocity_error_px_per_frame=(
-            keypoint_velocity_error_px_per_frame(
+        keypoint_velocity_error_px_s=(
+            keypoint_velocity_error_px_s(
                 predicted,
                 target,
                 initial_pose=motion_origin,
+                seconds_per_step=seconds_per_step,
             )
         ),
         displacement_magnitude_error_px=displacement_magnitude_error_px(
@@ -294,33 +294,93 @@ def centroid_offset_px_by_mouse(
     return (predicted_centroids - target_centroids).mean(axis=0)
 
 
+def centroid_velocity_error_px_s(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+    seconds_per_step: float = 1.0,
+) -> float:
+    """Return mean centroid velocity-vector error.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
+        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+        seconds_per_step: Seconds represented by each sampled prediction step.
+
+    Returns:
+        Mean Euclidean velocity error in pixels per second.
+    """
+
+    predicted_centroids = predicted.astype(np.float32).mean(axis=2)
+    target_centroids = target.astype(np.float32).mean(axis=2)
+    initial_centroids = initial_pose.astype(np.float32).mean(axis=1)
+    predicted_velocity = (
+        np.diff(
+            np.concatenate((initial_centroids[None], predicted_centroids), axis=0),
+            axis=0,
+        )
+        / seconds_per_step
+    )
+    target_velocity = (
+        np.diff(
+            np.concatenate((initial_centroids[None], target_centroids), axis=0),
+            axis=0,
+        )
+        / seconds_per_step
+    )
+    return float(np.linalg.norm(predicted_velocity - target_velocity, axis=-1).mean())
+
+
 def centroid_velocity_error_px_per_frame(
     predicted: np.ndarray,
     target: np.ndarray,
     *,
     initial_pose: np.ndarray,
 ) -> float:
-    """Return mean per-frame centroid velocity-vector error.
+    """Return mean centroid velocity-vector error in pixels per frame."""
+
+    return centroid_velocity_error_px_s(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+        seconds_per_step=1.0,
+    )
+
+
+def keypoint_velocity_error_px_s(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+    seconds_per_step: float = 1.0,
+) -> float:
+    """Return mean keypoint velocity-vector error.
 
     Args:
         predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
         target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
         initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
+        seconds_per_step: Seconds represented by each sampled prediction step.
 
     Returns:
-        Mean Euclidean velocity error in pixels per frame.
+        Mean Euclidean velocity error in pixels per second.
     """
 
-    predicted_centroids = predicted.astype(np.float32).mean(axis=2)
-    target_centroids = target.astype(np.float32).mean(axis=2)
-    initial_centroids = initial_pose.astype(np.float32).mean(axis=1)
-    predicted_velocity = np.diff(
-        np.concatenate((initial_centroids[None], predicted_centroids), axis=0),
-        axis=0,
+    predicted_velocity = (
+        np.diff(
+            np.concatenate((initial_pose[None], predicted), axis=0),
+            axis=0,
+        )
+        / seconds_per_step
     )
-    target_velocity = np.diff(
-        np.concatenate((initial_centroids[None], target_centroids), axis=0),
-        axis=0,
+    target_velocity = (
+        np.diff(
+            np.concatenate((initial_pose[None], target), axis=0),
+            axis=0,
+        )
+        / seconds_per_step
     )
     return float(np.linalg.norm(predicted_velocity - target_velocity, axis=-1).mean())
 
@@ -331,26 +391,14 @@ def keypoint_velocity_error_px_per_frame(
     *,
     initial_pose: np.ndarray,
 ) -> float:
-    """Return mean per-frame keypoint velocity-vector error.
+    """Return mean keypoint velocity-vector error in pixels per frame."""
 
-    Args:
-        predicted: Predicted poses shaped `[time, mice, keypoints, 2]`.
-        target: Ground-truth poses shaped `[time, mice, keypoints, 2]`.
-        initial_pose: Final observed pose shaped `[mice, keypoints, 2]`.
-
-    Returns:
-        Mean Euclidean velocity error in pixels per frame.
-    """
-
-    predicted_velocity = np.diff(
-        np.concatenate((initial_pose[None], predicted), axis=0),
-        axis=0,
+    return keypoint_velocity_error_px_s(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+        seconds_per_step=1.0,
     )
-    target_velocity = np.diff(
-        np.concatenate((initial_pose[None], target), axis=0),
-        axis=0,
-    )
-    return float(np.linalg.norm(predicted_velocity - target_velocity, axis=-1).mean())
 
 
 def displacement_magnitude_error_px(

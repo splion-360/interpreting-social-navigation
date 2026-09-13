@@ -10,6 +10,7 @@ import numpy as np
 
 from constants import (
     COORDINATES,
+    DEFAULT_FRAME_STEP,
     DEFAULT_OBSERVATION_LENGTH,
     DEFAULT_PREDICTION_LENGTH,
     DEFAULT_SEQUENCE_LENGTH,
@@ -115,19 +116,31 @@ class WindowSpec:
 
     Attributes:
         length: Total number of frames per window.
-        stride: Frame step between consecutive windows.
+        stride: Raw-frame gap between consecutive window starts.
+        frame_step: Raw-frame gap between sampled frames inside one window.
         observation_length: Number of conditioning frames.
         prediction_length: Number of future frames.
     """
 
     length: int = DEFAULT_SEQUENCE_LENGTH
     stride: int = DEFAULT_WINDOW_STRIDE
+    frame_step: int = DEFAULT_FRAME_STEP
     observation_length: int = DEFAULT_OBSERVATION_LENGTH
     prediction_length: int = DEFAULT_PREDICTION_LENGTH
 
     def __post_init__(self) -> None:
         if self.observation_length + self.prediction_length != self.length:
             raise ValueError("observation_length + prediction_length must equal length")
+        if self.stride < 1:
+            raise ValueError("stride must be at least 1")
+        if self.frame_step < 1:
+            raise ValueError("frame_step must be at least 1")
+
+    @property
+    def raw_span(self) -> int:
+        """Return raw frames needed to sample one complete window."""
+
+        return (self.length - 1) * self.frame_step + 1
 
 
 @dataclass(frozen=True)
@@ -137,6 +150,7 @@ class Window:
     Attributes:
         sequence_id: Source sequence ID.
         start_frame: First frame index in the source sequence.
+        frame_indices: Raw source-frame indices sampled into this window.
         keypoints: Window keypoints shaped `[time, 3, 12, 2]`.
         observation_length: Number of observed frames before the prediction horizon.
         annotations: Optional labels sliced to the same time span.
@@ -144,6 +158,7 @@ class Window:
 
     sequence_id: str
     start_frame: int
+    frame_indices: np.ndarray
     keypoints: np.ndarray
     observation_length: int
     annotations: np.ndarray | None = None
@@ -339,7 +354,8 @@ class MabeWindowDataset:
         """
 
         index: list[tuple[str, int]] = []
-        required_length = index_window_length or self.spec.length
+        required_steps = index_window_length or self.spec.length
+        required_length = (required_steps - 1) * self.spec.frame_step + 1
         for sequence_id in sorted(self.sequences):
             sequence = self.sequences[sequence_id]
             stop = sequence.num_frames - required_length + 1
@@ -361,9 +377,9 @@ class MabeWindowDataset:
     def __getitem__(self, index: int) -> Window:
         sequence_id, start = self._index[index]
         sequence = self.sequences[sequence_id]
-        end = start + self.spec.length
+        frame_indices = start + np.arange(self.spec.length) * self.spec.frame_step
 
-        keypoints = sequence.keypoints[start:end]
+        keypoints = sequence.keypoints[frame_indices]
         if self.fill_missing:
             keypoints = fill_missing_keypoints(keypoints)
         keypoints = keypoints.astype(np.float32)
@@ -371,11 +387,14 @@ class MabeWindowDataset:
             keypoints = self.normalizer.transform(keypoints)
 
         annotations = (
-            sequence.annotations[:, start:end] if sequence.annotations is not None else None
+            sequence.annotations[:, frame_indices]
+            if sequence.annotations is not None
+            else None
         )
         return Window(
             sequence_id=sequence_id,
             start_frame=start,
+            frame_indices=frame_indices.astype(np.int64),
             keypoints=keypoints,
             observation_length=self.spec.observation_length,
             annotations=annotations,

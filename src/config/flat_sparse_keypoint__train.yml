@@ -7,6 +7,8 @@ observation_length: 8
 prediction_length: 12
 graph_variant: flat_sparse_keypoint
 stride: 20
+frame_step: 1
+source_fps: 30.0
 max_train_windows: null
 max_validation_windows: null
 validation_fraction: 0.2

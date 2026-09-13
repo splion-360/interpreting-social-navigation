@@ -26,6 +26,7 @@ from tqdm.auto import tqdm
 from baseline import BaselineName, predict_motion_baseline, valid_baseline_names
 from constants import (
     COORDINATES,
+    DEFAULT_SOURCE_FPS,
     KEYPOINT_NAMES,
     MOUSE_SKELETON_EDGES,
     NUM_KEYPOINTS,
@@ -108,9 +109,10 @@ class MotionBaselineConfig:
         observation_length: Number of conditioning frames.
         prediction_length: Number of future frames.
         comparison_prediction_length: Longest future horizon used to align starts.
-        stride: Frame step between consecutive evaluation windows.
+        stride: Raw-frame gap between consecutive evaluation window starts.
+        frame_step: Raw-frame gap between sampled frames inside one window.
+        source_fps: Source dataset frame rate before temporal downsampling.
         max_windows: Maximum number of held-out windows to evaluate.
-        frame_rate_hz: Dataset sampling rate used for duration reporting.
         results_path: Local JSONL ledger for baseline evaluation records.
         seed: Sampling seed recorded for lineage.
         wandb: Whether to log baseline metrics to W&B.
@@ -123,8 +125,9 @@ class MotionBaselineConfig:
     prediction_length: int = 12
     comparison_prediction_length: int = 60
     stride: int = 20
+    frame_step: int = 1
+    source_fps: float = DEFAULT_SOURCE_FPS
     max_windows: int | None = 1000
-    frame_rate_hz: float = 30.0
     results_path: Path = (
         DEFAULT_RESULTS_ROOT / "motion_baselines" / "pred12" / "results.jsonl"
     )
@@ -132,6 +135,14 @@ class MotionBaselineConfig:
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
     wandb_run_name: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate timing values used for baseline windows and metric units."""
+
+        if self.frame_step < 1:
+            raise ValueError("frame_step must be at least 1")
+        if self.source_fps <= 0:
+            raise ValueError("source_fps must be positive")
 
 
 @dataclass(frozen=True)
@@ -215,6 +226,8 @@ def resolve_baseline_window_config(
         observation_length=baseline_config.observation_length,
         prediction_length=baseline_config.prediction_length,
         stride=baseline_config.stride,
+        frame_step=baseline_config.frame_step,
+        source_fps=baseline_config.source_fps,
     )
 
 
@@ -487,6 +500,7 @@ def evaluate_flat_checkpoint(
                 window=window,
                 normalizer=normalizer,
                 prediction_length=windows.spec.prediction_length,
+                seconds_per_step=_seconds_per_step(config),
             )
             _append_metric_values(metric_values, metrics)
             _append_metric_values(
@@ -563,6 +577,7 @@ def evaluate_motion_baseline(
             prediction.future_keypoints,
             target_future,
             initial_pose=observed_keypoints[-1],
+            seconds_per_step=_seconds_per_step(train_config),
         ).to_numpy_dict()
         _append_metric_values(metric_values, metrics)
         _append_metric_values(
@@ -854,6 +869,7 @@ def _window_pixel_metrics(
     window: Window,
     normalizer: PoseNormalizer,
     prediction_length: int,
+    seconds_per_step: float,
 ) -> dict[str, Any]:
     """Compute pixel-space metrics for one evaluated window.
 
@@ -862,6 +878,7 @@ def _window_pixel_metrics(
         window: Normalized source window with ground-truth future frames.
         normalizer: Pixel-coordinate normalizer used by the dataloader.
         prediction_length: Number of predicted future frames.
+        seconds_per_step: Seconds represented by each sampled prediction step.
 
     Returns:
         Pixel-space trajectory, pose, and structure metrics.
@@ -881,6 +898,7 @@ def _window_pixel_metrics(
         predicted_future,
         target_future,
         initial_pose=initial_pose,
+        seconds_per_step=seconds_per_step,
     ).to_numpy_dict()
 
 
@@ -908,6 +926,12 @@ def _build_motion_profile(
             )
         )
     return stratify_motion_scores(np.asarray(scores, dtype=np.float32))
+
+
+def _seconds_per_step(config: FlatFitConfig) -> float:
+    """Return seconds represented by one sampled trajectory step."""
+
+    return config.frame_step / config.source_fps
 
 
 def _window_selection_digest(windows: MabeWindowDataset) -> str:
@@ -1381,6 +1405,7 @@ def _build_evaluation_data(
         observation_length=config.observation_length,
         prediction_length=config.prediction_length,
         stride=config.stride,
+        frame_step=config.frame_step,
     )
 
     if split == "validation":
@@ -1452,6 +1477,7 @@ def _test_window(
             observation_length=config.observation_length,
             prediction_length=config.prediction_length,
             stride=config.stride,
+            frame_step=config.frame_step,
         ),
         normalizer=normalizer,
     )
@@ -1516,8 +1542,12 @@ def load_motion_baseline_config(
             MotionBaselineConfig.comparison_prediction_length,
         ),
         "stride": raw.get("stride", MotionBaselineConfig.stride),
+        "frame_step": raw.get("frame_step", MotionBaselineConfig.frame_step),
+        "source_fps": raw.get(
+            "source_fps",
+            raw.get("frame_rate_hz", MotionBaselineConfig.source_fps),
+        ),
         "max_windows": raw.get("max_windows", MotionBaselineConfig.max_windows),
-        "frame_rate_hz": raw.get("frame_rate_hz", MotionBaselineConfig.frame_rate_hz),
         "results_path": raw.get("results_path", MotionBaselineConfig.results_path),
         "seed": raw.get("seed", MotionBaselineConfig.seed),
         "wandb": raw.get("wandb", MotionBaselineConfig.wandb),
@@ -1659,6 +1689,9 @@ def build_evaluation_record(
             "observation_length": train_config.observation_length,
             "prediction_length": train_config.prediction_length,
             "stride": train_config.stride,
+            "frame_step": train_config.frame_step,
+            "source_fps": train_config.source_fps,
+            "effective_fps": train_config.source_fps / train_config.frame_step,
         },
         "checkpoint": {
             "epoch": result.checkpoint_epoch,
@@ -1713,9 +1746,13 @@ def build_baseline_evaluation_record(
         "windows": result.windows,
         "max_windows": max_windows,
         "runtime_seconds": result.evaluation_seconds,
-        "frame_rate_hz": baseline_config.frame_rate_hz,
+        "source_fps": baseline_config.source_fps,
+        "frame_step": baseline_config.frame_step,
+        "effective_fps": baseline_config.source_fps / baseline_config.frame_step,
         "prediction_horizon_seconds": (
-            baseline_config.prediction_length / baseline_config.frame_rate_hz
+            baseline_config.prediction_length
+            * baseline_config.frame_step
+            / baseline_config.source_fps
         ),
         "comparison_prediction_length": (baseline_config.comparison_prediction_length),
         "sampling": "deterministic",
@@ -1728,6 +1765,9 @@ def build_baseline_evaluation_record(
             "observation_length": train_config.observation_length,
             "prediction_length": train_config.prediction_length,
             "stride": train_config.stride,
+            "frame_step": train_config.frame_step,
+            "source_fps": train_config.source_fps,
+            "effective_fps": train_config.source_fps / train_config.frame_step,
         },
         "metrics": {
             **result.metrics,

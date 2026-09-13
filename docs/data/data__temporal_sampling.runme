@@ -1,0 +1,163 @@
+---
+cwd: ../..
+---
+
+# Validate Paper-Rate Temporal Sampling
+
+The Social Attention experiments use 8 observed trajectory steps over 3.2
+seconds and 12 predicted steps over 4.8 seconds. For MABe source data at 30 FPS,
+that corresponds to sampling every 12 raw frames:
+
+```text
+0, 12, 24, ..., 228
+```
+
+This notebook checks that `frame_step` controls spacing inside a window while
+`stride` controls spacing between window starts.
+
+## Timing Contract
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from data import MabeDataset, MabeWindowDataset, WindowSpec
+
+DATA_PATH = repo_root / "data/MaBe/mouse_triplet_train.npy"
+SOURCE_FPS = 30.0
+
+spec = WindowSpec(
+    length=20,
+    observation_length=8,
+    prediction_length=12,
+    stride=20,
+    frame_step=12,
+)
+
+print("source_fps:", SOURCE_FPS)
+print("frame_step:", spec.frame_step)
+print("effective_fps:", SOURCE_FPS / spec.frame_step)
+print("observation_seconds:", spec.observation_length * spec.frame_step / SOURCE_FPS)
+print("prediction_seconds:", spec.prediction_length * spec.frame_step / SOURCE_FPS)
+print("raw_window_span_frames:", spec.raw_span)
+print("sampled_indices_from_zero:", list(range(0, spec.raw_span, spec.frame_step)))
+```
+
+## Verify Real Window Indices
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+dataset = MabeDataset.from_file(DATA_PATH)
+windows = MabeWindowDataset(
+    dataset.select(dataset.sequence_ids),
+    spec,
+    max_windows=3,
+)
+
+for index in range(len(windows)):
+    window = windows[index]
+    print(
+        {
+            "window": index,
+            "sequence_id": window.sequence_id,
+            "start_frame": window.start_frame,
+            "frame_indices": window.frame_indices.tolist(),
+        }
+    )
+```
+
+## Downsampling Diagnostics
+
+These are standard sanity checks for temporal downsampling. The motion-score
+correlation checks whether raw and sampled windows have similar motion ranking.
+The retained-motion ratio compares sampled path length against raw path length
+over the same source span.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pprint import pprint
+
+from data import temporal_sampling_diagnostics
+
+diagnostics = temporal_sampling_diagnostics(
+    dataset.select(dataset.sequence_ids),
+    spec=spec,
+    source_fps=SOURCE_FPS,
+    max_windows=500,
+    worst_count=5,
+)
+
+pprint(diagnostics.to_dict())
+```
+
+## Save Worst-Retention Examples
+
+Use these videos for visual inspection before deciding whether `frame_step=12`
+is acceptable for MABe. If important body motion disappears between sampled
+frames, use a smaller `frame_step` for the next experiment.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import numpy as np
+
+from data import fill_missing_keypoints
+from data.visualization import animate_pose_sequence, save_animation
+
+output_dir = repo_root / "outputs/visualizations/temporal_sampling"
+saved = []
+
+for item in diagnostics.worst_windows:
+    sequence = dataset.sequences[item["sequence_id"]]
+    raw_indices = np.arange(item["start_frame"], item["start_frame"] + spec.raw_span)
+    keypoints = fill_missing_keypoints(sequence.keypoints[raw_indices])
+    animation = animate_pose_sequence(
+        keypoints,
+        sequence_id=item["sequence_id"],
+        start_frame=0,
+        stop_frame=spec.raw_span,
+        step=spec.frame_step,
+        interval_ms=120,
+    )
+    path = output_dir / f'{item["sequence_id"]}__start_{item["start_frame"]}.mp4'
+    saved.append(save_animation(animation, path, fps=8))
+
+for path in saved:
+    print(path)
+```
+
+## Decision
+
+Local diagnostic snapshot on 2026-09-12 using the first 500 deterministic
+training windows:
+
+```text
+motion_score_correlation: 0.9904
+retained_motion_ratio_mean: 0.5275
+retained_motion_ratio_median: 0.5069
+retained_motion_ratio_p10: 0.3051
+retained_motion_ratio_p90: 0.8271
+```
+
+Generated worst-retention inspection videos:
+
+```text
+outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1560.mp4
+outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1500.mp4
+outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1540.mp4
+outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1440.mp4
+outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1520.mp4
+```
+
+Decision: keep `frame_step=12` for the paper-rate baseline because it preserves
+motion-ranking well and matches the Social Attention temporal contract. Do not
+treat it as lossless pose-motion sampling; fine keypoint path length is
+compressed by downsampling, so a future fine-motion experiment should compare
+against `frame_step=6`.
+
+Visual inspection note: the worst retained-motion examples still show coherent
+whole-body poses at the sampled cadence, but the sampled points skip fine
+within-body motion. Existing training YAMLs intentionally remain at
+`frame_step=1`; the paper-rate training YAML belongs to the dense-keypoint
+training ticket.

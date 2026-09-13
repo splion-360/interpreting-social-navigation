@@ -150,6 +150,8 @@ def run_comparison(config: ComparisonConfig) -> dict[str, Any]:
         methods=methods,
         observation_length=train_config.observation_length,
         prediction_length=train_config.prediction_length,
+        frame_step=train_config.frame_step,
+        source_fps=train_config.source_fps,
         seed=baseline_config.seed,
     )
     record["lineage"] = {
