@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -1140,7 +1141,7 @@ def _save_checkpoint(
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "validation_loss": validation_loss,
-            "config": config,
+            "config": _plain_config(config),
             "motion_profile": (
                 motion_report.to_dict() if motion_report is not None else None
             ),
@@ -1301,12 +1302,29 @@ def _restore_training_state(
     if checkpoint_path is None:
         return 1, float("inf"), None
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = _load_training_checkpoint(checkpoint_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     epoch = int(checkpoint["epoch"])
     validation_loss = float(checkpoint["validation_loss"])
     return epoch + 1, validation_loss, str(checkpoint_path)
+
+
+def _load_training_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
+    """Load a checkpoint saved from either script or module execution.
+
+    Args:
+        path: Local checkpoint file.
+        device: Device used to map tensors.
+
+    Returns:
+        Checkpoint dictionary.
+    """
+
+    main_module = cast(Any, sys.modules["__main__"])
+    if not hasattr(main_module, "FlatFitConfig"):
+        main_module.FlatFitConfig = FlatFitConfig
+    return torch.load(path, map_location=device, weights_only=False)
 
 
 def _resolve_resume_checkpoint(

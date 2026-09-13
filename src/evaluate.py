@@ -869,7 +869,7 @@ def load_checkpoint_motion_thresholds(checkpoint_path: Path) -> MotionThresholds
         Motion thresholds, or `None` when the checkpoint has no motion profile.
     """
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = _load_checkpoint(checkpoint_path, torch.device("cpu"))
     return _checkpoint_motion_thresholds(checkpoint)
 
 
@@ -1278,7 +1278,7 @@ def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
 
     Args:
         path: Local `.pt` checkpoint file.
-        device: Device used to map checkpoint tensors.
+        device: Runtime device selected for evaluation.
 
     Returns:
         Checkpoint dictionary.
@@ -1287,7 +1287,7 @@ def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
     main_module = cast(Any, sys.modules["__main__"])
     if not hasattr(main_module, "FlatFitConfig"):
         main_module.FlatFitConfig = FlatFitConfig
-    return torch.load(path, map_location=device, weights_only=False)
+    return torch.load(path, map_location=torch.device("cpu"), weights_only=False)
 
 
 def _build_evaluation_windows(
