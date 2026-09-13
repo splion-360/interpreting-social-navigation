@@ -35,7 +35,7 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from benchmark import load_benchmark_config, print_benchmark_tables, run_benchmark
 
-config = load_benchmark_config(repo_root / "src/config/dense_keypoint_30fps__benchmark.yml")
+config = load_benchmark_config(repo_root / "src/config/benchmark__dense_keypoint_30fps.yml")
 record = run_benchmark(config)
 print_benchmark_tables(record)
 ```
@@ -45,7 +45,7 @@ print_benchmark_tables(record)
 Run the same comparison from the repository root:
 
 ```sh
-python src/benchmark.py --config src/config/dense_keypoint_30fps__benchmark.yml
+python src/benchmark.py --config src/config/benchmark__dense_keypoint_30fps.yml
 ```
 
 ## Reading the result

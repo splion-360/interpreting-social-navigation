@@ -29,7 +29,7 @@ final_loss=<finite number>
 
 ## Run Flat Training
 
-Training defaults are loaded from `src/config/dense_keypoint_30fps__train.yml`.
+Training defaults are loaded from `src/config/train__dense_keypoint_30fps.yml`.
 
 Inspect the resolved setup without training:
 
@@ -50,7 +50,7 @@ the `flat-best-checkpoint:best` W&B model artifact.
 Override YAML values only when needed:
 
 ```sh
-python -m train fit --config src/config/dense_keypoint_30fps__train.yml --device cpu --epochs 5 --batch-size 8 --wandb
+python -m train fit --config src/config/train__dense_keypoint_30fps.yml --device cpu --epochs 5 --batch-size 8 --wandb
 ```
 
 Resume from the local best checkpoint:

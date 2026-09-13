@@ -46,7 +46,7 @@ from st_graph import (
 )
 
 
-DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/dense_keypoint_30fps__train.yml")
+DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/train__dense_keypoint_30fps.yml")
 PATH_CONFIG_FIELDS = {
     "data_path",
     "checkpoint_dir",

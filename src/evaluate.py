@@ -57,9 +57,9 @@ from train import (
 
 
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
-DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
+DEFAULT_TEST_CONFIG_PATH = Path("src/config/test__mabe.yml")
 DEFAULT_BASELINE_CONFIG_PATH = Path(
-    "src/config/motion_baselines_30fps_pred12__benchmark.yml"
+    "src/config/benchmark__motion_baselines_30fps_pred12.yml"
 )
 DEFAULT_RESULTS_ROOT = Path("outputs/evaluations")
 DEFAULT_RESULTS_PATH = DEFAULT_RESULTS_ROOT / "dense_keypoint_30fps" / "results.jsonl"
@@ -1777,7 +1777,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/dense_keypoint_30fps__train.yml"),
+        default=Path("src/config/train__dense_keypoint_30fps.yml"),
     )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--baseline-config", type=Path)

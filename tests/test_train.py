@@ -189,7 +189,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
 def test_variant_train_configs_load_from_src_config() -> None:
     variants = {
         "dense_keypoint": (
-            Path("src/config/dense_keypoint_30fps__train.yml"),
+            Path("src/config/train__dense_keypoint_30fps.yml"),
             20,
             20,
             8,
@@ -198,7 +198,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "dense_keypoint_5fps": (
-            Path("src/config/dense_keypoint_5fps__train.yml"),
+            Path("src/config/train__dense_keypoint_5fps.yml"),
             10,
             40,
             16,
@@ -207,7 +207,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "flat_sparse_keypoint": (
-            Path("src/config/flat_sparse_keypoint__train.yml"),
+            Path("src/config/train__flat_sparse_keypoint.yml"),
             10,
             20,
             8,
@@ -216,7 +216,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             0,
         ),
         "mouse_level": (
-            Path("src/config/mouse_level__train.yml"),
+            Path("src/config/train__mouse_level.yml"),
             10,
             20,
             8,

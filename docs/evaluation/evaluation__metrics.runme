@@ -109,8 +109,8 @@ for name, value_range, better, unit in metric_contract:
 
 ```bash {"interpreter":"/bin/bash"}
 python src/evaluate.py \
-  --config src/config/dense_keypoint_30fps__train.yml \
-  --test-config src/config/test.yml \
+  --config src/config/train__dense_keypoint_30fps.yml \
+  --test-config src/config/test__mabe.yml \
   --checkpoint checkpoints/dense_keypoint/flat_best.pt \
   --split test
 ```

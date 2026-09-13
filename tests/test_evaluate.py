@@ -218,7 +218,7 @@ def test_horizon_comparison_uses_identical_sequence_start_windows(tmp_path) -> N
 
 
 def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
-    config_path = tmp_path / "test.yml"
+    config_path = tmp_path / "test__mabe.yml"
     config_path.write_text(
         "\n".join(
             [
@@ -245,7 +245,7 @@ def test_load_test_config_reads_held_out_test_file_path(tmp_path) -> None:
 
 
 def test_load_test_config_allows_source_specific_default_results_path(tmp_path) -> None:
-    config_path = tmp_path / "test.yml"
+    config_path = tmp_path / "test__mabe.yml"
     config_path.write_text(
         "\n".join(
             [
@@ -261,7 +261,7 @@ def test_load_test_config_allows_source_specific_default_results_path(tmp_path) 
 
 
 def test_load_motion_baseline_config_reads_baseline_names(tmp_path) -> None:
-    config_path = tmp_path / "motion_baselines_pred30__evaluate.yml"
+    config_path = tmp_path / "benchmark__motion_baselines_pred30.yml"
     config_path.write_text(
         "\n".join(
             [
@@ -426,10 +426,10 @@ def test_build_evaluation_record_tracks_lineage() -> None:
             checkpoint_validation_loss=0.5,
         ),
         train_config=FlatFitConfig(graph_variant="dense_keypoint"),
-        train_config_path=Path("src/config/dense_keypoint_30fps__train.yml"),
+        train_config_path=Path("src/config/train__dense_keypoint_30fps.yml"),
         checkpoint_path=Path("checkpoints/dense_keypoint/flat_best.pt"),
         split="test",
-        test_config_path=Path("src/config/test.yml"),
+        test_config_path=Path("src/config/test__mabe.yml"),
         test_data_path=Path("data/mabe/raw/mouse_triplet_test.npy"),
         max_windows=10,
         seed=42,
@@ -489,11 +489,11 @@ def test_baseline_record_persists_motion_strata() -> None:
     record = build_baseline_evaluation_record(
         result=result,
         train_config=FlatFitConfig(),
-        train_config_path=Path("src/config/dense_keypoint_30fps__train.yml"),
+        train_config_path=Path("src/config/train__dense_keypoint_30fps.yml"),
         baseline_config=baseline_config,
-        baseline_config_path=Path("src/config/motion_baselines_pred30__evaluate.yml"),
+        baseline_config_path=Path("src/config/benchmark__motion_baselines_pred30.yml"),
         split="test",
-        test_config_path=Path("src/config/test.yml"),
+        test_config_path=Path("src/config/test__mabe.yml"),
         test_data_path=Path("data/mabe/raw/mouse_triplet_test.npy"),
         max_windows=3,
         seed=42,
