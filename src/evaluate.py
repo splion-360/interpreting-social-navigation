@@ -67,7 +67,9 @@ DEFAULT_BASELINE_CONFIG_PATH = Path(
     "src/config/benchmark__motion_baselines_30fps_pred12.yml"
 )
 DEFAULT_RESULTS_ROOT = Path("outputs/evaluations")
-DEFAULT_RESULTS_PATH = DEFAULT_RESULTS_ROOT / "dense_keypoint_30fps" / "results.jsonl"
+DEFAULT_RESULTS_PATH = (
+    DEFAULT_RESULTS_ROOT / "flat_dense_triplet_30fps" / "results.jsonl"
+)
 TABLE_METRIC_NAMES = (
     "centroid_offset_px_by_mouse",
     "body_heading_error_deg_by_mouse",
@@ -1583,9 +1585,20 @@ def default_model_results_path(train_config: FlatFitConfig) -> Path:
     effective_fps = train_config.source_fps / train_config.frame_step
     return (
         DEFAULT_RESULTS_ROOT
-        / f"{train_config.graph_variant}_{_format_fps_slug(effective_fps)}"
+        / f"{_experiment_slug(train_config.graph_variant)}_{_format_fps_slug(effective_fps)}"
         / "results.jsonl"
     )
+
+
+def _experiment_slug(graph_variant: str) -> str:
+    """Return the file/path slug for a graph variant."""
+
+    return {
+        "dense_keypoint": "flat_dense_triplet",
+        "flat_sparse_keypoint": "flat_sparse_triplet",
+        "mouse_level": "flat_mouse_level",
+        "single_mouse_dense_keypoint": "flat_dense_single_mouse",
+    }.get(graph_variant, graph_variant)
 
 
 def _format_fps_slug(fps: float) -> str:
@@ -1816,7 +1829,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/train__dense_keypoint_30fps.yml"),
+        default=Path("src/config/train__flat_dense_triplet_30fps.yml"),
     )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--baseline-config", type=Path)

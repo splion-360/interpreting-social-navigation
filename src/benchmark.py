@@ -184,7 +184,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/benchmark__dense_keypoint_30fps.yml"),
+        default=Path("src/config/benchmark__flat_dense_triplet_30fps.yml"),
     )
     args = parser.parse_args()
     config = load_benchmark_config(args.config)

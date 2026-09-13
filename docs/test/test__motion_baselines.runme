@@ -4,7 +4,7 @@ cwd: ../..
 
 # Compare Social Attention With Motion Baselines
 
-Evaluate the trained dense-keypoint model and three deterministic predictors on
+Evaluate the trained flat dense triplet model and three deterministic predictors on
 the same held-out MABe windows. Every method observes 8 frames and predicts the
 next 12 frames. Ground-truth motion tertiles define the low-, medium-, and
 high-motion slices once and are shared by all methods.
@@ -20,7 +20,7 @@ high-motion slices once and are shared by all methods.
 
 This inference-only cell evaluates 1,000 windows with seed 42, prints Rich tables
 for the overall distribution and each motion slice, and appends one combined
-record to `outputs/evaluations/dense_keypoint_30fps/benchmark_8_12/results.jsonl`.
+record to `outputs/evaluations/flat_dense_triplet_30fps/benchmark_8_12/results.jsonl`.
 Values in parentheses are relative error improvements over persistence: positive
 is better, negative is worse, and blank means the reference is undefined or zero.
 
@@ -35,7 +35,7 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from benchmark import load_benchmark_config, print_benchmark_tables, run_benchmark
 
-config = load_benchmark_config(repo_root / "src/config/benchmark__dense_keypoint_30fps.yml")
+config = load_benchmark_config(repo_root / "src/config/benchmark__flat_dense_triplet_30fps.yml")
 record = run_benchmark(config)
 print_benchmark_tables(record)
 ```
@@ -45,7 +45,7 @@ print_benchmark_tables(record)
 Run the same comparison from the repository root:
 
 ```sh
-python src/benchmark.py --config src/config/benchmark__dense_keypoint_30fps.yml
+python src/benchmark.py --config src/config/benchmark__flat_dense_triplet_30fps.yml
 ```
 
 ## Reading the result
@@ -62,7 +62,7 @@ improvements would mean that low-motion windows are masking model failure.
 ## Recorded result
 
 Snapshot recorded on 2026-09-12 in
-`outputs/evaluations/dense_keypoint_30fps/benchmark_8_12/results.jsonl`. At that time,
+`outputs/evaluations/flat_dense_triplet_30fps/benchmark_8_12/results.jsonl`. At that time,
 `flat_best.pt` resolved to epoch 45 with validation loss -6.962924 and was
 evaluated on 1,000 windows. These aggregate metrics are all lower-is-better:
 

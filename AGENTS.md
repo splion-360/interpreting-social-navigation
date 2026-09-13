@@ -96,7 +96,7 @@ Use folders only when a concern has multiple files or a stable internal API. Sta
 
 Use these current modules:
 
-- `src/config/`: YAML experiment, training, benchmark, and evaluation configuration. Name files `{train/test/benchmark}__{descriptive_name}.yml`, for example `train__dense_keypoint_30fps.yml`, `test__mabe.yml`, and `benchmark__dense_keypoint_5fps.yml`.
+- `src/config/`: YAML experiment, training, benchmark, and evaluation configuration. Name files `{train/test/benchmark}__{descriptive_name}.yml`, for example `train__flat_dense_triplet_30fps.yml`, `test__mabe.yml`, and `benchmark__flat_dense_triplet_5fps.yml`.
 - `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
 - `src/st_graph.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
 - `src/models/`: flat model now, hierarchical mouse/keypoint models next.
@@ -121,10 +121,10 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 - `cd scripts && python train.py` trains the model; it expects root-level `data/MaBe/mouse_train.npy` and CUDA-capable PyTorch.
 - `cd scripts && python train.py --wandb` also logs the run to Weights & Biases.
 - `cd scripts && python sample.py --epoch 199` evaluates checkpoint epoch 199 from `scripts/save/save_attention/`.
-- `python -m train warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
-- `python -m train fit --show-config` prints the resolved training setup from `src/config/train__dense_keypoint_30fps.yml` without training.
-- `python -m train fit --wandb` runs flat-model training with W&B logging using `src/config/train__dense_keypoint_30fps.yml`.
-- `python -m train fit --wandb --resume-wandb-artifact flat-best-checkpoint:best` resumes from the best W&B model artifact.
+- `python src/train.py warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
+- `python src/train.py fit --show-config` prints the resolved training setup from `src/config/train__flat_dense_triplet_30fps.yml` without training.
+- `python src/train.py fit --wandb` runs flat-model training with W&B logging using `src/config/train__flat_dense_triplet_30fps.yml`.
+- `python src/train.py fit --wandb --resume-wandb-artifact flat-best-checkpoint:best` resumes from the best W&B model artifact.
 - `python -m pytest tests` runs new first-party tests once pytest is installed.
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.

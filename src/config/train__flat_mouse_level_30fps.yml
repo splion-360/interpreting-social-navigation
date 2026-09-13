@@ -5,7 +5,7 @@ batch_size: 8
 window_length: 20
 observation_length: 8
 prediction_length: 12
-graph_variant: flat_sparse_keypoint
+graph_variant: mouse_level
 stride: 20
 frame_step: 1
 source_fps: 30.0
@@ -25,11 +25,11 @@ seed: 42
 device: cpu
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name: flat-sparse-keypoint-baseline
-checkpoint_dir: checkpoints/flat_sparse_keypoint
+wandb_run_name: flat-mouse-level-30fps-baseline
+checkpoint_dir: checkpoints/flat_mouse_level_30fps
 save_checkpoints: true
 checkpoint_frequency: 10
-wandb_artifact_name: flat-sparse-keypoint-best-checkpoint
+wandb_artifact_name: flat-mouse-level-30fps-best-checkpoint
 resume_checkpoint: null
 resume_wandb_artifact: null
 resume_download_dir: checkpoints/wandb

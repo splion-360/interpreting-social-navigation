@@ -2,9 +2,9 @@
 cwd: ../..
 ---
 
-# Train Dense-Keypoint 5 FPS Baseline
+# Train Flat Dense Triplet 5 FPS Baseline
 
-This workflow trains the dense-keypoint Social Attention baseline with the
+This workflow trains the flat dense triplet Social Attention baseline with the
 current 5 FPS temporal contract:
 
 ```text
@@ -32,7 +32,7 @@ selected train-window counts, validation-window counts, graph shape, device, and
 checkpoint settings without starting optimization.
 
 ```sh
-python src/train.py fit --config src/config/train__dense_keypoint_5fps.yml --show-config
+python src/train.py fit --config src/config/train__flat_dense_triplet_5fps.yml --show-config
 ```
 
 ## Start Training
@@ -41,7 +41,7 @@ Use W&B for this experiment so the checkpoint, losses, validation metrics, and
 motion-group tables are versioned outside the local workspace.
 
 ```sh
-python src/train.py fit --config src/config/train__dense_keypoint_5fps.yml --wandb
+python src/train.py fit --config src/config/train__flat_dense_triplet_5fps.yml --wandb
 ```
 
 The CLI prints epoch loss plus a compact validation metric line:
@@ -62,16 +62,16 @@ W&B logs every epoch:
 ## Compare Against Deterministic Baselines
 
 Run this after training creates
-`checkpoints/dense_keypoint_5fps/flat_best.pt`.
+`checkpoints/flat_dense_triplet_5fps/flat_best.pt`.
 
 ```sh
-python src/benchmark.py --config src/config/benchmark__dense_keypoint_5fps.yml
+python src/benchmark.py --config src/config/benchmark__flat_dense_triplet_5fps.yml
 ```
 
 The comparison writes:
 
 ```text
-outputs/evaluations/dense_keypoint_5fps/benchmark_16_24/results.jsonl
+outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl
 ```
 
 Use this record to compare Social Attention against persistence, rigid constant

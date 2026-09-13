@@ -23,13 +23,13 @@ data/mabe/raw/mouse_triplet_test.npy
 ## Train
 
 ```bash
-python src/train.py fit --config src/config/train__dense_keypoint_30fps.yml --wandb
+python src/train.py fit --config src/config/train__flat_dense_triplet_30fps.yml --wandb
 ```
 
 Inspect without training:
 
 ```bash
-python src/train.py fit --config src/config/train__dense_keypoint_30fps.yml --show-config
+python src/train.py fit --config src/config/train__flat_dense_triplet_30fps.yml --show-config
 ```
 
 ## Evaluate
@@ -37,13 +37,13 @@ python src/train.py fit --config src/config/train__dense_keypoint_30fps.yml --sh
 Validation split from training data:
 
 ```bash
-python src/evaluate.py --config src/config/train__dense_keypoint_30fps.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt
+python src/evaluate.py --config src/config/train__flat_dense_triplet_30fps.yml --checkpoint checkpoints/flat_dense_triplet_30fps/flat_best.pt
 ```
 
 Held-out MABe test file:
 
 ```bash
-python src/evaluate.py --config src/config/train__dense_keypoint_30fps.yml --test-config src/config/test__mabe.yml --checkpoint checkpoints/dense_keypoint/flat_best.pt --split test
+python src/evaluate.py --config src/config/train__flat_dense_triplet_30fps.yml --test-config src/config/test__mabe.yml --checkpoint checkpoints/flat_dense_triplet_30fps/flat_best.pt --split test
 ```
 
 Test evaluation uses `src/config/test__mabe.yml`, samples future coordinates from the predicted bivariate Gaussian, shows per-window progress, defaults to 100 windows, and reports pixel-space trajectory/pose metrics.

@@ -1,0 +1,50 @@
+---
+cwd: ../..
+runme:
+  id: 01M24SINGLEMOUSE5FPS
+  version: v3
+---
+
+# Train Flat Dense Single-Mouse 5 FPS Experiment
+
+This workflow trains the same flat Social Attention architecture on extracted
+single-mouse samples. Original sequence IDs are split before extraction, so all
+three mice from a source sequence stay in the same train or validation split.
+
+## Hypothesis
+
+If the flat model can preserve a single mouse's pose when social context is
+removed, pose errors should improve relative to the flat dense triplet
+baseline. If pose errors remain high, the weakness is likely in intra-mouse
+keypoint modeling rather than inter-mouse interaction.
+
+## Inspect configuration
+
+```sh {"id":"01M24SINGLEMOUSE5FPSCONFIG"}
+python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --show-config
+```
+
+## Train
+
+```sh {"id":"01M24SINGLEMOUSE5FPSTRAIN"}
+python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --wandb
+```
+
+## Benchmark
+
+Run this after training produces
+`checkpoints/flat_dense_single_mouse_5fps/flat_best.pt`.
+
+```sh {"id":"01M24SINGLEMOUSE5FPSBENCH"}
+python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_5fps.yml
+```
+
+## Results
+
+Fill this after the benchmark run completes.
+
+- W&B run:
+- W&B checkpoint artifact:
+- Results JSONL:
+  `outputs/evaluations/flat_dense_single_mouse_5fps/benchmark_16_24/results.jsonl`
+- Interpretation:

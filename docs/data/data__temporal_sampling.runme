@@ -4,7 +4,7 @@ cwd: ../..
 
 # Validate 5 FPS Temporal Sampling
 
-The next dense-keypoint baseline uses 3.2 seconds of observed history and 4.8
+The next flat dense triplet baseline uses 3.2 seconds of observed history and 4.8
 seconds of predicted future. For MABe source data at 30 FPS, the chosen 5 FPS
 setup samples every 6 raw frames and uses 16 observed steps plus 24 predicted
 steps:
@@ -290,7 +290,7 @@ outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1440.mp4
 outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1520.mp4
 ```
 
-Decision: use 5 FPS for the next dense-keypoint baseline. For 30 FPS MABe data,
+Decision: use 5 FPS for the next flat dense triplet baseline. For 30 FPS MABe data,
 that means `frame_step=6`. To preserve the original Social Attention durations,
 the next training contract should use `observation_length=16`,
 `prediction_length=24`, and `window_length=40`, giving 3.2 seconds of observed
@@ -305,5 +305,5 @@ durations.
 Visual inspection note: the worst retained-motion examples still show coherent
 whole-body poses at the sampled cadence, but the sampled points skip fine
 within-body motion. Existing training YAMLs intentionally remain at
-`frame_step=1`; the 5 FPS training YAML belongs to the dense-keypoint training
+`frame_step=1`; the 5 FPS training YAML belongs to the flat dense triplet training
 ticket.
