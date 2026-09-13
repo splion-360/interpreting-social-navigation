@@ -347,6 +347,23 @@ class ValidationMetricSummary:
     counts_by_motion: dict[MotionStratum, int]
 
 
+@dataclass
+class ValidationMotionMetricTable:
+    """Cumulative validation motion table for W&B.
+
+    Attributes:
+        rows: Rows logged so far across completed epochs.
+    """
+
+    rows: list[tuple[float | int | str, ...]]
+
+    @classmethod
+    def empty(cls) -> ValidationMotionMetricTable:
+        """Create an empty cumulative table."""
+
+        return cls(rows=[])
+
+
 def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
     """Run a short flat-model training smoke test.
 
@@ -425,6 +442,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
     best_checkpoint_path = config.checkpoint_dir / "flat_best.pt"
     final_train_loss = 0.0
     final_validation_loss = 0.0
+    validation_motion_table = ValidationMotionMetricTable.empty()
 
     for epoch in range(start_epoch, config.epochs + 1):
         train_summary = _run_epoch(
@@ -502,6 +520,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             epoch,
             validation_summary,
             validation_metrics,
+            validation_motion_table,
         )
 
         is_best_checkpoint = final_validation_loss < best_validation_loss
@@ -1393,20 +1412,39 @@ def _wandb_log_validation_motion_table(
     epoch: int,
     loss_summary: EpochLossSummary,
     metric_summary: ValidationMetricSummary,
+    table_history: ValidationMotionMetricTable,
 ) -> None:
-    """Log validation motion-stratum losses and metrics as a W&B table.
+    """Log cumulative validation motion-stratum losses and metrics to W&B.
 
     Args:
         run: Active W&B run, or `None` when W&B is disabled.
         epoch: Epoch number for the table rows.
         loss_summary: Validation loss summary.
         metric_summary: Autoregressive validation metric summary.
+        table_history: Accumulated validation table rows from previous epochs.
     """
 
     if run is None or not metric_summary.metrics_by_motion:
         return
 
     import wandb
+
+    for stratum in MOTION_STRATA:
+        if stratum not in metric_summary.metrics_by_motion:
+            continue
+        metrics = metric_summary.metrics_by_motion[stratum]
+        table_history.rows.append(
+            (
+                epoch,
+                stratum,
+                metric_summary.counts_by_motion[stratum],
+                loss_summary.loss_by_motion.get(stratum, float("nan")),
+                *(
+                    metrics.get(alias, float("nan"))
+                    for alias in VALIDATION_METRIC_ALIASES.values()
+                ),
+            )
+        )
 
     table = wandb.Table(
         columns=[
@@ -1417,20 +1455,8 @@ def _wandb_log_validation_motion_table(
             *VALIDATION_METRIC_ALIASES.values(),
         ]
     )
-    for stratum in MOTION_STRATA:
-        if stratum not in metric_summary.metrics_by_motion:
-            continue
-        metrics = metric_summary.metrics_by_motion[stratum]
-        table.add_data(
-            epoch,
-            stratum,
-            metric_summary.counts_by_motion[stratum],
-            loss_summary.loss_by_motion.get(stratum, float("nan")),
-            *(
-                metrics.get(alias, float("nan"))
-                for alias in VALIDATION_METRIC_ALIASES.values()
-            ),
-        )
+    for row in table_history.rows:
+        table.add_data(*row)
     run.log({"validation/motion_metrics_table": table, "epoch": epoch})
 
 

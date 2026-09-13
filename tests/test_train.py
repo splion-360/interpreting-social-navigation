@@ -589,10 +589,11 @@ def test_wandb_motion_metric_table_logs_epoch_rows(
             logs.append(values)
 
     monkeypatch.setitem(sys.modules, "wandb", SimpleNamespace(Table=FakeTable))
+    table_history = train.ValidationMotionMetricTable.empty()
 
     train._wandb_log_validation_motion_table(
         FakeRun(),
-        epoch=3,
+        epoch=1,
         loss_summary=EpochLossSummary(
             loss=1.0,
             loss_by_motion={"low": 0.5},
@@ -603,12 +604,31 @@ def test_wandb_motion_metric_table_logs_epoch_rows(
             metrics_by_motion={"low": {"cADE": 1.0, "cFDE": 2.0}},
             counts_by_motion={"low": 2, "medium": 0, "high": 0},
         ),
+        table_history=table_history,
+    )
+    train._wandb_log_validation_motion_table(
+        FakeRun(),
+        epoch=2,
+        loss_summary=EpochLossSummary(
+            loss=1.0,
+            loss_by_motion={"low": 0.4},
+            counts_by_motion={"low": 2, "medium": 0, "high": 0},
+        ),
+        metric_summary=train.ValidationMetricSummary(
+            metrics={"cADE": 0.8},
+            metrics_by_motion={"low": {"cADE": 0.8, "cFDE": 1.5}},
+            counts_by_motion={"low": 2, "medium": 0, "high": 0},
+        ),
+        table_history=table_history,
     )
 
     assert tables[0].columns[:4] == ["epoch", "motion_group", "windows", "loss"]
     assert "cADE" in tables[0].columns
-    assert tables[0].rows[0][:4] == (3, "low", 2, 0.5)
+    assert tables[0].rows[0][:4] == (1, "low", 2, 0.5)
     assert logs[0]["validation/motion_metrics_table"] is tables[0]
+    assert tables[1].rows[0][:4] == (1, "low", 2, 0.5)
+    assert tables[1].rows[1][:4] == (2, "low", 2, 0.4)
+    assert logs[1]["validation/motion_metrics_table"] is tables[1]
 
 
 def test_resolve_resume_checkpoint_prefers_local_checkpoint(tmp_path: Path) -> None:
