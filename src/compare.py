@@ -20,6 +20,7 @@ from evaluate import (
     EvaluationResult,
     evaluate_flat_checkpoint,
     evaluate_motion_baselines,
+    load_checkpoint_motion_thresholds,
     load_motion_baseline_config,
     load_test_config,
     resolve_baseline_window_config,
@@ -119,6 +120,7 @@ def run_comparison(config: ComparisonConfig) -> dict[str, Any]:
     test_config = load_test_config(config.test_config_path)
     baseline_config = load_motion_baseline_config(config.baseline_config_path)
     train_config = resolve_baseline_window_config(train_config, baseline_config)
+    motion_thresholds = load_checkpoint_motion_thresholds(config.checkpoint_path)
 
     baseline_results = evaluate_motion_baselines(
         train_config=train_config,
@@ -127,6 +129,7 @@ def run_comparison(config: ComparisonConfig) -> dict[str, Any]:
         test_data_path=test_config.data_path,
         max_windows=baseline_config.max_windows,
         show_progress=True,
+        motion_thresholds=motion_thresholds,
     )
     model_started = perf_counter()
     model_result = evaluate_flat_checkpoint(

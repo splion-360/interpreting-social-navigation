@@ -11,7 +11,13 @@ import torch
 
 import train
 from st_graph import build_dense_keypoint_graph
-from train import FlatFitConfig, FlatWarmupConfig, run_flat_fit, run_flat_warmup
+from train import (
+    EpochLossSummary,
+    FlatFitConfig,
+    FlatWarmupConfig,
+    run_flat_fit,
+    run_flat_warmup,
+)
 
 
 def write_mabe_file(path: Path, sequences: int = 2) -> None:
@@ -27,6 +33,19 @@ def write_mabe_file(path: Path, sequences: int = 2) -> None:
             for idx in range(sequences)
         },
     }
+    np.save(path, np.asarray(payload, dtype=object))
+
+
+def write_motion_mabe_file(path: Path, sequences: int = 6, frames: int = 36) -> None:
+    """Write MABe-style sequences with different future motion speeds."""
+
+    payload: dict[str, Any] = {"vocabulary": [], "sequences": {}}
+    for sequence_idx in range(sequences):
+        values = np.zeros((frames, 3, 12, 2), dtype=np.float32)
+        speed = float(sequence_idx + 1)
+        values[..., 0] = np.arange(frames, dtype=np.float32).reshape(-1, 1, 1) * speed
+        values[..., 1] = float(sequence_idx)
+        payload["sequences"][f"seq_{sequence_idx}"] = {"keypoints": values}
     np.save(path, np.asarray(payload, dtype=object))
 
 
@@ -126,6 +145,12 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
                 "graph_variant: flat_sparse_keypoint",
                 "stride: 2",
                 "validation_fraction: 0.25",
+                "motion_sampling: true",
+                "motion_score: mean_keypoint_speed_px_s",
+                "motion_group_mix:",
+                "  low: 0.2",
+                "  medium: 0.4",
+                "  high: 0.4",
                 "learning_rate: 0.002",
                 "grad_clip: 5.0",
                 "seed: 123",
@@ -155,6 +180,8 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
     assert config.prediction_length == 2
     assert config.graph_variant == "flat_sparse_keypoint"
     assert config.checkpoint_frequency == 10
+    assert config.motion_sampling is True
+    assert config.motion_group_mix == {"low": 0.2, "medium": 0.4, "high": 0.4}
     assert config.wandb is True
 
 
@@ -177,6 +204,8 @@ def test_variant_train_configs_load_from_src_config() -> None:
         assert config.observation_length == 8
         assert config.prediction_length == 12
         assert config.checkpoint_frequency == checkpoint_frequency
+        assert config.motion_score == "mean_keypoint_speed_px_s"
+        assert config.motion_sampling is (variant == "dense_keypoint")
 
 
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
@@ -215,6 +244,40 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "checkpoint_frequency: null" in output
 
 
+def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_motion_mabe_file(data_path)
+
+    window_data = train._build_training_window_data(
+        FlatFitConfig(
+            data_path=data_path,
+            window_length=6,
+            observation_length=3,
+            prediction_length=3,
+            stride=3,
+            max_train_windows=10,
+            max_validation_windows=4,
+            validation_fraction=0.33,
+            motion_sampling=True,
+            seed=42,
+            device="cpu",
+        )
+    )
+
+    assert len(window_data.train_windows) == 10
+    assert window_data.motion_report is not None
+    assert window_data.motion_report.train_selected.counts == {
+        "low": 2,
+        "medium": 4,
+        "high": 4,
+    }
+    assert sum(window_data.motion_report.validation.counts.values()) == 4
+    assert (
+        window_data.motion_report.train_candidates.thresholds.low_max_px_s
+        <= window_data.motion_report.train_candidates.thresholds.medium_max_px_s
+    )
+
+
 def test_device_info_reports_cpu_without_gpu_name() -> None:
     info = train._device_info("cpu", torch.device("cpu"))
 
@@ -231,10 +294,18 @@ def test_flat_fit_saves_periodic_epoch_checkpoint(
     checkpoint_dir = tmp_path / "checkpoints"
     write_mabe_file(data_path)
 
-    def fake_run_epoch(*, epoch: int, split: str, **_: Any) -> float:
+    def fake_run_epoch(*, epoch: int, split: str, **_: Any) -> EpochLossSummary:
         if split == "train":
-            return 1.0
-        return 1.0 if epoch == 1 else 0.5
+            return EpochLossSummary(
+                loss=1.0,
+                loss_by_motion={},
+                counts_by_motion={},
+            )
+        return EpochLossSummary(
+            loss=1.0 if epoch == 1 else 0.5,
+            loss_by_motion={},
+            counts_by_motion={},
+        )
 
     monkeypatch.setattr(train, "_run_epoch", fake_run_epoch)
 
@@ -360,7 +431,11 @@ def test_wandb_checkpoint_logging_uploads_model_artifact(
     artifact, aliases = logged_artifacts[0]
     assert artifact.name == "flat-best-checkpoint"
     assert artifact.type == "model"
-    assert artifact.metadata == {"epoch": 2, "validation_loss": 0.75}
+    assert artifact.metadata == {
+        "epoch": 2,
+        "validation_loss": 0.75,
+        "motion_profile": None,
+    }
     assert added_files == [str(checkpoint_path)]
     assert aliases == ["best", "epoch-2"]
 

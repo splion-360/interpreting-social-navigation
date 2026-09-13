@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -16,13 +16,20 @@ from tqdm import tqdm
 
 from constants import DEFAULT_SOURCE_FPS
 from data import (
+    DEFAULT_MOTION_MIX,
+    MOTION_STRATA,
     MabeDataset,
     MabeSequence,
     MabeWindowDataset,
+    MotionProfile,
     PoseNormalizer,
     WindowSpec,
+    build_motion_profile,
     fill_missing_keypoints,
+    fit_motion_thresholds,
+    sample_motion_balanced_window_keys,
     split_sequence_ids,
+    window_motion_scores_px_s,
 )
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
 from models import FlatSocialAttentionModel
@@ -109,6 +116,9 @@ class FlatFitConfig:
         max_train_windows: Optional training-window cap for debug runs.
         max_validation_windows: Optional validation-window cap for debug runs.
         validation_fraction: Fraction of sequences used for validation.
+        motion_sampling: Whether to sample training windows by motion stratum.
+        motion_group_mix: Desired low/medium/high training-window proportions.
+        motion_score: Name of the motion score used for grouping.
         learning_rate: Adam learning rate.
         grad_clip: Gradient clipping threshold.
         seed: Random seed for deterministic splits and model initialization.
@@ -139,6 +149,11 @@ class FlatFitConfig:
     max_train_windows: int | None = None
     max_validation_windows: int | None = None
     validation_fraction: float = 0.2
+    motion_sampling: bool = False
+    motion_group_mix: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_MOTION_MIX)
+    )
+    motion_score: str = "mean_keypoint_speed_px_s"
     learning_rate: float = 1e-3
     grad_clip: float = 10.0
     seed: int = 42
@@ -161,6 +176,8 @@ class FlatFitConfig:
             raise ValueError("frame_step must be at least 1")
         if self.source_fps <= 0:
             raise ValueError("source_fps must be positive")
+        if self.motion_score != "mean_keypoint_speed_px_s":
+            raise ValueError("motion_score must be mean_keypoint_speed_px_s")
 
 
 @dataclass(frozen=True)
@@ -213,6 +230,63 @@ class DeviceInfo:
     cuda_device_name: str | None
     cuda_version: str | None
     cudnn_version: int | None
+
+
+@dataclass(frozen=True)
+class MotionSamplingReport:
+    """Motion-aware training-window selection metadata.
+
+    Attributes:
+        train_candidates: Profile over every training candidate window.
+        train_selected: Profile over the sampled training windows.
+        validation: Profile over validation windows labeled with train thresholds.
+    """
+
+    train_candidates: MotionProfile
+    train_selected: MotionProfile
+    validation: MotionProfile
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return JSON-ready motion sampling metadata."""
+
+        return {
+            "enabled": True,
+            "score": "mean_keypoint_speed_px_s",
+            "thresholds_px_s": self.train_candidates.thresholds.to_dict(),
+            "train_candidate_counts": self.train_candidates.counts,
+            "train_selected_counts": self.train_selected.counts,
+            "validation_counts": self.validation.counts,
+        }
+
+
+@dataclass(frozen=True)
+class TrainingWindowData:
+    """Resolved train and validation windows for one training run.
+
+    Attributes:
+        train_windows: Training windows, optionally motion-balanced.
+        validation_windows: Validation windows.
+        motion_report: Motion sampling metadata when grouping is enabled.
+    """
+
+    train_windows: MabeWindowDataset
+    validation_windows: MabeWindowDataset
+    motion_report: MotionSamplingReport | None
+
+
+@dataclass(frozen=True)
+class EpochLossSummary:
+    """Loss summary for one train or validation epoch.
+
+    Attributes:
+        loss: Mean loss across the epoch.
+        loss_by_motion: Mean validation loss per motion stratum.
+        counts_by_motion: Number of validation windows per motion stratum.
+    """
+
+    loss: float
+    loss_by_motion: dict[str, float]
+    counts_by_motion: dict[str, int]
 
 
 def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
@@ -274,10 +348,13 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
     device = _select_device(config.device)
     device_info = _device_info(config.device, device)
     _print_device_info(device_info)
-    train_windows, validation_windows = _build_window_datasets(config)
+    window_data = _build_training_window_data(config)
+    train_windows = window_data.train_windows
+    validation_windows = window_data.validation_windows
+    _print_motion_sampling_report(window_data.motion_report)
     model = FlatSocialAttentionModel().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-    run = _start_wandb(config, device_info)
+    run = _start_wandb(config, device_info, window_data.motion_report)
 
     start_epoch, best_validation_loss, resumed_from = _restore_training_state(
         config=config,
@@ -292,7 +369,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
     final_validation_loss = 0.0
 
     for epoch in range(start_epoch, config.epochs + 1):
-        final_train_loss = _run_epoch(
+        train_summary = _run_epoch(
             model=model,
             windows=train_windows,
             optimizer=optimizer,
@@ -302,7 +379,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             split="train",
             show_progress=show_progress,
         )
-        final_validation_loss = _run_epoch(
+        validation_summary = _run_epoch(
             model=model,
             windows=validation_windows,
             optimizer=None,
@@ -311,21 +388,34 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             epoch=epoch,
             split="validation",
             show_progress=show_progress,
+            motion_labels=(
+                window_data.motion_report.validation.labels
+                if window_data.motion_report is not None
+                else None
+            ),
         )
+        final_train_loss = train_summary.loss
+        final_validation_loss = validation_summary.loss
 
         print(
             f"epoch={epoch}/{config.epochs} "
             f"train_loss={final_train_loss:.6f} "
             f"validation_loss={final_validation_loss:.6f}"
         )
+        _print_validation_motion_losses(validation_summary)
         _wandb_log(
             run,
             {
                 "epoch": epoch,
                 "train/loss": final_train_loss,
                 "validation/loss": final_validation_loss,
+                **{
+                    f"validation/loss/{stratum}": loss
+                    for stratum, loss in validation_summary.loss_by_motion.items()
+                },
             },
         )
+        _wandb_log_validation_motion_table(run, epoch, validation_summary)
 
         is_best_checkpoint = final_validation_loss < best_validation_loss
         if is_best_checkpoint:
@@ -340,6 +430,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                     config=config,
                     epoch=epoch,
                     validation_loss=final_validation_loss,
+                    motion_report=window_data.motion_report,
                 )
                 _wandb_log_checkpoint(
                     run=run,
@@ -347,6 +438,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                     artifact_name=config.wandb_artifact_name,
                     epoch=epoch,
                     validation_loss=final_validation_loss,
+                    motion_report=window_data.motion_report,
                     aliases=["best", f"epoch-{epoch}"],
                 )
         if _should_save_epoch_checkpoint(config, epoch):
@@ -359,6 +451,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                 config=config,
                 epoch=epoch,
                 validation_loss=final_validation_loss,
+                motion_report=window_data.motion_report,
             )
             if not is_best_checkpoint:
                 _wandb_log_checkpoint(
@@ -367,6 +460,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                     artifact_name=config.wandb_artifact_name,
                     epoch=epoch,
                     validation_loss=final_validation_loss,
+                    motion_report=window_data.motion_report,
                     aliases=[f"epoch-{epoch}"],
                 )
 
@@ -424,6 +518,20 @@ def _build_window_datasets(
 ) -> tuple[MabeWindowDataset, MabeWindowDataset]:
     """Load train and validation window datasets."""
 
+    window_data = _build_training_window_data(config)
+    return window_data.train_windows, window_data.validation_windows
+
+
+def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
+    """Load train and validation windows with optional motion-aware sampling.
+
+    Args:
+        config: Training configuration.
+
+    Returns:
+        Training windows, validation windows, and motion-sampling metadata.
+    """
+
     dataset = MabeDataset.from_file(config.data_path)
     train_ids, validation_ids = split_sequence_ids(
         dataset.sequence_ids,
@@ -438,19 +546,107 @@ def _build_window_datasets(
         stride=config.stride,
         frame_step=config.frame_step,
     )
-    train_windows = MabeWindowDataset(
-        dataset.select(train_ids),
-        spec,
-        normalizer=normalizer,
-        max_windows=config.max_train_windows,
-    )
+    train_sequences = dataset.select(train_ids)
+    validation_sequences = dataset.select(validation_ids)
+    if config.motion_sampling:
+        train_windows, motion_report = _build_motion_sampled_windows(
+            train_sequences=train_sequences,
+            validation_sequences=validation_sequences,
+            spec=spec,
+            normalizer=normalizer,
+            config=config,
+        )
+    else:
+        train_windows = MabeWindowDataset(
+            train_sequences,
+            spec,
+            normalizer=normalizer,
+            max_windows=config.max_train_windows,
+        )
+        motion_report = None
     validation_windows = MabeWindowDataset(
-        dataset.select(validation_ids),
+        validation_sequences,
         spec,
         normalizer=normalizer,
         max_windows=config.max_validation_windows,
     )
-    return train_windows, validation_windows
+    return TrainingWindowData(
+        train_windows=train_windows,
+        validation_windows=validation_windows,
+        motion_report=motion_report,
+    )
+
+
+def _build_motion_sampled_windows(
+    *,
+    train_sequences: list[MabeSequence],
+    validation_sequences: list[MabeSequence],
+    spec: WindowSpec,
+    normalizer: PoseNormalizer,
+    config: FlatFitConfig,
+) -> tuple[MabeWindowDataset, MotionSamplingReport]:
+    """Build train windows after fitting motion groups on train candidates.
+
+    Args:
+        train_sequences: Training sequences from the sequence-aware split.
+        validation_sequences: Validation sequences from the sequence-aware split.
+        spec: Window specification.
+        normalizer: Train-fitted pose normalizer.
+        config: Training configuration.
+
+    Returns:
+        Motion-balanced training windows and sampling metadata.
+    """
+
+    train_candidates = MabeWindowDataset(train_sequences, spec)
+    candidate_scores = window_motion_scores_px_s(
+        train_candidates,
+        seconds_per_step=_seconds_per_step(config),
+    )
+    thresholds = fit_motion_thresholds(candidate_scores)
+    train_candidate_profile = build_motion_profile(
+        train_candidates,
+        thresholds=thresholds,
+        seconds_per_step=_seconds_per_step(config),
+    )
+    selected_keys = sample_motion_balanced_window_keys(
+        window_keys=train_candidates.window_keys,
+        labels=train_candidate_profile.labels,
+        mix=config.motion_group_mix,
+        max_windows=config.max_train_windows,
+        seed=config.seed,
+    )
+    train_selected_pixels = MabeWindowDataset(
+        train_sequences,
+        spec,
+        window_keys=selected_keys,
+    )
+    train_selected_profile = build_motion_profile(
+        train_selected_pixels,
+        thresholds=thresholds,
+        seconds_per_step=_seconds_per_step(config),
+    )
+    validation_pixels = MabeWindowDataset(
+        validation_sequences,
+        spec,
+        max_windows=config.max_validation_windows,
+    )
+    validation_profile = build_motion_profile(
+        validation_pixels,
+        thresholds=thresholds,
+        seconds_per_step=_seconds_per_step(config),
+    )
+    train_windows = MabeWindowDataset(
+        train_sequences,
+        spec,
+        normalizer=normalizer,
+        window_keys=selected_keys,
+    )
+    return train_windows, MotionSamplingReport(
+        train_candidates=train_candidate_profile,
+        train_selected=train_selected_profile,
+        validation=validation_profile,
+    )
 
 
 def _run_epoch(
@@ -463,11 +659,13 @@ def _run_epoch(
     epoch: int,
     split: str,
     show_progress: bool,
-) -> float:
+    motion_labels: tuple[str, ...] | None = None,
+) -> EpochLossSummary:
     """Run one train or validation epoch."""
 
     model.train(optimizer is not None)
     batch_losses = []
+    motion_losses: dict[str, list[float]] = {name: [] for name in MOTION_STRATA}
     iterator = range(0, len(windows), config.batch_size)
     progress = tqdm(
         iterator,
@@ -478,7 +676,13 @@ def _run_epoch(
     for start in progress:
         batch_indices = range(start, min(start + config.batch_size, len(windows)))
         with torch.set_grad_enabled(optimizer is not None):
-            loss = _batch_loss(model, windows, batch_indices, config, device)
+            loss, window_losses = _batch_loss(
+                model,
+                windows,
+                batch_indices,
+                config,
+                device,
+            )
         if optimizer is not None:
             optimizer.zero_grad()
             loss.backward()
@@ -487,9 +691,23 @@ def _run_epoch(
 
         loss_value = float(loss.detach().cpu())
         batch_losses.append(loss_value)
+        if motion_labels is not None:
+            for offset, index in enumerate(batch_indices):
+                motion_losses[motion_labels[index]].append(window_losses[offset])
         progress.set_postfix(loss=f"{loss_value:.6f}")
 
-    return float(np.mean(batch_losses))
+    loss_by_motion = {
+        stratum: float(np.mean(values))
+        for stratum, values in motion_losses.items()
+        if values
+    }
+    return EpochLossSummary(
+        loss=float(np.mean(batch_losses)),
+        loss_by_motion=loss_by_motion,
+        counts_by_motion={
+            stratum: len(values) for stratum, values in motion_losses.items()
+        },
+    )
 
 
 def _batch_loss(
@@ -498,7 +716,7 @@ def _batch_loss(
     batch_indices: range,
     config: FlatFitConfig,
     device: torch.device,
-) -> Tensor:
+) -> tuple[Tensor, list[float]]:
     """Compute mean prediction-horizon loss for a window batch."""
 
     build_graph = _graph_builder(config.graph_variant)
@@ -533,7 +751,8 @@ def _batch_loss(
                 mask=target_mask,
             )
         )
-    return torch.stack(losses).mean()
+    loss_values = [float(loss.detach().cpu()) for loss in losses]
+    return torch.stack(losses).mean(), loss_values
 
 
 def _save_checkpoint(
@@ -544,6 +763,7 @@ def _save_checkpoint(
     config: FlatFitConfig,
     epoch: int,
     validation_loss: float,
+    motion_report: MotionSamplingReport | None,
 ) -> None:
     """Save model, optimizer, and training metadata to a checkpoint file.
 
@@ -554,6 +774,7 @@ def _save_checkpoint(
         config: Training config used for this run.
         epoch: Epoch represented by this checkpoint.
         validation_loss: Validation loss recorded at this epoch.
+        motion_report: Motion sampling metadata for the training run.
     """
 
     torch.save(
@@ -563,6 +784,9 @@ def _save_checkpoint(
             "optimizer_state_dict": optimizer.state_dict(),
             "validation_loss": validation_loss,
             "config": config,
+            "motion_profile": (
+                motion_report.to_dict() if motion_report is not None else None
+            ),
         },
         path,
     )
@@ -579,7 +803,11 @@ def _should_save_epoch_checkpoint(config: FlatFitConfig, epoch: int) -> bool:
     )
 
 
-def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
+def _start_wandb(
+    config: FlatFitConfig,
+    device_info: DeviceInfo,
+    motion_report: MotionSamplingReport | None = None,
+) -> Any | None:
     """Start a W&B run when requested."""
 
     if not config.wandb:
@@ -610,6 +838,12 @@ def _start_wandb(config: FlatFitConfig, device_info: DeviceInfo) -> Any | None:
             "frame_step": config.frame_step,
             "source_fps": config.source_fps,
             "effective_fps": config.source_fps / config.frame_step,
+            "motion_sampling": config.motion_sampling,
+            "motion_group_mix": config.motion_group_mix,
+            "motion_score": config.motion_score,
+            "motion_profile": (
+                motion_report.to_dict() if motion_report is not None else None
+            ),
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
             "seed": config.seed,
@@ -648,6 +882,7 @@ def _wandb_log_checkpoint(
     epoch: int,
     validation_loss: float,
     aliases: list[str],
+    motion_report: MotionSamplingReport | None = None,
 ) -> None:
     """Version a checkpoint as a W&B model artifact when logging is enabled.
 
@@ -657,6 +892,7 @@ def _wandb_log_checkpoint(
         artifact_name: Stable W&B artifact name.
         epoch: Epoch represented by the checkpoint.
         validation_loss: Validation loss for the checkpoint.
+        motion_report: Motion sampling metadata for the training run.
         aliases: Artifact aliases to assign to this checkpoint version.
     """
 
@@ -668,7 +904,13 @@ def _wandb_log_checkpoint(
     artifact = wandb.Artifact(
         artifact_name,
         type="model",
-        metadata={"epoch": epoch, "validation_loss": validation_loss},
+        metadata={
+            "epoch": epoch,
+            "validation_loss": validation_loss,
+            "motion_profile": (
+                motion_report.to_dict() if motion_report is not None else None
+            ),
+        },
     )
     artifact.add_file(str(checkpoint_path))
     logged = run.log_artifact(artifact, aliases=aliases)
@@ -748,6 +990,83 @@ def _finish_wandb(run: Any | None) -> None:
 
     if run is not None:
         run.finish()
+
+
+def _print_motion_sampling_report(
+    motion_report: MotionSamplingReport | None,
+) -> None:
+    """Print fitted motion thresholds and group counts before training.
+
+    Args:
+        motion_report: Motion sampling metadata, or `None` when disabled.
+    """
+
+    if motion_report is None:
+        return
+
+    thresholds = motion_report.train_candidates.thresholds
+    print(
+        "motion_sampling: "
+        "score=mean_keypoint_speed_px_s "
+        f"low_max={thresholds.low_max_px_s:.6f} "
+        f"medium_max={thresholds.medium_max_px_s:.6f} "
+        f"train_selected={motion_report.train_selected.counts} "
+        f"validation={motion_report.validation.counts}"
+    )
+
+
+def _print_validation_motion_losses(summary: EpochLossSummary) -> None:
+    """Print validation losses grouped by motion stratum.
+
+    Args:
+        summary: Epoch loss summary from the validation split.
+    """
+
+    if not summary.loss_by_motion:
+        return
+
+    values = " ".join(
+        f"{stratum}_loss={summary.loss_by_motion[stratum]:.6f}"
+        for stratum in MOTION_STRATA
+        if stratum in summary.loss_by_motion
+    )
+    print(f"validation_by_motion: {values}")
+
+
+def _wandb_log_validation_motion_table(
+    run: Any | None,
+    epoch: int,
+    summary: EpochLossSummary,
+) -> None:
+    """Log validation motion-stratum losses as a W&B table.
+
+    Args:
+        run: Active W&B run, or `None` when W&B is disabled.
+        epoch: Epoch number for the table rows.
+        summary: Validation loss summary.
+    """
+
+    if run is None or not summary.loss_by_motion:
+        return
+
+    import wandb
+
+    table = wandb.Table(columns=["epoch", "motion_group", "windows", "loss"])
+    for stratum in MOTION_STRATA:
+        if stratum in summary.loss_by_motion:
+            table.add_data(
+                epoch,
+                stratum,
+                summary.counts_by_motion[stratum],
+                summary.loss_by_motion[stratum],
+            )
+    run.log({"validation/motion_loss_table": table, "epoch": epoch})
+
+
+def _seconds_per_step(config: FlatFitConfig) -> float:
+    """Return seconds represented by one sampled trajectory step."""
+
+    return config.frame_step / config.source_fps
 
 
 def _device_info(requested: str, resolved: torch.device) -> DeviceInfo:
@@ -844,7 +1163,9 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
     """
 
     dataset = MabeDataset.from_file(config.data_path)
-    train_windows, validation_windows = _build_window_datasets(config)
+    window_data = _build_training_window_data(config)
+    train_windows = window_data.train_windows
+    validation_windows = window_data.validation_windows
     train_sequences = [
         train_windows.sequences[item] for item in train_windows.sequences
     ]
@@ -893,6 +1214,15 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                     train_sequences
                 ),
             },
+            "motion_sampling": (
+                window_data.motion_report.to_dict()
+                if window_data.motion_report is not None
+                else {
+                    "enabled": False,
+                    "score": config.motion_score,
+                    "motion_group_mix": config.motion_group_mix,
+                }
+            ),
         },
         "device": _device_display_name(_device_info(config.device, resolved_device)),
         "graph": {
@@ -1067,6 +1397,8 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "max_train_windows": args.max_train_windows,
         "max_validation_windows": args.max_validation_windows,
         "validation_fraction": args.validation_fraction,
+        "motion_sampling": args.motion_sampling,
+        "motion_score": args.motion_score,
         "learning_rate": args.learning_rate,
         "grad_clip": args.grad_clip,
         "seed": args.seed,
@@ -1130,6 +1462,8 @@ def main() -> None:
     fit.add_argument("--max-train-windows", type=int)
     fit.add_argument("--max-validation-windows", type=int)
     fit.add_argument("--validation-fraction", type=float)
+    fit.add_argument("--motion-sampling", action=argparse.BooleanOptionalAction)
+    fit.add_argument("--motion-score")
     fit.add_argument("--learning-rate", type=float)
     fit.add_argument("--grad-clip", type=float)
     fit.add_argument("--seed", type=int)

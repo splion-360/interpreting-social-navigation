@@ -77,8 +77,8 @@ def test_motion_stratification_is_deterministic_and_balanced() -> None:
 
     assert profile.labels == ("low", "low", "medium", "medium", "high", "high")
     assert profile.counts == {"low": 2, "medium": 2, "high": 2}
-    assert profile.low_max_px == pytest.approx(5.0 / 3.0)
-    assert profile.medium_max_px == pytest.approx(10.0 / 3.0)
+    assert profile.low_max_px_s == pytest.approx(5.0 / 3.0)
+    assert profile.medium_max_px_s == pytest.approx(10.0 / 3.0)
 
 
 def test_scalar_metric_aggregation_ignores_undefined_windows() -> None:
@@ -455,8 +455,8 @@ def test_baseline_record_persists_motion_strata() -> None:
         windows=3,
         metrics={"centroid_ade_px": 2.0},
         motion_profile={
-            "score": "mean_mouse_centroid_displacement_px",
-            "thresholds_px": {"low_max": 1.0, "medium_max": 2.0},
+            "score": "mean_keypoint_speed_px_s",
+            "thresholds_px_s": {"low_max": 1.0, "medium_max": 2.0},
             "counts": {"low": 1, "medium": 1, "high": 1},
         },
         metrics_by_motion={
@@ -589,8 +589,8 @@ def test_print_motion_stratified_metrics_includes_counts_and_thresholds(
             },
         },
         motion_profile={
-            "score": "mean_mouse_centroid_displacement_px",
-            "thresholds_px": {"low_max": 4.0, "medium_max": 9.0},
+            "score": "mean_keypoint_speed_px_s",
+            "thresholds_px_s": {"low_max": 4.0, "medium_max": 9.0},
             "counts": {"low": 2, "medium": 3, "high": 4},
         },
     )
@@ -600,8 +600,8 @@ def test_print_motion_stratified_metrics_includes_counts_and_thresholds(
     assert "low (n=2)" in output
     assert "medium (n=3)" in output
     assert "high (n=4)" in output
-    assert "low <= 4.000 px" in output
-    assert "medium <= 9.000 px" in output
+    assert "low <= 4.000 px/s" in output
+    assert "medium <= 9.000 px/s" in output
     assert "centroid_ade_px" in output
     assert "skeleton_orientation_error_deg" in output
     assert "bone_length_error_px" in output

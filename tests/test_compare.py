@@ -28,8 +28,8 @@ def test_relative_error_improvements_use_persistence_as_reference() -> None:
 
 def test_build_comparison_record_requires_matching_motion_profiles() -> None:
     profile = {
-        "score": "mean_mouse_centroid_displacement_px",
-        "thresholds_px": {"low_max": 2.0, "medium_max": 5.0},
+        "score": "mean_keypoint_speed_px_s",
+        "thresholds_px_s": {"low_max": 2.0, "medium_max": 5.0},
         "counts": {"low": 1, "medium": 1, "high": 1},
     }
     persistence = ComparableMetrics(

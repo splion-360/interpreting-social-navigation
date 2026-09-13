@@ -35,13 +35,15 @@ from constants import (
 from data import (
     MabeDataset,
     MabeWindowDataset,
+    MotionThresholds,
     PoseNormalizer,
     Window,
     WindowSpec,
+    mean_keypoint_speed_px_s,
     split_sequence_ids,
 )
 from loss import gaussian_2d_parameters
-from metric import PRIMARY_METRIC_NAMES, compute_pixel_metrics, ground_truth_motion_px
+from metric import PRIMARY_METRIC_NAMES, compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
 from train import (
@@ -151,13 +153,13 @@ class MotionStratification:
 
     Attributes:
         labels: Per-window low-, medium-, or high-motion labels.
-        low_max_px: Upper tertile boundary for low-motion windows.
-        medium_max_px: Upper tertile boundary for medium-motion windows.
+        low_max_px_s: Upper boundary for low-motion windows.
+        medium_max_px_s: Upper boundary for medium-motion windows.
     """
 
     labels: tuple[MotionStratum, ...]
-    low_max_px: float
-    medium_max_px: float
+    low_max_px_s: float
+    medium_max_px_s: float
 
     @property
     def counts(self) -> dict[str, int]:
@@ -169,10 +171,10 @@ class MotionStratification:
         """Return JSON-ready motion-profile metadata."""
 
         return {
-            "score": "mean_mouse_centroid_displacement_px",
-            "thresholds_px": {
-                "low_max": self.low_max_px,
-                "medium_max": self.medium_max_px,
+            "score": "mean_keypoint_speed_px_s",
+            "thresholds_px_s": {
+                "low_max": self.low_max_px_s,
+                "medium_max": self.medium_max_px_s,
             },
             "counts": self.counts,
         }
@@ -182,10 +184,10 @@ def stratify_motion_scores(scores_px: np.ndarray) -> MotionStratification:
     """Partition window motion scores at their lower and upper tertiles.
 
     Args:
-        scores_px: One ground-truth centroid-displacement score per window.
+        scores_px: One ground-truth speed score per window in pixels per second.
 
     Returns:
-        Deterministic labels and the pixel thresholds used to create them.
+        Deterministic labels and the speed thresholds used to create them.
     """
 
     low_max, medium_max = np.quantile(scores_px, (1.0 / 3.0, 2.0 / 3.0))
@@ -199,8 +201,8 @@ def stratify_motion_scores(scores_px: np.ndarray) -> MotionStratification:
             labels.append("high")
     return MotionStratification(
         labels=tuple(labels),
-        low_max_px=float(low_max),
-        medium_max_px=float(medium_max),
+        low_max_px_s=float(low_max),
+        medium_max_px_s=float(medium_max),
     )
 
 
@@ -459,6 +461,9 @@ def evaluate_flat_checkpoint(
         raise ValueError("autoregressive keypoint evaluation requires a keypoint graph")
 
     device = _select_device(config.device)
+    if show_progress:
+        print(f"Loading checkpoint: {checkpoint_path}")
+    checkpoint = _load_checkpoint(checkpoint_path, device)
     windows, normalizer = _build_evaluation_data(
         config=config,
         split=split,
@@ -467,9 +472,6 @@ def evaluate_flat_checkpoint(
     )
     build_graph = _graph_builder(config.graph_variant)
     model = FlatSocialAttentionModel().to(device)
-    if show_progress:
-        print(f"Loading checkpoint: {checkpoint_path}")
-    checkpoint = _load_checkpoint(checkpoint_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     if show_progress:
@@ -480,7 +482,12 @@ def evaluate_flat_checkpoint(
         generator.manual_seed(seed)
 
     metric_values: dict[str, list[Any]] = {}
-    motion_profile = _build_motion_profile(windows, normalizer)
+    motion_profile = _build_motion_profile(
+        windows,
+        normalizer,
+        seconds_per_step=_seconds_per_step(config),
+        thresholds=_checkpoint_motion_thresholds(checkpoint),
+    )
     metrics_by_motion: dict[str, dict[str, list[Any]]] = {
         name: {} for name in MOTION_STRATA
     }
@@ -530,6 +537,7 @@ def evaluate_motion_baseline(
     max_windows: int | None = None,
     show_progress: bool = True,
     index_window_length: int | None = None,
+    motion_thresholds: MotionThresholds | None = None,
 ) -> BaselineEvaluationResult:
     """Evaluate one deterministic baseline on validation or held-out test windows.
 
@@ -541,6 +549,7 @@ def evaluate_motion_baseline(
         max_windows: Optional cap on evaluated windows.
         show_progress: Whether to print window progress.
         index_window_length: Optional longest comparison window used for indexing.
+        motion_thresholds: Optional train-fitted thresholds shared across methods.
 
     Returns:
         Aggregated pixel-space metrics for the baseline.
@@ -554,7 +563,12 @@ def evaluate_motion_baseline(
         index_window_length=index_window_length,
     )
     metric_values: dict[str, list[Any]] = {}
-    motion_profile = _build_motion_profile(windows, normalizer)
+    motion_profile = _build_motion_profile(
+        windows,
+        normalizer,
+        seconds_per_step=_seconds_per_step(train_config),
+        thresholds=motion_thresholds,
+    )
     metrics_by_motion: dict[str, dict[str, list[Any]]] = {
         name: {} for name in MOTION_STRATA
     }
@@ -605,6 +619,7 @@ def evaluate_motion_baselines(
     test_data_path: Path | None = None,
     max_windows: int | None = None,
     show_progress: bool = True,
+    motion_thresholds: MotionThresholds | None = None,
 ) -> list[BaselineEvaluationResult]:
     """Evaluate every configured deterministic motion baseline.
 
@@ -615,6 +630,7 @@ def evaluate_motion_baselines(
         test_data_path: Held-out test file used only when `split` is `test`.
         max_windows: Optional cap on evaluated windows.
         show_progress: Whether to print window progress.
+        motion_thresholds: Optional train-fitted thresholds shared across methods.
 
     Returns:
         Aggregate result for each configured baseline.
@@ -632,6 +648,7 @@ def evaluate_motion_baselines(
                 baseline_config.observation_length
                 + baseline_config.comparison_prediction_length
             ),
+            motion_thresholds=motion_thresholds,
         )
         for baseline in baseline_config.baselines
     ]
@@ -905,12 +922,18 @@ def _window_pixel_metrics(
 def _build_motion_profile(
     windows: MabeWindowDataset,
     normalizer: PoseNormalizer,
+    *,
+    seconds_per_step: float,
+    thresholds: MotionThresholds | None = None,
 ) -> MotionStratification:
     """Build ground-truth motion strata for fixed evaluation windows.
 
     Args:
         windows: Selected normalized evaluation windows.
         normalizer: Transform used to restore pixel coordinates.
+        seconds_per_step: Seconds between adjacent sampled frames.
+        thresholds: Optional train-fitted thresholds; when omitted, tertiles are
+            fit on the provided evaluation windows.
 
     Returns:
         Tertile-based motion labels derived without model predictions.
@@ -920,12 +943,59 @@ def _build_motion_profile(
     for window_index in range(len(windows)):
         window = windows[window_index]
         scores.append(
-            ground_truth_motion_px(
-                normalizer.inverse_transform(window.observed_keypoints[-1]),
+            mean_keypoint_speed_px_s(
                 normalizer.inverse_transform(window.future_keypoints),
+                seconds_per_step=seconds_per_step,
             )
         )
-    return stratify_motion_scores(np.asarray(scores, dtype=np.float32))
+    scores_px_s = np.asarray(scores, dtype=np.float32)
+    if thresholds is None:
+        return stratify_motion_scores(scores_px_s)
+    return MotionStratification(
+        labels=tuple(thresholds.label(float(score)) for score in scores_px_s),
+        low_max_px_s=thresholds.low_max_px_s,
+        medium_max_px_s=thresholds.medium_max_px_s,
+    )
+
+
+def _checkpoint_motion_thresholds(
+    checkpoint: dict[str, Any],
+) -> MotionThresholds | None:
+    """Return train-fitted motion thresholds saved in a checkpoint.
+
+    Args:
+        checkpoint: Loaded model checkpoint.
+
+    Returns:
+        Motion thresholds, or `None` for older checkpoints without metadata.
+    """
+
+    profile = checkpoint.get("motion_profile")
+    if not isinstance(profile, dict):
+        return None
+    if profile.get("score") != "mean_keypoint_speed_px_s":
+        return None
+    thresholds = profile.get("thresholds_px_s")
+    if not isinstance(thresholds, dict):
+        return None
+    return MotionThresholds(
+        low_max_px_s=float(thresholds["low_max"]),
+        medium_max_px_s=float(thresholds["medium_max"]),
+    )
+
+
+def load_checkpoint_motion_thresholds(checkpoint_path: Path) -> MotionThresholds | None:
+    """Load train-fitted motion thresholds from a checkpoint.
+
+    Args:
+        checkpoint_path: Local checkpoint path.
+
+    Returns:
+        Motion thresholds, or `None` when the checkpoint has no motion profile.
+    """
+
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    return _checkpoint_motion_thresholds(checkpoint)
 
 
 def _seconds_per_step(config: FlatFitConfig) -> float:
@@ -1098,12 +1168,12 @@ def print_motion_stratified_metrics(
 
     output = console or Console()
     counts = motion_profile["counts"]
-    thresholds = motion_profile["thresholds_px"]
+    thresholds = motion_profile["thresholds_px_s"]
     table = Table(
         title="Metrics by ground-truth motion stratum",
         caption=(
-            f"low <= {thresholds['low_max']:.3f} px; "
-            f"medium <= {thresholds['medium_max']:.3f} px; high above"
+            f"low <= {thresholds['low_max']:.3f} px/s; "
+            f"medium <= {thresholds['medium_max']:.3f} px/s; high above"
         ),
         box=box.SIMPLE_HEAVY,
     )

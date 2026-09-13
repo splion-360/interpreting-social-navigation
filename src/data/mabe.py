@@ -317,6 +317,7 @@ class MabeWindowDataset:
         fill_missing: Whether to fill zero-valued keypoint holes before returning a window.
         normalizer: Optional training-fitted normalizer.
         max_windows: Optional cap for debug subsets.
+        window_keys: Optional explicit `(sequence_id, start_frame)` selection.
         index_window_length: Optional longer window length used only to determine
             valid start frames for comparisons across forecasting horizons.
     """
@@ -329,13 +330,18 @@ class MabeWindowDataset:
         fill_missing: bool = True,
         normalizer: PoseNormalizer | None = None,
         max_windows: int | None = None,
+        window_keys: Sequence[tuple[str, int]] | None = None,
         index_window_length: int | None = None,
     ) -> None:
         self.sequences = {sequence.sequence_id: sequence for sequence in sequences}
         self.spec = spec or WindowSpec()
         self.fill_missing = fill_missing
         self.normalizer = normalizer
-        self._index = self._build_index(max_windows, index_window_length)
+        self._index = (
+            tuple(window_keys)
+            if window_keys is not None
+            else self._build_index(max_windows, index_window_length)
+        )
 
     def _build_index(
         self,
