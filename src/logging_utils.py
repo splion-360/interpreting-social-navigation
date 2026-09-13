@@ -6,6 +6,9 @@ import logging
 import sys
 
 
+NOISY_LOGGERS = ("httpx", "httpcore", "urllib3")
+
+
 def configure_cli_logging(
     *,
     level: int = logging.INFO,
@@ -20,13 +23,15 @@ def configure_cli_logging(
 
     logging.basicConfig(
         level=level,
-        format="[%(levelname)s] %(message)s",
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         stream=sys.stdout,
         force=force,
     )
+    for logger_name in NOISY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
-def get_logger(name: str) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """Return a module logger.
 
     Args:
@@ -36,4 +41,6 @@ def get_logger(name: str) -> logging.Logger:
         Standard-library logger scoped to the caller.
     """
 
-    return logging.getLogger(name)
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    return logger
