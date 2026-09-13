@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from data.schema import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 from loss import gaussian_2d_parameters
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
@@ -79,7 +78,7 @@ def rollout_flat_keypoint_model(
 
     Args:
         model: Trained flat Social Attention model.
-        observed_keypoints: Observed keypoints shaped `[time, 3, 12, 2]`.
+        observed_keypoints: Observed keypoints shaped `[time, mice, keypoints, 2]`.
         prediction_length: Number of future frames to generate.
         build_graph: Graph builder matching the checkpoint/config variant.
         device: Inference device.
@@ -91,9 +90,8 @@ def rollout_flat_keypoint_model(
 
     observed = observed_keypoints.astype(np.float32)
     total_length = observed.shape[0] + prediction_length
-    rollout_keypoints = np.zeros(
-        (total_length, NUM_MICE, NUM_KEYPOINTS, COORDINATES), dtype=np.float32
-    )
+    pose_shape = observed.shape[1:]
+    rollout_keypoints = np.zeros((total_length, *pose_shape), dtype=np.float32)
     rollout_keypoints[: observed.shape[0]] = observed
     state = None
     attention: list[dict[int, tuple[Tensor, tuple[int, ...]]]] = []
@@ -134,7 +132,8 @@ def rollout_flat_keypoint_model(
         gaussian_outputs.append(output.detach().cpu().numpy())
         attention.extend(result.attention_weights)
         rollout_keypoints[current_frame + 1] = flat_nodes_to_keypoints(
-            next_nodes.detach().cpu().numpy()
+            next_nodes.detach().cpu().numpy(),
+            pose_shape=pose_shape,
         )
 
     rollout_graph = build_graph(rollout_keypoints)
@@ -145,14 +144,19 @@ def rollout_flat_keypoint_model(
     )
 
 
-def flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
-    """Convert flat keypoint nodes back to `[3, 12, 2]` keypoints.
+def flat_nodes_to_keypoints(
+    nodes: np.ndarray,
+    *,
+    pose_shape: tuple[int, ...],
+) -> np.ndarray:
+    """Convert flat keypoint nodes back to pose-shaped keypoints.
 
     Args:
-        nodes: Flat keypoint node coordinates shaped `[36, 2]`.
+        nodes: Flat keypoint node coordinates shaped `[mice * keypoints, 2]`.
+        pose_shape: Output pose shape `[mice, keypoints, 2]`.
 
     Returns:
-        MABe keypoints shaped `[3, 12, 2]`.
+        Keypoints shaped like `pose_shape`.
     """
 
-    return nodes.reshape(NUM_MICE, NUM_KEYPOINTS, COORDINATES).astype(np.float32)
+    return nodes.reshape(pose_shape).astype(np.float32)

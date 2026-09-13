@@ -73,3 +73,15 @@ def test_predict_motion_baseline_returns_named_prediction() -> None:
     assert prediction.name == "persistence"
     assert prediction.future_keypoints.shape == (2, 3, 12, 2)
     assert "rigid_constant_velocity" in valid_baseline_names()
+
+
+def test_motion_baselines_support_single_mouse_pose_shape() -> None:
+    observed = make_observed_keypoints()[:, 1:2]
+
+    prediction = predict_motion_baseline(
+        "keypoint_constant_velocity",
+        observed_keypoints=observed,
+        prediction_length=2,
+    )
+
+    assert prediction.future_keypoints.shape == (2, 1, 12, 2)

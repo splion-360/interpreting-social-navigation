@@ -13,7 +13,10 @@ from data.mabe import (
     Window,
     WindowSpec,
     fill_missing_keypoints,
+    single_mouse_sequence_id,
     split_sequence_ids,
+    source_sequence_id,
+    to_single_mouse_sequences,
 )
 from data.motion_sampling import (
     DEFAULT_MOTION_MIX,
@@ -56,7 +59,10 @@ __all__ = [
     "keypoint_path_length_px",
     "mean_keypoint_speed_px_s",
     "sample_motion_balanced_window_keys",
+    "single_mouse_sequence_id",
     "split_sequence_ids",
+    "source_sequence_id",
     "temporal_sampling_diagnostics",
+    "to_single_mouse_sequences",
     "window_motion_scores_px_s",
 ]

@@ -110,6 +110,59 @@ class MabeDataset:
         return [self.sequences[sequence_id] for sequence_id in sequence_ids]
 
 
+def single_mouse_sequence_id(sequence_id: str, mouse_index: int) -> str:
+    """Return a stable source-and-mouse sample ID.
+
+    Args:
+        sequence_id: Original MABe sequence ID.
+        mouse_index: Mouse index from the source triplet.
+
+    Returns:
+        Sequence ID for one extracted mouse sample.
+    """
+
+    return f"{sequence_id}__mouse_{mouse_index}"
+
+
+def source_sequence_id(sequence_id: str) -> str:
+    """Return the original sequence ID for a possibly single-mouse sample.
+
+    Args:
+        sequence_id: Original or extracted single-mouse sequence ID.
+
+    Returns:
+        Source MABe sequence ID without the mouse suffix.
+    """
+
+    return sequence_id.rsplit("__mouse_", maxsplit=1)[0]
+
+
+def to_single_mouse_sequences(sequences: Sequence[MabeSequence]) -> list[MabeSequence]:
+    """Extract each mouse as an independent sequence after a source split.
+
+    Args:
+        sequences: Source triplet sequences shaped `[frames, 3, 12, 2]`.
+
+    Returns:
+        Single-mouse sequences shaped `[frames, 1, 12, 2]`.
+    """
+
+    extracted: list[MabeSequence] = []
+    for sequence in sequences:
+        for mouse_index in range(sequence.keypoints.shape[1]):
+            extracted.append(
+                MabeSequence(
+                    sequence_id=single_mouse_sequence_id(
+                        sequence.sequence_id,
+                        mouse_index,
+                    ),
+                    keypoints=sequence.keypoints[:, mouse_index : mouse_index + 1],
+                    annotations=sequence.annotations,
+                )
+            )
+    return extracted
+
+
 @dataclass(frozen=True)
 class WindowSpec:
     """Windowing policy for trajectory forecasting examples.

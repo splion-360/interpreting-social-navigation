@@ -13,8 +13,10 @@ from data import (
     PoseNormalizer,
     WindowSpec,
     fill_missing_keypoints,
+    source_sequence_id,
     split_sequence_ids,
     temporal_sampling_diagnostics,
+    to_single_mouse_sequences,
 )
 
 
@@ -148,6 +150,37 @@ def test_window_dataset_samples_with_frame_step_inside_window() -> None:
         np.arange(0, 240, 12, dtype=np.float32)[:20].reshape(1, 20),
     )
     assert spec.raw_span == 229
+
+
+def test_single_mouse_sequences_extract_after_source_split() -> None:
+    dataset = MabeDataset.from_dict(
+        {
+            "sequences": {
+                "seq_a": {"keypoints": make_keypoints(frames=8)},
+                "seq_b": {"keypoints": make_keypoints(frames=8) + 1000},
+            }
+        }
+    )
+    train_ids, validation_ids = split_sequence_ids(
+        dataset.sequence_ids,
+        validation_fraction=0.5,
+        seed=42,
+    )
+
+    train_sequences = to_single_mouse_sequences(dataset.select(train_ids))
+    validation_sequences = to_single_mouse_sequences(dataset.select(validation_ids))
+    train_sources = {
+        source_sequence_id(sequence.sequence_id) for sequence in train_sequences
+    }
+    validation_sources = {
+        source_sequence_id(sequence.sequence_id) for sequence in validation_sequences
+    }
+
+    assert len(train_sequences) == len(train_ids) * 3
+    assert len(validation_sequences) == len(validation_ids) * 3
+    assert train_sources.isdisjoint(validation_sources)
+    assert train_sequences[0].keypoints.shape == (8, 1, 12, 2)
+    assert train_sequences[0].sequence_id.endswith("__mouse_0")
 
 
 def test_temporal_sampling_diagnostics_reports_motion_retention() -> None:

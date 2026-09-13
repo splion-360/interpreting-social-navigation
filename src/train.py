@@ -29,10 +29,12 @@ from data import (
     fill_missing_keypoints,
     fit_motion_thresholds,
     sample_motion_balanced_window_keys,
+    source_sequence_id,
     split_sequence_ids,
+    to_single_mouse_sequences,
     window_motion_scores_px_s,
 )
-from data.schema import COORDINATES, DEFAULT_SOURCE_FPS, NUM_KEYPOINTS, NUM_MICE
+from data.schema import DEFAULT_SOURCE_FPS
 from inference import rollout_flat_keypoint_model
 from logging_utils import configure_cli_logging, get_logger
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
@@ -43,6 +45,7 @@ from st_graph import (
     build_dense_keypoint_graph,
     build_flat_sparse_keypoint_graph,
     build_mouse_level_graph,
+    build_single_mouse_dense_keypoint_graph,
 )
 
 
@@ -57,8 +60,13 @@ GRAPH_BUILDERS = {
     "dense_keypoint": build_dense_keypoint_graph,
     "flat_sparse_keypoint": build_flat_sparse_keypoint_graph,
     "mouse_level": build_mouse_level_graph,
+    "single_mouse_dense_keypoint": build_single_mouse_dense_keypoint_graph,
 }
-VALIDATION_METRIC_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
+VALIDATION_METRIC_GRAPH_VARIANTS = {
+    "dense_keypoint",
+    "flat_sparse_keypoint",
+    "single_mouse_dense_keypoint",
+}
 VALIDATION_METRIC_ALIASES = {
     "centroid_ade_px": "cADE",
     "centroid_fde_px": "cFDE",
@@ -636,6 +644,13 @@ def _build_training_window_data(
     )
     train_sequences = dataset.select(train_ids)
     validation_sequences = dataset.select(validation_ids)
+    train_sequences = _sequences_for_graph_variant(
+        train_sequences, config.graph_variant
+    )
+    validation_sequences = _sequences_for_graph_variant(
+        validation_sequences,
+        config.graph_variant,
+    )
     if config.motion_sampling:
         train_windows, validation_windows, motion_report = (
             _build_motion_sampled_windows(
@@ -667,6 +682,25 @@ def _build_training_window_data(
         validation_windows=validation_windows,
         motion_report=motion_report,
     )
+
+
+def _sequences_for_graph_variant(
+    sequences: list[MabeSequence],
+    graph_variant: str,
+) -> list[MabeSequence]:
+    """Return the sequence view expected by a graph variant.
+
+    Args:
+        sequences: Source sequences after train/validation splitting.
+        graph_variant: Graph variant selected by the experiment config.
+
+    Returns:
+        Original triplet sequences or extracted single-mouse sequences.
+    """
+
+    if graph_variant == "single_mouse_dense_keypoint":
+        return to_single_mouse_sequences(sequences)
+    return sequences
 
 
 def _build_motion_sampled_windows(
@@ -983,10 +1017,7 @@ def _run_validation_metrics(
             )
             predicted_future = normalizer.inverse_transform(
                 rollout.nodes[config.observation_length :].reshape(
-                    config.prediction_length,
-                    NUM_MICE,
-                    NUM_KEYPOINTS,
-                    COORDINATES,
+                    window.future_keypoints.shape
                 )
             )
             target_future = normalizer.inverse_transform(window.future_keypoints)
@@ -1520,8 +1551,20 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         "data": {
             "path": str(config.data_path),
             "total_sequences": len(dataset.sequence_ids),
-            "train_sequences": len(train_windows.sequences),
-            "validation_sequences": len(validation_windows.sequences),
+            "train_sequences": len(
+                {
+                    source_sequence_id(sequence_id)
+                    for sequence_id in train_windows.sequences
+                }
+            ),
+            "validation_sequences": len(
+                {
+                    source_sequence_id(sequence_id)
+                    for sequence_id in validation_windows.sequences
+                }
+            ),
+            "train_samples": len(train_windows.sequences),
+            "validation_samples": len(validation_windows.sequences),
             "train_windows": len(train_windows),
             "validation_windows": len(validation_windows),
             "sequence_frames": _frame_summary(dataset),

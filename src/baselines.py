@@ -8,8 +8,6 @@ from typing import Literal
 
 import numpy as np
 
-from data.schema import COORDINATES, NUM_KEYPOINTS, NUM_MICE
-
 
 BaselineName = Literal[
     "persistence",
@@ -24,7 +22,7 @@ class MotionBaselinePrediction:
 
     Attributes:
         name: Baseline identifier.
-        future_keypoints: Predicted future shaped `[time, 3, 12, 2]`.
+        future_keypoints: Predicted future shaped `[time, mice, keypoints, 2]`.
     """
 
     name: BaselineName
@@ -40,7 +38,7 @@ def predict_motion_baseline(
 
     Args:
         name: Baseline strategy name.
-        observed_keypoints: Observed poses shaped `[time, 3, 12, 2]`.
+        observed_keypoints: Observed poses shaped `[time, mice, keypoints, 2]`.
         prediction_length: Number of future frames to predict.
 
     Returns:
@@ -65,11 +63,11 @@ def predict_persistence(
     """Repeat the final observed pose through the prediction horizon.
 
     Args:
-        observed_keypoints: Observed poses shaped `[time, 3, 12, 2]`.
+        observed_keypoints: Observed poses shaped `[time, mice, keypoints, 2]`.
         prediction_length: Number of future frames to predict.
 
     Returns:
-        Predicted future shaped `[prediction_length, 3, 12, 2]`.
+        Predicted future shaped `[prediction_length, mice, keypoints, 2]`.
     """
 
     return np.repeat(observed_keypoints[-1][None], prediction_length, axis=0).astype(
@@ -84,11 +82,11 @@ def predict_rigid_constant_velocity(
     """Translate each mouse by its centroid velocity while preserving pose.
 
     Args:
-        observed_keypoints: Observed poses shaped `[time, 3, 12, 2]`.
+        observed_keypoints: Observed poses shaped `[time, mice, keypoints, 2]`.
         prediction_length: Number of future frames to predict.
 
     Returns:
-        Rigidly translated future poses shaped `[prediction_length, 3, 12, 2]`.
+        Rigidly translated future poses shaped `[prediction_length, mice, keypoints, 2]`.
     """
 
     centroids = observed_keypoints.mean(axis=2)
@@ -107,11 +105,11 @@ def predict_keypoint_constant_velocity(
     """Extrapolate every keypoint independently with linear velocity.
 
     Args:
-        observed_keypoints: Observed poses shaped `[time, 3, 12, 2]`.
+        observed_keypoints: Observed poses shaped `[time, mice, keypoints, 2]`.
         prediction_length: Number of future frames to predict.
 
     Returns:
-        Per-keypoint extrapolated future shaped `[prediction_length, 3, 12, 2]`.
+        Per-keypoint extrapolated future shaped `[prediction_length, mice, keypoints, 2]`.
     """
 
     velocity = _linear_velocity(observed_keypoints)
@@ -150,9 +148,3 @@ def valid_baseline_names() -> tuple[BaselineName, ...]:
         "rigid_constant_velocity",
         "keypoint_constant_velocity",
     )
-
-
-def expected_pose_shape() -> tuple[int, int, int]:
-    """Return the expected non-time pose shape for MABe triplets."""
-
-    return (NUM_MICE, NUM_KEYPOINTS, COORDINATES)

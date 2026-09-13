@@ -35,7 +35,7 @@ from evaluate import (
     stratify_motion_scores,
 )
 from models import FlatSocialAttentionModel
-from st_graph import build_dense_keypoint_graph
+from st_graph import build_dense_keypoint_graph, build_single_mouse_dense_keypoint_graph
 from train import FlatFitConfig
 
 
@@ -131,6 +131,38 @@ def test_rollout_reuses_sampled_positions_to_recompute_edges(
     np.testing.assert_array_equal(recorded_edges[2], np.array([-1.0, -1.0]))
 
 
+def test_rollout_preserves_single_mouse_pose_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = make_keypoints(frames=2)[:, 0:1]
+
+    class IncrementModel:
+        def forward_with_state(self, **kwargs):
+            nodes = kwargs["nodes"]
+            outputs = torch.zeros((1, nodes.shape[1], 5), dtype=nodes.dtype)
+            outputs[0, :, :2] = nodes[0] + 1.0
+            return SimpleNamespace(
+                outputs=outputs,
+                state=kwargs["state"],
+                attention_weights=({},),
+            )
+
+    def fake_sample(outputs, *, generator=None):
+        del generator
+        return outputs[:, :2]
+
+    monkeypatch.setattr(inference_module, "sample_bivariate_gaussian", fake_sample)
+    rollout = rollout_flat_keypoint_model(
+        model=cast(Any, IncrementModel()),
+        observed_keypoints=observed,
+        prediction_length=2,
+        build_graph=build_single_mouse_dense_keypoint_graph,
+        device=torch.device("cpu"),
+    )
+
+    assert rollout.nodes.shape == (4, 12, 2)
+
+
 def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     train_path = tmp_path / "mouse_triplet_train.npy"
     test_path = tmp_path / "mouse_triplet_test.npy"
@@ -162,6 +194,33 @@ def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     assert next(iter(test.sequences)).startswith("test_")
     assert len(validation) == 1
     assert len(test) == 1
+
+
+def test_build_evaluation_windows_extracts_single_mouse_test_samples(tmp_path) -> None:
+    train_path = tmp_path / "mouse_triplet_train.npy"
+    test_path = tmp_path / "mouse_triplet_test.npy"
+    write_mabe_file(train_path, sequence_prefix="train", sequences=3)
+    write_mabe_file(test_path, sequence_prefix="test", sequences=1)
+    config = FlatFitConfig(
+        data_path=train_path,
+        graph_variant="single_mouse_dense_keypoint",
+        window_length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+        max_validation_windows=1,
+    )
+
+    test = _build_evaluation_windows(
+        config=config,
+        split="test",
+        test_data_path=test_path,
+        max_windows=2,
+    )
+
+    assert len(test) == 2
+    assert test[0].sequence_id == "test_0__mouse_0"
+    assert test[0].keypoints.shape == (20, 1, 12, 2)
 
 
 def test_horizon_comparison_uses_identical_sequence_start_windows(tmp_path) -> None:

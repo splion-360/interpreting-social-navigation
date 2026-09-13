@@ -9,7 +9,7 @@ Use this notebook to verify that the data loader, graph builder, flat model, and
 ## Run CPU Warm-Up
 
 ```sh
-python -m train warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5
+python src/train.py warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5
 ```
 
 Expected output:
@@ -34,13 +34,13 @@ Training defaults are loaded from `src/config/train__dense_keypoint_30fps.yml`.
 Inspect the resolved setup without training:
 
 ```sh
-python -m train fit --show-config
+python src/train.py fit --show-config
 ```
 
 Start an actual local training run:
 
 ```sh
-python -m train fit --wandb
+python src/train.py fit --wandb
 ```
 
 The `--wandb` flag is opt-in. Leave it out for local CLI-only logging. When
@@ -50,17 +50,17 @@ the `flat-best-checkpoint:best` W&B model artifact.
 Override YAML values only when needed:
 
 ```sh
-python -m train fit --config src/config/train__dense_keypoint_30fps.yml --device cpu --epochs 5 --batch-size 8 --wandb
+python src/train.py fit --config src/config/train__dense_keypoint_30fps.yml --device cpu --epochs 5 --batch-size 8 --wandb
 ```
 
 Resume from the local best checkpoint:
 
 ```sh
-python -m train fit --resume-checkpoint checkpoints/flat/flat_best.pt --wandb
+python src/train.py fit --resume-checkpoint checkpoints/flat/flat_best.pt --wandb
 ```
 
 Resume from the W&B best model artifact:
 
 ```sh
-python -m train fit --wandb --resume-wandb-artifact flat-best-checkpoint:best
+python src/train.py fit --wandb --resume-wandb-artifact flat-best-checkpoint:best
 ```

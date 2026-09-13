@@ -154,6 +154,40 @@ def build_dense_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
     )
 
 
+def build_single_mouse_dense_keypoint_graph(keypoints: np.ndarray) -> GraphSequence:
+    """Build a dense keypoint graph for one extracted mouse.
+
+    Diagonal slots are temporal self-edges and off-diagonal slots are directed
+    spatial edges. With one mouse and twelve keypoints, this yields 12 nodes
+    and 144 edge slots.
+
+    Args:
+        keypoints: Pose sequence shaped `[time, 1, 12, 2]`.
+
+    Returns:
+        Graph sequence with dense `[time, 12 * 12, 2]` edge features.
+    """
+
+    _ensure_single_mouse_pose_shape(keypoints)
+    nodes = keypoints.astype(np.float32).reshape(
+        keypoints.shape[0], NUM_KEYPOINTS, COORDINATES
+    )
+    edge_specs = tuple(
+        EdgeSpec(
+            source=source,
+            target=target,
+            kind="temporal" if source == target else "spatial",
+        )
+        for source in range(nodes.shape[1])
+        for target in range(nodes.shape[1])
+    )
+    return _build_graph_sequence(
+        variant="single_mouse_dense_keypoint",
+        nodes=nodes,
+        edge_specs=edge_specs,
+    )
+
+
 def build_mouse_level_graph(keypoints: np.ndarray) -> GraphSequence:
     """Build a mouse-level graph from per-mouse pose centroids.
 
@@ -208,6 +242,14 @@ def _ensure_pose_shape(keypoints: np.ndarray) -> None:
         raise ValueError(
             f"keypoints must be shaped [time, {NUM_MICE}, {NUM_KEYPOINTS}, 2]"
         )
+
+
+def _ensure_single_mouse_pose_shape(keypoints: np.ndarray) -> None:
+    """Validate the extracted single-mouse pose shape expected by graph builders."""
+
+    expected_tail = (1, NUM_KEYPOINTS, COORDINATES)
+    if keypoints.ndim != 4 or keypoints.shape[1:] != expected_tail:
+        raise ValueError(f"keypoints must be shaped [time, 1, {NUM_KEYPOINTS}, 2]")
 
 
 def _build_graph_sequence(

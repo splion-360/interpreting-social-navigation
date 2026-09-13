@@ -24,21 +24,22 @@ from tqdm.auto import tqdm
 from baselines import BaselineName, predict_motion_baseline, valid_baseline_names
 from data import (
     MabeDataset,
+    MabeSequence,
     MabeWindowDataset,
     MotionThresholds,
     PoseNormalizer,
     Window,
     WindowSpec,
     mean_keypoint_speed_px_s,
+    source_sequence_id,
     split_sequence_ids,
+    to_single_mouse_sequences,
 )
 from data.schema import (
-    COORDINATES,
     DEFAULT_SOURCE_FPS,
     KEYPOINT_NAMES,
     MOUSE_SKELETON_EDGES,
     NUM_KEYPOINTS,
-    NUM_MICE,
 )
 from inference import (
     RolloutResult,
@@ -56,7 +57,11 @@ from train import (
 )
 
 
-KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
+KEYPOINT_GRAPH_VARIANTS = {
+    "dense_keypoint",
+    "flat_sparse_keypoint",
+    "single_mouse_dense_keypoint",
+}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test__mabe.yml")
 DEFAULT_BASELINE_CONFIG_PATH = Path(
     "src/config/benchmark__motion_baselines_30fps_pred12.yml"
@@ -621,8 +626,9 @@ def save_single_mouse_prediction_video(
         Metadata for the saved video.
     """
 
-    if not 0 <= mouse_index < NUM_MICE:
-        raise ValueError(f"mouse_index must be between 0 and {NUM_MICE - 1}")
+    mouse_count = _configured_mouse_count(config)
+    if not 0 <= mouse_index < mouse_count:
+        raise ValueError(f"mouse_index must be between 0 and {mouse_count - 1}")
 
     window, actual_keypoints, predicted_future = _sample_test_prediction(
         config=config,
@@ -715,10 +721,7 @@ def _sample_test_prediction(
     actual_keypoints = normalizer.inverse_transform(window.keypoints)
     predicted_future = normalizer.inverse_transform(
         rollout.nodes[config.observation_length :].reshape(
-            config.prediction_length,
-            NUM_MICE,
-            NUM_KEYPOINTS,
-            COORDINATES,
+            window.future_keypoints.shape,
         )
     )
     return window, actual_keypoints, predicted_future
@@ -776,12 +779,7 @@ def _window_pixel_metrics(
     """
 
     predicted_future = normalizer.inverse_transform(
-        rollout.nodes[-prediction_length:].reshape(
-            prediction_length,
-            NUM_MICE,
-            NUM_KEYPOINTS,
-            COORDINATES,
-        )
+        rollout.nodes[-prediction_length:].reshape(window.future_keypoints.shape)
     )
     initial_pose = normalizer.inverse_transform(window.observed_keypoints[-1])
     target_future = normalizer.inverse_transform(window.future_keypoints)
@@ -1353,9 +1351,13 @@ def _build_evaluation_data(
     )
 
     if split == "validation":
+        validation_sequences = _sequences_for_graph_variant(
+            train_dataset.select(validation_ids),
+            config.graph_variant,
+        )
         return (
             MabeWindowDataset(
-                train_dataset.select(validation_ids),
+                validation_sequences,
                 spec,
                 normalizer=normalizer,
                 max_windows=max_windows or config.max_validation_windows,
@@ -1367,9 +1369,13 @@ def _build_evaluation_data(
     if test_data_path is None:
         raise ValueError("test split requires --test-data or --test-config")
     test_dataset = MabeDataset.from_file(test_data_path)
+    test_sequences = _sequences_for_graph_variant(
+        test_dataset.select(test_dataset.sequence_ids),
+        config.graph_variant,
+    )
     return (
         MabeWindowDataset(
-            test_dataset.select(test_dataset.sequence_ids),
+            test_sequences,
             spec,
             normalizer=normalizer,
             max_windows=max_windows,
@@ -1411,11 +1417,25 @@ def _test_window(
     """Load one deterministic normalized window from the held-out test file."""
 
     test_dataset = MabeDataset.from_file(test_config.data_path)
-    selected_ids = (
-        [sequence_id] if sequence_id is not None else test_dataset.sequence_ids
+    selected_source_ids = (
+        [source_sequence_id(sequence_id)]
+        if sequence_id is not None
+        else test_dataset.sequence_ids
     )
+    sequences = _sequences_for_graph_variant(
+        test_dataset.select(selected_source_ids),
+        config.graph_variant,
+    )
+    if (
+        config.graph_variant == "single_mouse_dense_keypoint"
+        and sequence_id
+        and "__mouse_" in sequence_id
+    ):
+        sequences = [
+            sequence for sequence in sequences if sequence.sequence_id == sequence_id
+        ]
     windows = MabeWindowDataset(
-        test_dataset.select(selected_ids),
+        sequences,
         WindowSpec(
             length=config.window_length,
             observation_length=config.observation_length,
@@ -1426,6 +1446,25 @@ def _test_window(
         normalizer=normalizer,
     )
     return windows[window_index]
+
+
+def _sequences_for_graph_variant(
+    sequences: list[MabeSequence],
+    graph_variant: str,
+) -> list[MabeSequence]:
+    """Return the evaluation sequence view expected by a graph variant."""
+
+    if graph_variant == "single_mouse_dense_keypoint":
+        return to_single_mouse_sequences(sequences)
+    return sequences
+
+
+def _configured_mouse_count(config: FlatFitConfig) -> int:
+    """Return the number of mice represented by a training configuration."""
+
+    if config.graph_variant == "single_mouse_dense_keypoint":
+        return 1
+    return 3
 
 
 def load_test_config(path: Path = DEFAULT_TEST_CONFIG_PATH) -> TestConfig:

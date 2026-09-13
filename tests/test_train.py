@@ -206,6 +206,15 @@ def test_variant_train_configs_load_from_src_config() -> None:
             6,
             4,
         ),
+        "single_mouse_dense_keypoint_5fps": (
+            Path("src/config/train__single_mouse_dense_keypoint_5fps.yml"),
+            10,
+            40,
+            16,
+            24,
+            6,
+            4,
+        ),
         "flat_sparse_keypoint": (
             Path("src/config/train__flat_sparse_keypoint.yml"),
             10,
@@ -246,7 +255,10 @@ def test_variant_train_configs_load_from_src_config() -> None:
         assert config.workers == workers
         assert config.checkpoint_frequency == checkpoint_frequency
         assert config.motion_score == "mean_keypoint_speed_px_s"
-        assert config.motion_sampling is variant.startswith("dense_keypoint")
+        assert config.motion_sampling is (
+            variant.startswith("dense_keypoint")
+            or variant.startswith("single_mouse_dense_keypoint")
+        )
 
 
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
@@ -317,6 +329,46 @@ def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) ->
     assert (
         window_data.motion_report.train_candidates.thresholds.low_max_px_s
         <= window_data.motion_report.train_candidates.thresholds.medium_max_px_s
+    )
+
+
+def test_single_mouse_fit_windows_split_sources_before_mouse_extraction(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_motion_mabe_file(data_path, sequences=6, frames=36)
+
+    window_data = train._build_training_window_data(
+        FlatFitConfig(
+            data_path=data_path,
+            graph_variant="single_mouse_dense_keypoint",
+            window_length=6,
+            observation_length=3,
+            prediction_length=3,
+            stride=3,
+            max_train_windows=6,
+            max_validation_windows=3,
+            validation_fraction=0.33,
+            seed=42,
+            device="cpu",
+        )
+    )
+    train_sources = {
+        sequence_id.rsplit("__mouse_", maxsplit=1)[0]
+        for sequence_id in window_data.train_windows.sequences
+    }
+    validation_sources = {
+        sequence_id.rsplit("__mouse_", maxsplit=1)[0]
+        for sequence_id in window_data.validation_windows.sequences
+    }
+
+    assert train_sources.isdisjoint(validation_sources)
+    assert all(
+        window.keypoints.shape == (6, 1, 12, 2)
+        for window in (
+            window_data.train_windows[0],
+            window_data.validation_windows[0],
+        )
     )
 
 
