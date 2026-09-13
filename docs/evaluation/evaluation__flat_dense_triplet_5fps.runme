@@ -1,0 +1,101 @@
+---
+cwd: ../..
+---
+
+# Flat Dense Triplet 5 FPS Evaluation
+
+This notebook records the benchmark for the trained flat dense triplet model at
+5 FPS. The benchmark compares the learned model against deterministic motion
+baselines on the same held-out MABe test windows.
+
+## Evaluation contract
+
+The recorded result comes from:
+
+```text
+outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl
+```
+
+| Field | Value |
+| --- | --- |
+| Source FPS | 30 |
+| Frame step | 6 |
+| Effective FPS | 5 |
+| Observation | 16 frames / 3.2 seconds |
+| Prediction | 24 frames / 4.8 seconds |
+| Windows | 1,000 |
+| Seed | 42 |
+| Checkpoint | `checkpoints/flat_dense_triplet_5fps/flat_best.pt` |
+| Checkpoint epoch | 34 |
+| Validation loss | -6.700201 |
+
+Motion groups use `mean_keypoint_speed_px_s` thresholds fitted from training
+windows:
+
+| Group | Test windows | Rule |
+| --- | ---: | --- |
+| Low | 311 | speed <= 16.665 px/s |
+| Medium | 370 | 16.665 < speed <= 40.710 px/s |
+| High | 319 | speed > 40.710 px/s |
+
+## Aggregate metrics
+
+All metrics below are lower-is-better.
+
+| Method | cADE px | cFDE px | kADE px | kFDE px | CVE px/s | KVE px/s | BHE deg | BFK-ADE px | BFK-FDE px | BLE px | SOE deg | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | 42.579 | 70.636 | 47.081 | 76.432 | 28.690 | 36.640 | 27.013 | 47.179 | 76.604 | 7.590 | 30.730 | 0.181 |
+| Rigid constant velocity | 64.562 | 118.526 | 68.143 | 122.788 | 37.976 | 45.598 | 27.013 | 68.221 | 122.912 | 7.590 | 30.731 | 0.181 |
+| Keypoint constant velocity | 64.562 | 118.526 | 72.238 | 131.099 | 37.976 | 46.730 | 29.641 | 72.328 | 131.244 | 20.950 | 34.376 | 0.201 |
+| Social Attention flat dense triplet 5FPS | 86.694 | 167.040 | 125.053 | 228.337 | 56.879 | 112.664 | 62.798 | 125.765 | 229.882 | 114.029 | 68.353 | 0.386 |
+
+## Centroid FDE by motion group
+
+| Motion group | Persistence | Rigid CV | Keypoint CV | Social Attention |
+| --- | ---: | ---: | ---: | ---: |
+| Low | 5.073 px | 16.793 px | 16.793 px | 122.769 px |
+| Medium | 34.914 px | 58.075 px | 58.075 px | 163.423 px |
+| High | 175.988 px | 287.824 px | 287.824 px | 214.396 px |
+
+## Interpretation
+
+Persistence remains the strongest baseline for this run. The learned flat model
+is worse than persistence on every aggregate metric, including trajectory
+metrics (`cADE`, `cFDE`, `kADE`, `kFDE`), first-derivative motion metrics
+(`CVE`, `KVE`), pose (`BHE`), body-frame keypoint placement (`BFK-*`), structure
+(`BLE`, `SOE`), and ordering (`ROE`).
+
+The high-motion slice is the most useful diagnostic slice. It shows that longer
+5 FPS windows make persistence less trivial, but the trained model still has not
+learned a better rollout policy. This suggests the next experiments should focus
+on whether the architecture can model a simpler target before adding more graph
+complexity: single-mouse dense keypoints and within-mouse dense triplets.
+
+## Reprint the benchmark tables
+
+Use this cell to reprint the Rich benchmark tables from the recorded JSONL file.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from benchmark_report import print_benchmark_tables
+
+result_path = repo_root / "outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl"
+record = json.loads(result_path.read_text().splitlines()[-1])
+print_benchmark_tables(record)
+```
+
+## Re-run the benchmark
+
+Use this only when you want to append a fresh benchmark record.
+
+```sh
+python src/benchmark.py --config src/config/benchmark__flat_dense_triplet_5fps.yml
+```
