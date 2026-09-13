@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from constants import KEYPOINT_NAMES
+from data.schema import KEYPOINT_NAMES
 from data.visualization import (
     KEYPOINT_COLORS,
     animate_single_mouse_prediction_comparison,

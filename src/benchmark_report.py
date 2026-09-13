@@ -1,4 +1,4 @@
-"""File description: Metric contracts and reports for predictor comparisons."""
+"""File description: Metric contracts and reports for predictor benchmarks."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from metric import PRIMARY_METRIC_NAMES, RELATIVE_ERROR_METRIC_NAMES
+from metrics import PRIMARY_METRIC_NAMES, RELATIVE_ERROR_METRIC_NAMES
 
 
 MOTION_STRATA = ("low", "medium", "high")
 
 
 @dataclass(frozen=True)
-class ComparableMetrics:
+class BenchmarkMetrics:
     """Metrics from one method evaluated on a shared window collection.
 
     Attributes:
@@ -76,9 +76,9 @@ def relative_error_improvements(
     return improvements
 
 
-def build_comparison_record(
+def build_benchmark_record(
     *,
-    methods: list[ComparableMetrics],
+    methods: list[BenchmarkMetrics],
     observation_length: int,
     prediction_length: int,
     seed: int,
@@ -105,16 +105,16 @@ def build_comparison_record(
 
     by_name = {method.name: method for method in methods}
     if "persistence" not in by_name:
-        raise ValueError("comparison requires persistence as its reference")
+        raise ValueError("benchmark requires persistence as its reference")
 
     reference = by_name["persistence"]
     for method in methods:
         if method.windows != reference.windows:
-            raise ValueError("comparison methods evaluated different window counts")
+            raise ValueError("benchmark methods evaluated different window counts")
         if method.motion_profile != reference.motion_profile:
-            raise ValueError("comparison methods used different motion strata")
+            raise ValueError("benchmark methods used different motion strata")
         if method.window_digest != reference.window_digest:
-            raise ValueError("comparison methods evaluated different window selections")
+            raise ValueError("benchmark methods evaluated different window selections")
 
     method_records: dict[str, Any] = {}
     for method in methods:
@@ -158,7 +158,7 @@ def build_comparison_record(
     }
 
 
-def print_comparison_tables(
+def print_benchmark_tables(
     record: dict[str, Any],
     *,
     console: Console | None = None,
@@ -166,7 +166,7 @@ def print_comparison_tables(
     """Print raw errors and improvements for overall and stratified results.
 
     Args:
-        record: Comparison record returned by :func:`build_comparison_record`.
+        record: Benchmark record returned by :func:`build_benchmark_record`.
         console: Optional Rich console.
     """
 
@@ -179,7 +179,7 @@ def print_comparison_tables(
     )
     for group in ("overall", *MOTION_STRATA):
         table = Table(
-            title=f"{contract_name} comparison: {group}",
+            title=f"{contract_name} benchmark: {group}",
             box=box.SIMPLE_HEAVY,
         )
         table.add_column("metric", style="cyan", no_wrap=True)

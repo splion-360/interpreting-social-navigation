@@ -54,7 +54,7 @@ import numpy as np
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
 sys.path.insert(0, str(repo_root / "src"))
 
-from metric import compute_pixel_metrics
+from metrics import compute_pixel_metrics
 
 
 def base_pose() -> np.ndarray:

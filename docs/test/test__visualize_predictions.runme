@@ -27,7 +27,7 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from data import MabeDataset
 
-TEST_DATA = repo_root / "data/MaBe/mouse_triplet_test.npy"
+TEST_DATA = repo_root / "data/mabe/raw/mouse_triplet_test.npy"
 SEQ_ID = 20
 
 
@@ -56,7 +56,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_test_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint_30fps__train.yml"
 TEST_CONFIG = repo_root / "src/config/test.yml"
 CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
@@ -111,7 +111,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint_30fps__train.yml"
 TEST_CONFIG = repo_root / "src/config/test.yml"
 CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
@@ -161,10 +161,10 @@ os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
 sys.path.insert(0, str(repo_root / "src"))
 
 from evaluate import _sample_test_prediction, load_test_config, print_evaluation_metrics
-from metric import compute_pixel_metrics
+from metrics import compute_pixel_metrics
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/dense_keypoint__train.yml"
+TRAIN_CONFIG = repo_root / "src/config/dense_keypoint_30fps__train.yml"
 TEST_CONFIG = repo_root / "src/config/test.yml"
 CHECKPOINT = repo_root / "checkpoints/dense_keypoint/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"

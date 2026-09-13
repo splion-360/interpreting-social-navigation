@@ -7,7 +7,7 @@ from typing import Literal
 
 import numpy as np
 
-from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from data.schema import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 
 
 EdgeKind = Literal["temporal", "spatial"]

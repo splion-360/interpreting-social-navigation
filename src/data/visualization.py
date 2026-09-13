@@ -10,7 +10,7 @@ from matplotlib import animation
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 
-from constants import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES, MOUSE_SKELETON_EDGES
+from data.schema import FRAME_HEIGHT, FRAME_WIDTH, KEYPOINT_NAMES, MOUSE_SKELETON_EDGES
 
 
 MOUSE_COLORS = ("lawngreen", "skyblue", "tomato")

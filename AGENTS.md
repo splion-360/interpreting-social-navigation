@@ -31,8 +31,19 @@ Use this directory tree as the intended project shape:
 │   └── utils.py
 ├── src/
 │   ├── config/
+│   ├── baselines.py
+│   ├── benchmark.py
+│   ├── benchmark_report.py
 │   ├── data/
+│   │   ├── mabe.py
+│   │   ├── motion_sampling.py
+│   │   ├── schema.py
+│   │   ├── temporal_sampling.py
+│   │   └── visualization.py
+│   ├── evaluate.py
+│   ├── inference.py
 │   ├── loss.py
+│   ├── metrics.py
 │   ├── models/
 │   │   └── flat.py
 │   ├── st_graph.py
@@ -44,7 +55,9 @@ Use this directory tree as the intended project shape:
 │   ├── test_st_graph.py
 │   └── test_train.py
 ├── socialAttention/
-└── data/                 # ignored local dataset storage
+└── data/
+    └── mabe/
+        └── raw/          # ignored local dataset storage
 ```
 
 `scripts/` is the historical runnable implementation to audit and migrate. `src/` is the new first-party root for reusable research code. `socialAttention/` is the upstream reference submodule; keep it read-only unless intentionally updating the submodule pointer. Keep `scripts/` runnable while migrating logic into `src/`; over time, scripts should shrink to CLI adapters that parse arguments and call package interfaces.
@@ -83,17 +96,18 @@ Use folders only when a concern has multiple files or a stable internal API. Sta
 
 Use these current modules:
 
-- `src/config/`: YAML experiment, training, and evaluation configuration.
+- `src/config/`: YAML experiment, training, benchmark, and evaluation configuration. Include temporal setup in filenames when it disambiguates runs, for example `dense_keypoint_30fps__train.yml` and `dense_keypoint_5fps__train.yml`.
 - `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
 - `src/st_graph.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
 - `src/models/`: flat model now, hierarchical mouse/keypoint models next.
 - `src/loss.py`: Gaussian NLL, structural losses, and Gaussian parameter validation until losses grow enough to split.
 - `src/train.py`: training CLI, device selection, seeds, warm-up smoke runs, and later real experiment entry points.
+- `src/evaluate.py`: checkpoint and baseline evaluation on validation or held-out test windows.
+- `src/benchmark.py` and `src/benchmark_report.py`: fair model-versus-baseline benchmark orchestration and table/report construction.
 
 Add future modules only when needed:
 
 - `src/geometry.py` or `src/geometry/`: coordinate transforms, velocities, anatomical edge definitions, and bone-length metrics.
-- `src/evaluate.py` or `src/evaluation/`: ADE, FDE, anatomical consistency, efficiency metrics, representation extraction, and behavior probes.
 - `src/experiments.py` or `src/experiments/`: named experiment definitions for flat baseline, hierarchical baseline, and ablations.
 
 Preferred interfaces include `DatasetAdapter.load_split(config)`, `GraphBuilder.build(sequence)`, `TrajectoryModel.forward(batch_or_graph)`, `TrajectoryLoss(prediction, target, mask)`, `Trainer.run(config)`, and `Evaluator.evaluate(checkpoint, dataset)`. Add a seam only when behavior actually varies, such as graph variants, dataset adapters, model families, losses, or loggers.
@@ -107,19 +121,19 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 - `cd scripts && python train.py` trains the model; it expects root-level `data/MaBe/mouse_train.npy` and CUDA-capable PyTorch.
 - `cd scripts && python train.py --wandb` also logs the run to Weights & Biases.
 - `cd scripts && python sample.py --epoch 199` evaluates checkpoint epoch 199 from `scripts/save/save_attention/`.
-- `python -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
-- `python -m train fit --show-config` prints the resolved training setup from `src/config/dense_keypoint__train.yml` without training.
-- `python -m train fit --wandb` runs flat-model training with W&B logging using `src/config/dense_keypoint__train.yml`.
+- `python -m train warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
+- `python -m train fit --show-config` prints the resolved training setup from `src/config/dense_keypoint_30fps__train.yml` without training.
+- `python -m train fit --wandb` runs flat-model training with W&B logging using `src/config/dense_keypoint_30fps__train.yml`.
 - `python -m train fit --wandb --resume-wandb-artifact flat-best-checkpoint:best` resumes from the best W&B model artifact.
 - `python -m pytest tests` runs new first-party tests once pytest is installed.
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.
 
-Training commands should run locally with visible CLI progress. Load default training parameters from variant-specific YAML files under `src/config/`, named `{variant}__train.yml`, then use argparse only for `--config`, `--show-config`, and explicit overrides. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
+Training commands should run locally with visible CLI progress. Load default training parameters from variant-specific YAML files under `src/config/`, named `{variant}_{fps}fps__train.yml` when frame rate matters, then use argparse only for `--config`, `--show-config`, and explicit overrides. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep `src/config/` YAML-only; shared Python constants belong in focused modules such as `src/constants.py`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
+Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep `src/config/` YAML-only; MABe schema constants belong in `src/data/schema.py`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.
 
 Use Google-style docstrings for every non-trivial function, class, and method. Keep research code concise: avoid production-grade defensive layers unless they protect a known research invariant, prevent silent data leakage, or make tensor contracts clear. Prefer DRY, SOLID code with focused modules over broad utility files.
 

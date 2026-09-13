@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from constants import (
+from data.schema import (
     COORDINATES,
     DEFAULT_FRAME_STEP,
     DEFAULT_OBSERVATION_LENGTH,

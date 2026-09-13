@@ -90,7 +90,7 @@ from st_graph import (
     build_mouse_level_graph,
 )
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[0]]
 window = MabeWindowDataset(
     [sequence],

@@ -46,12 +46,15 @@ explicit = true
 
 [tool.hatch.build.targets.wheel]
 only-include = [
+    "src/benchmark.py",
+    "src/benchmark_report.py",
+    "src/baselines.py",
     "src/config",
-    "src/baseline.py",
     "src/data",
     "src/evaluate.py",
+    "src/inference.py",
     "src/loss.py",
-    "src/metric.py",
+    "src/metrics.py",
     "src/models",
     "src/st_graph.py",
     "src/train.py",
@@ -121,12 +124,14 @@ ignore = [
 force-single-line = false
 lines-after-imports = 2
 known-first-party = [
-    "baseline",
+    "baselines",
+    "benchmark",
+    "benchmark_report",
     "config",
-    "constants",
     "data",
+    "inference",
     "loss",
-    "metric",
+    "metrics",
     "models",
     "st_graph",
     "train",

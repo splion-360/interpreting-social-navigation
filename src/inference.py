@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from constants import COORDINATES, NUM_KEYPOINTS, NUM_MICE
+from data.schema import COORDINATES, NUM_KEYPOINTS, NUM_MICE
 from loss import gaussian_2d_parameters
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence

@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from constants import MOUSE_SKELETON_EDGES, NUM_KEYPOINTS
+from data.schema import MOUSE_SKELETON_EDGES, NUM_KEYPOINTS
 
 
 BODY_HEADING_EDGE = (9, 3)

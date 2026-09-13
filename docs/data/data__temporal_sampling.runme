@@ -4,10 +4,10 @@ cwd: ../..
 
 # Validate 5 FPS Temporal Sampling
 
-The next dense-keypoint baseline uses the original Social Attention durations:
-3.2 seconds of observed history and 4.8 seconds of predicted future. For MABe
-source data at 30 FPS, the chosen 5 FPS setup samples every 6 raw frames and
-uses 16 observed steps plus 24 predicted steps:
+The next dense-keypoint baseline uses 3.2 seconds of observed history and 4.8
+seconds of predicted future. For MABe source data at 30 FPS, the chosen 5 FPS
+setup samples every 6 raw frames and uses 16 observed steps plus 24 predicted
+steps:
 
 ```text
 0, 6, 12, ..., 234
@@ -19,19 +19,17 @@ This notebook checks that `frame_step` controls spacing inside a window while
 ## Timing Contract
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
-import os
 from pathlib import Path
+import os
 import sys
 
 repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
 os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
 sys.path.insert(0, str(repo_root / "src"))
 
-from data import MabeDataset, MabeWindowDataset, WindowSpec
+from data import WindowSpec
 
-DATA_PATH = repo_root / "data/MaBe/mouse_triplet_train.npy"
 SOURCE_FPS = 30.0
-
 spec = WindowSpec(
     length=40,
     observation_length=16,
@@ -52,6 +50,25 @@ print("sampled_indices_from_zero:", list(range(0, spec.raw_span, spec.frame_step
 ## Verify Real Window Indices
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pathlib import Path
+import os
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from data import MabeDataset, MabeWindowDataset, WindowSpec
+
+DATA_PATH = repo_root / "data/mabe/raw/mouse_triplet_train.npy"
+spec = WindowSpec(
+    length=40,
+    observation_length=16,
+    prediction_length=24,
+    stride=20,
+    frame_step=6,
+)
+
 dataset = MabeDataset.from_file(DATA_PATH)
 windows = MabeWindowDataset(
     dataset.select(dataset.sequence_ids),
@@ -79,10 +96,28 @@ The retained-motion ratio compares sampled path length against raw path length
 over the same source span.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pathlib import Path
 from pprint import pprint
+import os
+import sys
 
-from data import temporal_sampling_diagnostics
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
 
+from data import MabeDataset, WindowSpec, temporal_sampling_diagnostics
+
+DATA_PATH = repo_root / "data/mabe/raw/mouse_triplet_train.npy"
+SOURCE_FPS = 30.0
+spec = WindowSpec(
+    length=40,
+    observation_length=16,
+    prediction_length=24,
+    stride=20,
+    frame_step=6,
+)
+
+dataset = MabeDataset.from_file(DATA_PATH)
 diagnostics = temporal_sampling_diagnostics(
     dataset.select(dataset.sequence_ids),
     spec=spec,
@@ -101,6 +136,19 @@ paper-rate step and less aggressive downsampling. Each row preserves the same
 3.2-second observed and 4.8-second predicted durations.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pathlib import Path
+import os
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from data import MabeDataset, WindowSpec, temporal_sampling_diagnostics
+
+DATA_PATH = repo_root / "data/mabe/raw/mouse_triplet_train.npy"
+SOURCE_FPS = 30.0
+dataset = MabeDataset.from_file(DATA_PATH)
 frame_step_specs = (
     (1, 96, 144),
     (2, 48, 72),
@@ -155,12 +203,39 @@ important body motion disappears between sampled frames, revisit the temporal
 contract before training.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from pathlib import Path
+import os
+import sys
+
 import numpy as np
 
-from data import fill_missing_keypoints
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from data import MabeDataset, WindowSpec, fill_missing_keypoints
+from data import temporal_sampling_diagnostics
 from data.visualization import animate_pose_sequence, save_animation
 
+DATA_PATH = repo_root / "data/mabe/raw/mouse_triplet_train.npy"
+SOURCE_FPS = 30.0
 output_dir = repo_root / "outputs/visualizations/temporal_sampling"
+spec = WindowSpec(
+    length=40,
+    observation_length=16,
+    prediction_length=24,
+    stride=20,
+    frame_step=6,
+)
+
+dataset = MabeDataset.from_file(DATA_PATH)
+diagnostics = temporal_sampling_diagnostics(
+    dataset.select(dataset.sequence_ids),
+    spec=spec,
+    source_fps=SOURCE_FPS,
+    max_windows=500,
+    worst_count=5,
+)
 saved = []
 
 for item in diagnostics.worst_windows:

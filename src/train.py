@@ -14,7 +14,6 @@ import yaml
 from torch import Tensor
 from tqdm import tqdm
 
-from constants import COORDINATES, DEFAULT_SOURCE_FPS, NUM_KEYPOINTS, NUM_MICE
 from data import (
     DEFAULT_MOTION_MIX,
     MOTION_STRATA,
@@ -32,9 +31,10 @@ from data import (
     split_sequence_ids,
     window_motion_scores_px_s,
 )
+from data.schema import COORDINATES, DEFAULT_SOURCE_FPS, NUM_KEYPOINTS, NUM_MICE
 from inference import rollout_flat_keypoint_model
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
-from metric import compute_pixel_metrics
+from metrics import compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from st_graph import (
     GraphSequence,
@@ -44,7 +44,7 @@ from st_graph import (
 )
 
 
-DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/dense_keypoint__train.yml")
+DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/dense_keypoint_30fps__train.yml")
 PATH_CONFIG_FIELDS = {
     "data_path",
     "checkpoint_dir",
@@ -96,7 +96,7 @@ class FlatWarmupConfig:
         device: Requested device, such as `cpu`, `cuda`, or `auto`.
     """
 
-    data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
+    data_path: Path = Path("data/mabe/raw/mouse_triplet_train.npy")
     sequence_index: int = 0
     window_length: int = 9
     graph_variant: str = "dense_keypoint"
@@ -162,7 +162,7 @@ class FlatFitConfig:
     """
 
     model: str = "flat"
-    data_path: Path = Path("data/MaBe/mouse_triplet_train.npy")
+    data_path: Path = Path("data/mabe/raw/mouse_triplet_train.npy")
     epochs: int = 100
     batch_size: int = 8
     window_length: int = 20

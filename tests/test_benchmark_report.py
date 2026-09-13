@@ -1,8 +1,8 @@
 """File description: Behavioral tests for fair model and baseline comparisons."""
 
-from comparison import (
-    ComparableMetrics,
-    build_comparison_record,
+from benchmark_report import (
+    BenchmarkMetrics,
+    build_benchmark_record,
     relative_error_improvements,
 )
 
@@ -26,13 +26,13 @@ def test_relative_error_improvements_use_persistence_as_reference() -> None:
     assert improvements["displacement_gain"] is None
 
 
-def test_build_comparison_record_requires_matching_motion_profiles() -> None:
+def test_build_benchmark_record_requires_matching_motion_profiles() -> None:
     profile = {
         "score": "mean_keypoint_speed_px_s",
         "thresholds_px_s": {"low_max": 2.0, "medium_max": 5.0},
         "counts": {"low": 1, "medium": 1, "high": 1},
     }
-    persistence = ComparableMetrics(
+    persistence = BenchmarkMetrics(
         name="persistence",
         windows=3,
         metrics={"centroid_fde_px": 10.0},
@@ -44,7 +44,7 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
         motion_profile=profile,
         window_digest="shared-window-digest",
     )
-    social_attention = ComparableMetrics(
+    social_attention = BenchmarkMetrics(
         name="social_attention",
         windows=3,
         metrics={"centroid_fde_px": 8.0},
@@ -57,7 +57,7 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
         window_digest="shared-window-digest",
     )
 
-    record = build_comparison_record(
+    record = build_benchmark_record(
         methods=[persistence, social_attention],
         observation_length=8,
         prediction_length=12,

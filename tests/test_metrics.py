@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from constants import MOUSE_SKELETON_EDGES
-from metric import (
+from data.schema import MOUSE_SKELETON_EDGES
+from metrics import (
     body_frame_keypoint_errors_px,
     body_heading_error_deg,
     bone_length_error_px,

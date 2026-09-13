@@ -17,7 +17,7 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from data import MabeDataset, MabeWindowDataset, WindowSpec, fill_missing_keypoints
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[0]]
 
 clean_keypoints = fill_missing_keypoints(sequence.keypoints)
@@ -50,7 +50,7 @@ from matplotlib import rc
 
 from data.visualization import animate_pose_sequence
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[0]]
 clean_keypoints = fill_missing_keypoints(sequence.keypoints)
 rc("animation", html="jshtml")
@@ -82,7 +82,7 @@ from data import MabeDataset, fill_missing_keypoints
 from data.visualization import animate_pose_sequence
 from data.visualization import save_animation
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 clean_keypoints = fill_missing_keypoints(sequence.keypoints)
 animation_obj = animate_pose_sequence(
@@ -113,7 +113,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset, MabeWindowDataset, WindowSpec
 from data.visualization import animate_prediction_comparison
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 windows = MabeWindowDataset(
     [sequence],
@@ -152,7 +152,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset, MabeWindowDataset, WindowSpec
 from data.visualization import animate_prediction_comparison, save_animation
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 sequence = dataset.sequences[dataset.sequence_ids[SEQ_ID]]
 windows = MabeWindowDataset(
     [sequence],

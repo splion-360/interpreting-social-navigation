@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from data.motion import (
+from data.motion_sampling import (
     DEFAULT_MOTION_MIX,
     MotionThresholds,
     build_motion_profile,

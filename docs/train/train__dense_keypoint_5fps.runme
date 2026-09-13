@@ -65,13 +65,13 @@ Run this after training creates
 `checkpoints/dense_keypoint_5fps/flat_best.pt`.
 
 ```sh
-python src/compare.py --config src/config/dense_keypoint_5fps__compare.yml
+python src/benchmark.py --config src/config/dense_keypoint_5fps__benchmark.yml
 ```
 
 The comparison writes:
 
 ```text
-outputs/evaluations/dense_keypoint_5fps/comparison/results.jsonl
+outputs/evaluations/dense_keypoint_5fps/benchmark_16_24/results.jsonl
 ```
 
 Use this record to compare Social Attention against persistence, rigid constant

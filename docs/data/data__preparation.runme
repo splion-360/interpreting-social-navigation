@@ -9,11 +9,11 @@ This Runme notebook documents the local data-loading decisions for the MABe22 Mo
 ## Check Local Data
 
 ```bash
-ls -lh data/MaBe
+ls -lh data/mabe/raw
 ```
 
 ```bash
-md5sum data/MaBe/mouse_triplet_train.npy
+md5sum data/mabe/raw/mouse_triplet_train.npy
 ```
 
 Expected training-file checksum:
@@ -33,7 +33,7 @@ sys.path.insert(0, str(repo_root / "src"))
 
 from data import MabeDataset
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 print("vocabulary:", dataset.vocabulary)
 print("num sequences:", len(dataset.sequences))
 
@@ -55,7 +55,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset
 from data import split_sequence_ids
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 train_ids, validation_ids = split_sequence_ids(
     dataset.sequence_ids,
     validation_fraction=0.2,
@@ -80,7 +80,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset, split_sequence_ids
 from data import MabeWindowDataset, WindowSpec
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)
 spec = WindowSpec(
     length=20,
@@ -117,7 +117,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from data import MabeDataset, MabeWindowDataset, WindowSpec, split_sequence_ids
 from data import PoseNormalizer
 
-dataset = MabeDataset.from_file(repo_root / "data/MaBe/mouse_triplet_train.npy")
+dataset = MabeDataset.from_file(repo_root / "data/mabe/raw/mouse_triplet_train.npy")
 train_ids, _ = split_sequence_ids(dataset.sequence_ids, validation_fraction=0.2, seed=42)
 windows = MabeWindowDataset(
     dataset.select(train_ids[:4]),

@@ -332,7 +332,7 @@ def test_model_evaluation_results_path_defaults_to_graph_variant() -> None:
     config = FlatFitConfig(graph_variant="dense_keypoint")
 
     assert default_model_results_path(config) == Path(
-        "outputs/evaluations/dense_keypoint/results.jsonl"
+        "outputs/evaluations/dense_keypoint_30fps/results.jsonl"
     )
 
 
@@ -345,7 +345,7 @@ def test_results_path_resolution_keeps_baselines_separate() -> None:
         baseline_config=baseline_config,
         test_config=evaluate_module.TestConfig(results_path=None),
         train_config=train_config,
-    ) == Path("outputs/evaluations/motion_baselines/pred12/results.jsonl")
+    ) == Path("outputs/evaluations/motion_baselines_30fps/pred12/results.jsonl")
 
 
 def test_evaluate_motion_baseline_uses_test_windows(tmp_path) -> None:
@@ -426,11 +426,11 @@ def test_build_evaluation_record_tracks_lineage() -> None:
             checkpoint_validation_loss=0.5,
         ),
         train_config=FlatFitConfig(graph_variant="dense_keypoint"),
-        train_config_path=Path("src/config/dense_keypoint__train.yml"),
+        train_config_path=Path("src/config/dense_keypoint_30fps__train.yml"),
         checkpoint_path=Path("checkpoints/dense_keypoint/flat_best.pt"),
         split="test",
         test_config_path=Path("src/config/test.yml"),
-        test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
+        test_data_path=Path("data/mabe/raw/mouse_triplet_test.npy"),
         max_windows=10,
         seed=42,
     )
@@ -489,12 +489,12 @@ def test_baseline_record_persists_motion_strata() -> None:
     record = build_baseline_evaluation_record(
         result=result,
         train_config=FlatFitConfig(),
-        train_config_path=Path("src/config/dense_keypoint__train.yml"),
+        train_config_path=Path("src/config/dense_keypoint_30fps__train.yml"),
         baseline_config=baseline_config,
         baseline_config_path=Path("src/config/motion_baselines_pred30__evaluate.yml"),
         split="test",
         test_config_path=Path("src/config/test.yml"),
-        test_data_path=Path("data/MaBe/mouse_triplet_test.npy"),
+        test_data_path=Path("data/mabe/raw/mouse_triplet_test.npy"),
         max_windows=3,
         seed=42,
     )

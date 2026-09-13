@@ -1,6 +1,6 @@
 """File description: Dataset loading, splitting, sampling, masking, and normalization."""
 
-from constants import (
+from data.schema import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
     KEYPOINT_NAMES,
@@ -15,7 +15,7 @@ from data.mabe import (
     fill_missing_keypoints,
     split_sequence_ids,
 )
-from data.motion import (
+from data.motion_sampling import (
     DEFAULT_MOTION_MIX,
     MOTION_STRATA,
     MotionProfile,
@@ -27,7 +27,7 @@ from data.motion import (
     sample_motion_balanced_window_keys,
     window_motion_scores_px_s,
 )
-from data.temporal import (
+from data.temporal_sampling import (
     TemporalSamplingDiagnostics,
     keypoint_path_length_px,
     temporal_sampling_diagnostics,

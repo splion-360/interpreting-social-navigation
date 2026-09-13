@@ -9,7 +9,7 @@ stride: 20
 frame_step: 6
 source_fps: 30.0
 max_windows: 1000
-results_path: outputs/evaluations/motion_baselines/5fps_pred24/results.jsonl
+results_path: outputs/evaluations/motion_baselines_5fps/pred24/results.jsonl
 seed: 42
 wandb: false
 wandb_project: interpreting-social-navigation

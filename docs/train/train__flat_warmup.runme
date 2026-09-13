@@ -9,7 +9,7 @@ Use this notebook to verify that the data loader, graph builder, flat model, and
 ## Run CPU Warm-Up
 
 ```sh
-python -m train warmup --data data/MaBe/mouse_triplet_train.npy --device cpu --steps 5
+python -m train warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5
 ```
 
 Expected output:
@@ -29,7 +29,7 @@ final_loss=<finite number>
 
 ## Run Flat Training
 
-Training defaults are loaded from `src/config/dense_keypoint__train.yml`.
+Training defaults are loaded from `src/config/dense_keypoint_30fps__train.yml`.
 
 Inspect the resolved setup without training:
 
@@ -50,7 +50,7 @@ the `flat-best-checkpoint:best` W&B model artifact.
 Override YAML values only when needed:
 
 ```sh
-python -m train fit --config src/config/dense_keypoint__train.yml --device cpu --epochs 5 --batch-size 8 --wandb
+python -m train fit --config src/config/dense_keypoint_30fps__train.yml --device cpu --epochs 5 --batch-size 8 --wandb
 ```
 
 Resume from the local best checkpoint:

@@ -21,15 +21,7 @@ from rich.table import Table
 from rich.text import Text
 from tqdm.auto import tqdm
 
-from baseline import BaselineName, predict_motion_baseline, valid_baseline_names
-from constants import (
-    COORDINATES,
-    DEFAULT_SOURCE_FPS,
-    KEYPOINT_NAMES,
-    MOUSE_SKELETON_EDGES,
-    NUM_KEYPOINTS,
-    NUM_MICE,
-)
+from baselines import BaselineName, predict_motion_baseline, valid_baseline_names
 from data import (
     MabeDataset,
     MabeWindowDataset,
@@ -40,12 +32,20 @@ from data import (
     mean_keypoint_speed_px_s,
     split_sequence_ids,
 )
+from data.schema import (
+    COORDINATES,
+    DEFAULT_SOURCE_FPS,
+    KEYPOINT_NAMES,
+    MOUSE_SKELETON_EDGES,
+    NUM_KEYPOINTS,
+    NUM_MICE,
+)
 from inference import (
     RolloutResult,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
 )
-from metric import PRIMARY_METRIC_NAMES, compute_pixel_metrics
+from metrics import PRIMARY_METRIC_NAMES, compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from train import (
     FlatFitConfig,
@@ -57,9 +57,11 @@ from train import (
 
 KEYPOINT_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
 DEFAULT_TEST_CONFIG_PATH = Path("src/config/test.yml")
-DEFAULT_BASELINE_CONFIG_PATH = Path("src/config/motion_baselines_pred12__evaluate.yml")
+DEFAULT_BASELINE_CONFIG_PATH = Path(
+    "src/config/motion_baselines_30fps_pred12__benchmark.yml"
+)
 DEFAULT_RESULTS_ROOT = Path("outputs/evaluations")
-DEFAULT_RESULTS_PATH = DEFAULT_RESULTS_ROOT / "dense_keypoint" / "results.jsonl"
+DEFAULT_RESULTS_PATH = DEFAULT_RESULTS_ROOT / "dense_keypoint_30fps" / "results.jsonl"
 TABLE_METRIC_NAMES = (
     "centroid_offset_px_by_mouse",
     "body_heading_error_deg_by_mouse",
@@ -99,7 +101,7 @@ class TestConfig:
         wandb_run_name: Optional W&B run name for evaluation logging.
     """
 
-    data_path: Path = Path("data/MaBe/mouse_triplet_test.npy")
+    data_path: Path = Path("data/mabe/raw/mouse_triplet_test.npy")
     results_path: Path | None = None
     max_windows: int | None = 100
     seed: int = 42
@@ -137,7 +139,7 @@ class MotionBaselineConfig:
     source_fps: float = DEFAULT_SOURCE_FPS
     max_windows: int | None = 1000
     results_path: Path = (
-        DEFAULT_RESULTS_ROOT / "motion_baselines" / "pred12" / "results.jsonl"
+        DEFAULT_RESULTS_ROOT / "motion_baselines_30fps" / "pred12" / "results.jsonl"
     )
     seed: int = 42
     wandb: bool = False
@@ -1537,7 +1539,27 @@ def default_model_results_path(train_config: FlatFitConfig) -> Path:
         Source-specific path under the evaluation output directory.
     """
 
-    return DEFAULT_RESULTS_ROOT / train_config.graph_variant / "results.jsonl"
+    effective_fps = train_config.source_fps / train_config.frame_step
+    return (
+        DEFAULT_RESULTS_ROOT
+        / f"{train_config.graph_variant}_{_format_fps_slug(effective_fps)}"
+        / "results.jsonl"
+    )
+
+
+def _format_fps_slug(fps: float) -> str:
+    """Return a compact filename-safe FPS suffix.
+
+    Args:
+        fps: Effective sampled frames per second.
+
+    Returns:
+        Filename-safe suffix such as `30fps`, `5fps`, or `2p5fps`.
+    """
+
+    if fps.is_integer():
+        return f"{int(fps)}fps"
+    return f"{fps:g}".replace(".", "p") + "fps"
 
 
 def log_evaluation_to_wandb(
@@ -1752,7 +1774,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/dense_keypoint__train.yml"),
+        default=Path("src/config/dense_keypoint_30fps__train.yml"),
     )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--baseline-config", type=Path)

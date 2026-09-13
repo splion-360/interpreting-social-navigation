@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from baseline import (
+from baselines import (
     predict_keypoint_constant_velocity,
     predict_motion_baseline,
     predict_persistence,

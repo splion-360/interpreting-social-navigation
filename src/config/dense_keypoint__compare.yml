@@ -1,6 +1,0 @@
-train_config_path: src/config/dense_keypoint__train.yml
-test_config_path: src/config/test.yml
-baseline_config_path: src/config/motion_baselines_pred12__evaluate.yml
-checkpoint_path: checkpoints/dense_keypoint/flat_best.pt
-results_path: outputs/evaluations/dense_keypoint/comparison_8_12/results.jsonl
-model_name: social_attention

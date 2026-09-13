@@ -1,0 +1,6 @@
+train_config_path: src/config/dense_keypoint_30fps__train.yml
+test_config_path: src/config/test.yml
+baseline_config_path: src/config/motion_baselines_30fps_pred12__benchmark.yml
+checkpoint_path: checkpoints/dense_keypoint/flat_best.pt
+results_path: outputs/evaluations/dense_keypoint_30fps/benchmark_8_12/results.jsonl
+model_name: social_attention

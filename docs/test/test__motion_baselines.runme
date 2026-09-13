@@ -20,7 +20,7 @@ high-motion slices once and are shared by all methods.
 
 This inference-only cell evaluates 1,000 windows with seed 42, prints Rich tables
 for the overall distribution and each motion slice, and appends one combined
-record to `outputs/evaluations/dense_keypoint/comparison_8_12/results.jsonl`.
+record to `outputs/evaluations/dense_keypoint_30fps/benchmark_8_12/results.jsonl`.
 Values in parentheses are relative error improvements over persistence: positive
 is better, negative is worse, and blank means the reference is undefined or zero.
 
@@ -33,11 +33,11 @@ repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "
 os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
 sys.path.insert(0, str(repo_root / "src"))
 
-from compare import load_comparison_config, print_comparison_tables, run_comparison
+from benchmark import load_benchmark_config, print_benchmark_tables, run_benchmark
 
-config = load_comparison_config(repo_root / "src/config/dense_keypoint__compare.yml")
-record = run_comparison(config)
-print_comparison_tables(record)
+config = load_benchmark_config(repo_root / "src/config/dense_keypoint_30fps__benchmark.yml")
+record = run_benchmark(config)
+print_benchmark_tables(record)
 ```
 
 ## CLI equivalent
@@ -45,7 +45,7 @@ print_comparison_tables(record)
 Run the same comparison from the repository root:
 
 ```sh
-python src/compare.py --config src/config/dense_keypoint__compare.yml
+python src/benchmark.py --config src/config/dense_keypoint_30fps__benchmark.yml
 ```
 
 ## Reading the result
@@ -62,7 +62,7 @@ improvements would mean that low-motion windows are masking model failure.
 ## Recorded result
 
 Snapshot recorded on 2026-09-12 in
-`outputs/evaluations/dense_keypoint/comparison_8_12/results.jsonl`. At that time,
+`outputs/evaluations/dense_keypoint_30fps/benchmark_8_12/results.jsonl`. At that time,
 `flat_best.pt` resolved to epoch 45 with validation loss -6.962924 and was
 evaluated on 1,000 windows. These aggregate metrics are all lower-is-better:
 

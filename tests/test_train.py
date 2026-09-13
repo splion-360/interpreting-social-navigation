@@ -188,7 +188,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
 def test_variant_train_configs_load_from_src_config() -> None:
     variants = {
         "dense_keypoint": (
-            Path("src/config/dense_keypoint__train.yml"),
+            Path("src/config/dense_keypoint_30fps__train.yml"),
             20,
             20,
             8,
