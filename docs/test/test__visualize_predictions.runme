@@ -56,9 +56,9 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_test_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_30fps.yml"
+TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_30fps/flat_best.pt"
+CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
@@ -111,9 +111,9 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_30fps.yml"
+TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_30fps/flat_best.pt"
+CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 MOUSE_INDEX = 0
@@ -164,9 +164,9 @@ from evaluate import _sample_test_prediction, load_test_config, print_evaluation
 from metrics import compute_pixel_metrics
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_30fps.yml"
+TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_30fps/flat_best.pt"
+CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
