@@ -93,6 +93,48 @@ diagnostics = temporal_sampling_diagnostics(
 pprint(diagnostics.to_dict())
 ```
 
+## Frame-Step Sweep
+
+Use this sweep to compare paper-rate sampling against less aggressive
+downsampling. Each row uses the same first 500 deterministic training windows.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+frame_steps = (1, 2, 3, 5, 6, 10, 12)
+
+print(
+    "frame_step,effective_fps,obs_s,pred_s,raw_span,windows,"
+    "corr,retained_mean,retained_median,retained_p10,retained_p90"
+)
+for frame_step in frame_steps:
+    step_spec = WindowSpec(
+        length=20,
+        observation_length=8,
+        prediction_length=12,
+        stride=20,
+        frame_step=frame_step,
+    )
+    step_diagnostics = temporal_sampling_diagnostics(
+        dataset.select(dataset.sequence_ids),
+        spec=step_spec,
+        source_fps=SOURCE_FPS,
+        max_windows=500,
+        worst_count=3,
+    )
+    print(
+        f"{frame_step},"
+        f"{step_diagnostics.effective_fps:.4f},"
+        f"{step_diagnostics.observation_seconds:.4f},"
+        f"{step_diagnostics.prediction_seconds:.4f},"
+        f"{step_diagnostics.raw_span},"
+        f"{step_diagnostics.windows},"
+        f"{step_diagnostics.motion_score_correlation:.6f},"
+        f"{step_diagnostics.retained_motion_ratio_mean:.6f},"
+        f"{step_diagnostics.retained_motion_ratio_median:.6f},"
+        f"{step_diagnostics.retained_motion_ratio_p10:.6f},"
+        f"{step_diagnostics.retained_motion_ratio_p90:.6f}"
+    )
+```
+
 ## Save Worst-Retention Examples
 
 Use these videos for visual inspection before deciding whether `frame_step=12`
@@ -131,6 +173,16 @@ for path in saved:
 
 Local diagnostic snapshot on 2026-09-12 using the first 500 deterministic
 training windows:
+
+| frame_step | effective FPS | observed s | predicted s | median retained motion | p10 retained motion | motion correlation |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 30.0 | 0.27 | 0.40 | 1.0000 | 1.0000 | 1.0000 |
+| 2 | 15.0 | 0.53 | 0.80 | 0.8989 | 0.8274 | 0.9994 |
+| 3 | 10.0 | 0.80 | 1.20 | 0.7935 | 0.6680 | 0.9982 |
+| 5 | 6.0 | 1.33 | 2.00 | 0.6586 | 0.5175 | 0.9961 |
+| 6 | 5.0 | 1.60 | 2.40 | 0.6200 | 0.4484 | 0.9947 |
+| 10 | 3.0 | 2.67 | 4.00 | 0.5303 | 0.3336 | 0.9923 |
+| 12 | 2.5 | 3.20 | 4.80 | 0.5069 | 0.3051 | 0.9904 |
 
 ```text
 motion_score_correlation: 0.9904
