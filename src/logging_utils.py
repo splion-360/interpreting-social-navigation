@@ -20,7 +20,7 @@ def configure_cli_logging(
 
     logging.basicConfig(
         level=level,
-        format="%(message)s",
+        format="[%(levelname)s] %(message)s",
         stream=sys.stdout,
         force=force,
     )
