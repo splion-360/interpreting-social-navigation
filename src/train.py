@@ -34,6 +34,7 @@ from data import (
 )
 from data.schema import COORDINATES, DEFAULT_SOURCE_FPS, NUM_KEYPOINTS, NUM_MICE
 from inference import rollout_flat_keypoint_model
+from logging_utils import configure_cli_logging, get_logger
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
 from metrics import compute_pixel_metrics
 from models import FlatSocialAttentionModel
@@ -80,6 +81,7 @@ VALIDATION_CLI_METRICS = (
     "BHE",
     "ROE",
 )
+LOGGER = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -457,10 +459,12 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             show_progress=show_progress,
         )
 
-        print(
-            f"epoch={epoch}/{config.epochs} "
-            f"train_loss={final_train_loss:.6f} "
-            f"validation_loss={final_validation_loss:.6f}"
+        LOGGER.info(
+            "epoch=%s/%s train_loss=%.6f validation_loss=%.6f",
+            epoch,
+            config.epochs,
+            final_train_loss,
+            final_validation_loss,
         )
         _print_validation_motion_losses(validation_summary)
         _print_validation_metrics(validation_metrics)
@@ -613,10 +617,10 @@ def _build_training_window_data(
     """
 
     if show_progress:
-        print(f"data: loading {config.data_path}")
+        LOGGER.info("data: loading %s", config.data_path)
     dataset = MabeDataset.from_file(config.data_path)
     if show_progress:
-        print("data: splitting sequences and fitting pixel normalizer")
+        LOGGER.info("data: splitting sequences and fitting pixel normalizer")
     train_ids, validation_ids = split_sequence_ids(
         dataset.sequence_ids,
         validation_fraction=config.validation_fraction,
@@ -689,8 +693,8 @@ def _build_motion_sampled_windows(
     """
 
     if show_progress:
-        print("data: indexing training motion candidates")
-        print(f"data: motion scoring workers={config.workers}")
+        LOGGER.info("data: indexing training motion candidates")
+        LOGGER.info("data: motion scoring workers=%s", config.workers)
     train_candidates = MabeWindowDataset(train_sequences, spec)
     candidate_scores = window_motion_scores_px_s(
         train_candidates,
@@ -705,7 +709,7 @@ def _build_motion_sampled_windows(
         thresholds=thresholds,
     )
     if show_progress:
-        print("data: sampling motion-balanced training windows")
+        LOGGER.info("data: sampling motion-balanced training windows")
     selected_keys = sample_motion_balanced_window_keys(
         window_keys=train_candidates.window_keys,
         labels=train_candidate_profile.labels,
@@ -727,7 +731,7 @@ def _build_motion_sampled_windows(
         workers=config.workers,
     )
     if show_progress:
-        print("data: indexing validation motion candidates")
+        LOGGER.info("data: indexing validation motion candidates")
     validation_pixels = MabeWindowDataset(
         validation_sequences,
         spec,
@@ -741,7 +745,7 @@ def _build_motion_sampled_windows(
         workers=config.workers,
     )
     if show_progress:
-        print("data: sampling motion-balanced validation windows")
+        LOGGER.info("data: sampling motion-balanced validation windows")
     validation_keys = sample_motion_balanced_window_keys(
         window_keys=validation_pixels.window_keys,
         labels=validation_candidate_profile.labels,
@@ -1307,13 +1311,13 @@ def _print_motion_sampling_report(
         return
 
     thresholds = motion_report.train_candidates.thresholds
-    print(
-        "motion_sampling: "
-        "score=mean_keypoint_speed_px_s "
-        f"low_max={thresholds.low_max_px_s:.6f} "
-        f"medium_max={thresholds.medium_max_px_s:.6f} "
-        f"train_selected={motion_report.train_selected.counts} "
-        f"validation={motion_report.validation.counts}"
+    LOGGER.info(
+        "motion_sampling: score=mean_keypoint_speed_px_s low_max=%.6f "
+        "medium_max=%.6f train_selected=%s validation=%s",
+        thresholds.low_max_px_s,
+        thresholds.medium_max_px_s,
+        motion_report.train_selected.counts,
+        motion_report.validation.counts,
     )
 
 
@@ -1332,7 +1336,7 @@ def _print_validation_motion_losses(summary: EpochLossSummary) -> None:
         for stratum in MOTION_STRATA
         if stratum in summary.loss_by_motion
     )
-    print(f"validation_by_motion: {values}")
+    LOGGER.info("validation_by_motion: %s", values)
 
 
 def _print_validation_metrics(summary: ValidationMetricSummary) -> None:
@@ -1350,7 +1354,7 @@ def _print_validation_metrics(summary: ValidationMetricSummary) -> None:
         for name in VALIDATION_CLI_METRICS
         if name in summary.metrics
     )
-    print(f"validation_metrics: {values}")
+    LOGGER.info("validation_metrics: %s", values)
 
 
 def _wandb_log_validation_motion_table(
@@ -1447,7 +1451,7 @@ def _print_device_info(device_info: DeviceInfo) -> None:
         device_info: Device metadata to print.
     """
 
-    print(f"device: {_device_display_name(device_info)}")
+    LOGGER.info("device: %s", _device_display_name(device_info))
 
 
 def _device_display_name(device_info: DeviceInfo) -> str:
@@ -1612,7 +1616,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
             ),
         },
     }
-    print(yaml.safe_dump(report, sort_keys=False))
+    LOGGER.info("%s", yaml.safe_dump(report, sort_keys=False).rstrip())
 
 
 def _select_device(requested: str) -> torch.device:
@@ -1760,6 +1764,7 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     """Run a training command."""
 
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="Train trajectory models.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
@@ -1833,10 +1838,10 @@ def main() -> None:
                 device=args.device,
             )
         )
-        print(f"device={warmup_result.device}")
-        print(f"steps={warmup_result.steps}")
-        print(f"initial_loss={warmup_result.initial_loss:.6f}")
-        print(f"final_loss={warmup_result.final_loss:.6f}")
+        LOGGER.info("device=%s", warmup_result.device)
+        LOGGER.info("steps=%s", warmup_result.steps)
+        LOGGER.info("initial_loss=%.6f", warmup_result.initial_loss)
+        LOGGER.info("final_loss=%.6f", warmup_result.final_loss)
         return
 
     fit_config = load_flat_fit_config(args.config, _fit_overrides(args))
@@ -1847,17 +1852,17 @@ def main() -> None:
         return
 
     fit_result = run_flat_fit(fit_config)
-    print(f"device={fit_result.device}")
-    print(f"best_epoch={fit_result.best_epoch}")
-    print(f"best_validation_loss={fit_result.best_validation_loss:.6f}")
-    print(f"final_train_loss={fit_result.final_train_loss:.6f}")
-    print(f"final_validation_loss={fit_result.final_validation_loss:.6f}")
+    LOGGER.info("device=%s", fit_result.device)
+    LOGGER.info("best_epoch=%s", fit_result.best_epoch)
+    LOGGER.info("best_validation_loss=%.6f", fit_result.best_validation_loss)
+    LOGGER.info("final_train_loss=%.6f", fit_result.final_train_loss)
+    LOGGER.info("final_validation_loss=%.6f", fit_result.final_validation_loss)
     if fit_result.checkpoint_path is not None:
-        print(f"checkpoint={fit_result.checkpoint_path}")
+        LOGGER.info("checkpoint=%s", fit_result.checkpoint_path)
     if fit_result.wandb_artifact_name is not None:
-        print(f"wandb_artifact={fit_result.wandb_artifact_name}:best")
+        LOGGER.info("wandb_artifact=%s:best", fit_result.wandb_artifact_name)
     if fit_result.resumed_from is not None:
-        print(f"resumed_from={fit_result.resumed_from}")
+        LOGGER.info("resumed_from=%s", fit_result.resumed_from)
 
 
 if __name__ == "__main__":

@@ -26,7 +26,11 @@ from evaluate import (
     resolve_baseline_window_config,
     save_evaluation_record,
 )
+from logging_utils import configure_cli_logging, get_logger
 from train import load_flat_fit_config
+
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -173,6 +177,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
 def main() -> None:
     """Run the configured fair benchmark and print its metric tables."""
 
+    configure_cli_logging()
     parser = argparse.ArgumentParser(
         description="Benchmark a trained trajectory model against motion baselines."
     )
@@ -185,7 +190,7 @@ def main() -> None:
     config = load_benchmark_config(args.config)
     record = run_benchmark(config)
     print_benchmark_tables(record)
-    print(f"result={config.results_path}")
+    LOGGER.info("result=%s", config.results_path)
 
 
 if __name__ == "__main__":

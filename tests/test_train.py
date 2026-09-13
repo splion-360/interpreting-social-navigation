@@ -100,10 +100,11 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
 
 def test_flat_fit_prints_resolved_device_info(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     data_path = tmp_path / "mouse_triplet_train.npy"
     write_mabe_file(data_path)
+    caplog.set_level("INFO", logger=train.__name__)
 
     run_flat_fit(
         FlatFitConfig(
@@ -124,7 +125,7 @@ def test_flat_fit_prints_resolved_device_info(
         show_progress=False,
     )
 
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "device: cpu" in output
     assert "torch_version:" not in output
     assert "cuda_available:" not in output
@@ -250,10 +251,11 @@ def test_variant_train_configs_load_from_src_config() -> None:
 
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     data_path = tmp_path / "mouse_triplet_train.npy"
     write_mabe_file(data_path, sequences=3)
+    caplog.set_level("INFO", logger=train.__name__)
 
     train.show_flat_fit_setup(
         FlatFitConfig(
@@ -269,7 +271,7 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
         )
     )
 
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "normalization:" in output
     assert "scale_xy:" in output
     assert "variant: dense_keypoint" in output

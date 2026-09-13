@@ -45,6 +45,7 @@ from inference import (
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
 )
+from logging_utils import configure_cli_logging, get_logger
 from metrics import PRIMARY_METRIC_NAMES, compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from train import (
@@ -78,6 +79,7 @@ SKELETON_EDGE_CELLS = frozenset(
     for start, end in (edge, (edge[1], edge[0]))
 )
 animate_prediction_comparison: Any | None = None
+LOGGER = get_logger(__name__)
 animate_single_mouse_prediction_comparison: Any | None = None
 save_animation: Any | None = None
 __all__ = [
@@ -340,7 +342,7 @@ def evaluate_flat_checkpoint(
 
     device = _select_device(config.device)
     if show_progress:
-        print(f"Loading checkpoint: {checkpoint_path}")
+        LOGGER.info("loading checkpoint: %s", checkpoint_path)
     checkpoint = _load_checkpoint(checkpoint_path, device)
     windows, normalizer = _build_evaluation_data(
         config=config,
@@ -353,7 +355,7 @@ def evaluate_flat_checkpoint(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     if show_progress:
-        print(f"Loaded checkpoint at epoch {checkpoint.get('epoch', 'unknown')}")
+        LOGGER.info("loaded checkpoint at epoch %s", checkpoint.get("epoch", "unknown"))
 
     generator = torch.Generator(device=device)
     if seed is not None:
@@ -1770,6 +1772,7 @@ def _resolve_results_path(
 def main() -> None:
     """Run checkpoint evaluation from the command line."""
 
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="Evaluate trajectory checkpoints.")
     parser.add_argument(
         "--config",
@@ -1886,14 +1889,15 @@ def main() -> None:
                         else None
                     ),
                 )
-            print(f"\nbaseline={baseline_result.baseline}")
+            LOGGER.info("")
+            LOGGER.info("baseline=%s", baseline_result.baseline)
             print_evaluation_metrics(baseline_result.metrics)
             print_motion_stratified_metrics(
                 metrics_by_motion=baseline_result.metrics_by_motion,
                 motion_profile=baseline_result.motion_profile,
             )
         if not args.no_save_result:
-            print(f"result={results_path}")
+            LOGGER.info("result=%s", results_path)
         return
 
     checkpoint_result = evaluate_flat_checkpoint(
@@ -1934,7 +1938,7 @@ def main() -> None:
             motion_profile=checkpoint_result.motion_profile,
         )
     if not args.no_save_result:
-        print(f"result={results_path}")
+        LOGGER.info("result=%s", results_path)
 
 
 if __name__ == "__main__":
