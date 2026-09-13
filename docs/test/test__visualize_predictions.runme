@@ -97,14 +97,81 @@ print("video:", result.path)
 
 ## Run Inference and Save Zoomed One-Mouse Video
 
-This creates one MP4 per mouse with two adjacent panels: the actual mouse on the
-left and the sampled model rollout on the right. Use `MOUSE_INDICES` to inspect
-one mouse or all three mice.
+This creates one MP4 for a selected mouse with two adjacent panels: the actual
+mouse on the left and the sampled model rollout on the right. Use `MOUSE_INDEX`
+to choose which mouse to inspect.
 
 Output path:
 
 ```text
 outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_{mouse_index}__{timestamp}.mp4
+```
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from dataclasses import replace
+from datetime import datetime
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from evaluate import load_test_config, save_single_mouse_prediction_video
+from train import load_flat_fit_config
+
+TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
+TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
+SEQ_ID = "07FMZMD2TNPY7W3W48KA"
+WINDOW_INDEX = 0
+MOUSE_INDEX = 0
+SEED = 42
+DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+train_config = load_flat_fit_config(TRAIN_CONFIG)
+if DEVICE is not None:
+    train_config = replace(train_config, device=DEVICE)
+test_config = load_test_config(TEST_CONFIG)
+
+result = save_single_mouse_prediction_video(
+    config=train_config,
+    test_config=test_config,
+    checkpoint_path=CHECKPOINT,
+    mouse_index=MOUSE_INDEX,
+    sequence_id=SEQ_ID,
+    window_index=WINDOW_INDEX,
+    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
+    fps=8,
+    interval_ms=120,
+    seed=SEED,
+    filename_suffix=f"__{RUN_TIMESTAMP}",
+)
+
+print("sequence_id:", result.sequence_id)
+print("start_frame:", result.start_frame)
+print("graph:", result.graph_variant)
+print("mouse_index:", MOUSE_INDEX)
+print("observed_frames:", train_config.observation_length)
+print("predicted_frames:", train_config.prediction_length)
+print("frame_step:", train_config.frame_step)
+print("effective_fps:", train_config.source_fps / train_config.frame_step)
+print("video:", result.path)
+```
+
+## Run Inference and Save Zoomed Videos for All Mice
+
+This creates three zoomed MP4s for the same sampled trajectory, one for each
+mouse. All files share one timestamp so the outputs are easy to compare.
+
+Output paths:
+
+```text
+outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_0__{timestamp}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_1__{timestamp}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_2__{timestamp}.mp4
 ```
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
