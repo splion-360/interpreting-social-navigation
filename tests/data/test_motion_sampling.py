@@ -8,7 +8,33 @@ from data.motion_sampling import (
     build_motion_profile,
     mean_keypoint_speed_px_s,
     sample_motion_balanced_window_keys,
+    window_motion_scores_px_s,
 )
+
+
+class FakeWindow:
+    """Small window object exposing future keypoints for motion scoring."""
+
+    def __init__(self, speed: float) -> None:
+        self.future_keypoints = np.zeros((2, 3, 12, 2), dtype=np.float32)
+        self.future_keypoints[1, ..., 0] = speed
+
+
+class FakeWindows:
+    """Small picklable window collection for motion-scoring tests."""
+
+    def __init__(self, speeds: list[float]) -> None:
+        self.windows = [FakeWindow(speed) for speed in speeds]
+
+    def __len__(self) -> int:
+        """Return the number of fake windows."""
+
+        return len(self.windows)
+
+    def __getitem__(self, index: int) -> FakeWindow:
+        """Return a fake window by position."""
+
+        return self.windows[index]
 
 
 def test_mean_keypoint_speed_uses_future_pixel_steps() -> None:
@@ -22,21 +48,6 @@ def test_mean_keypoint_speed_uses_future_pixel_steps() -> None:
 
 
 def test_motion_profile_applies_train_fitted_thresholds() -> None:
-    class FakeWindow:
-        def __init__(self, speed: float) -> None:
-            self.future_keypoints = np.zeros((2, 3, 12, 2), dtype=np.float32)
-            self.future_keypoints[1, ..., 0] = speed
-
-    class FakeWindows:
-        def __init__(self, speeds: list[float]) -> None:
-            self.windows = [FakeWindow(speed) for speed in speeds]
-
-        def __len__(self) -> int:
-            return len(self.windows)
-
-        def __getitem__(self, index: int) -> FakeWindow:
-            return self.windows[index]
-
     profile = build_motion_profile(
         FakeWindows([1.0, 5.0, 10.0]),  # type: ignore[arg-type]
         thresholds=MotionThresholds(low_max_px_s=2.0, medium_max_px_s=6.0),
@@ -45,6 +56,23 @@ def test_motion_profile_applies_train_fitted_thresholds() -> None:
 
     assert profile.labels == ("low", "medium", "high")
     assert profile.counts == {"low": 1, "medium": 1, "high": 1}
+
+
+def test_parallel_motion_scoring_matches_serial_scoring() -> None:
+    windows = FakeWindows([1.0, 5.0, 10.0, 20.0])
+
+    serial = window_motion_scores_px_s(  # type: ignore[arg-type]
+        windows,
+        seconds_per_step=0.5,
+        workers=0,
+    )
+    parallel = window_motion_scores_px_s(  # type: ignore[arg-type]
+        windows,
+        seconds_per_step=0.5,
+        workers=2,
+    )
+
+    np.testing.assert_allclose(parallel, serial)
 
 
 def test_motion_balanced_sampling_uses_configured_mix_and_seed() -> None:

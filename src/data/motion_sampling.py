@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from data.mabe import MabeWindowDataset
 
@@ -14,6 +17,8 @@ from data.mabe import MabeWindowDataset
 MotionStratum = Literal["low", "medium", "high"]
 MOTION_STRATA: tuple[MotionStratum, ...] = ("low", "medium", "high")
 DEFAULT_MOTION_MIX = {"low": 0.2, "medium": 0.4, "high": 0.4}
+_WORKER_WINDOWS: MabeWindowDataset | None = None
+_WORKER_SECONDS_PER_STEP = 1.0
 
 
 @dataclass(frozen=True)
@@ -109,24 +114,45 @@ def window_motion_scores_px_s(
     windows: MabeWindowDataset,
     *,
     seconds_per_step: float,
+    show_progress: bool = False,
+    desc: str = "Scoring motion windows",
+    workers: int = 0,
 ) -> np.ndarray:
     """Score each window by future mean keypoint speed.
 
     Args:
         windows: Pixel-space windows to score.
         seconds_per_step: Seconds between adjacent sampled frames.
+        show_progress: Whether to show scoring progress.
+        desc: Progress-bar description.
+        workers: Number of forked worker processes. Use `0` or `1` for serial
+            scoring.
 
     Returns:
         One score per window in pixels per second.
     """
 
+    if workers > 1:
+        return _parallel_window_motion_scores_px_s(
+            windows,
+            seconds_per_step=seconds_per_step,
+            show_progress=show_progress,
+            desc=desc,
+            workers=workers,
+        )
+    iterator = tqdm(
+        range(len(windows)),
+        desc=desc,
+        unit="window",
+        disable=not show_progress,
+    )
     return np.asarray(
         [
             mean_keypoint_speed_px_s(
                 windows[index].future_keypoints,
                 seconds_per_step=seconds_per_step,
             )
-            for index in range(len(windows))
+            for index in iterator
         ],
         dtype=np.float32,
     )
@@ -151,6 +177,9 @@ def build_motion_profile(
     *,
     thresholds: MotionThresholds,
     seconds_per_step: float,
+    show_progress: bool = False,
+    desc: str = "Building motion profile",
+    workers: int = 0,
 ) -> MotionProfile:
     """Assign motion labels to a fixed window collection.
 
@@ -158,12 +187,22 @@ def build_motion_profile(
         windows: Pixel-space windows to label.
         thresholds: Train-fitted thresholds.
         seconds_per_step: Seconds between adjacent sampled frames.
+        show_progress: Whether to show scoring progress.
+        desc: Progress-bar description.
+        workers: Number of forked worker processes. Use `0` or `1` for serial
+            scoring.
 
     Returns:
         Motion labels, thresholds, and scores for the window collection.
     """
 
-    scores = window_motion_scores_px_s(windows, seconds_per_step=seconds_per_step)
+    scores = window_motion_scores_px_s(
+        windows,
+        seconds_per_step=seconds_per_step,
+        show_progress=show_progress,
+        desc=desc,
+        workers=workers,
+    )
     return MotionProfile(
         labels=tuple(thresholds.label(float(score)) for score in scores),
         thresholds=thresholds,
@@ -221,6 +260,72 @@ def sample_motion_balanced_window_keys(
     shuffled = np.asarray(selected, dtype=np.int64)
     rng.shuffle(shuffled)
     return tuple(window_keys[int(index)] for index in shuffled)
+
+
+def _parallel_window_motion_scores_px_s(
+    windows: MabeWindowDataset,
+    *,
+    seconds_per_step: float,
+    show_progress: bool,
+    desc: str,
+    workers: int,
+) -> np.ndarray:
+    """Score windows with forked worker processes.
+
+    Args:
+        windows: Pixel-space windows to score.
+        seconds_per_step: Seconds between sampled frames.
+        show_progress: Whether to show scoring progress.
+        desc: Progress-bar description.
+        workers: Number of worker processes.
+
+    Returns:
+        One score per window in pixels per second.
+    """
+
+    context = mp.get_context("fork")
+    chunksize = max(1, len(windows) // (workers * 16))
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=context,
+        initializer=_init_motion_score_worker,
+        initargs=(windows, seconds_per_step),
+    ) as executor:
+        scores = executor.map(
+            _score_motion_window_index,
+            range(len(windows)),
+            chunksize=chunksize,
+        )
+        iterator = tqdm(
+            scores,
+            total=len(windows),
+            desc=f"{desc} ({workers} workers)",
+            unit="window",
+            disable=not show_progress,
+        )
+        return np.fromiter(iterator, dtype=np.float32, count=len(windows))
+
+
+def _init_motion_score_worker(
+    windows: MabeWindowDataset,
+    seconds_per_step: float,
+) -> None:
+    """Store scoring inputs once per worker process."""
+
+    global _WORKER_WINDOWS, _WORKER_SECONDS_PER_STEP
+    _WORKER_WINDOWS = windows
+    _WORKER_SECONDS_PER_STEP = seconds_per_step
+
+
+def _score_motion_window_index(index: int) -> float:
+    """Score one worker-owned window by mean keypoint speed."""
+
+    if _WORKER_WINDOWS is None:
+        raise RuntimeError("motion scoring worker was not initialized")
+    return mean_keypoint_speed_px_s(
+        _WORKER_WINDOWS[index].future_keypoints,
+        seconds_per_step=_WORKER_SECONDS_PER_STEP,
+    )
 
 
 def _allocate_counts(

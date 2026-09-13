@@ -14,6 +14,7 @@ max_validation_windows: null
 validation_fraction: 0.2
 motion_sampling: false
 motion_score: mean_keypoint_speed_px_s
+workers: 0
 motion_group_mix:
   low: 0.2
   medium: 0.4

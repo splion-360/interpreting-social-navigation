@@ -194,6 +194,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             8,
             12,
             1,
+            4,
         ),
         "dense_keypoint_5fps": (
             Path("src/config/dense_keypoint_5fps__train.yml"),
@@ -202,6 +203,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             16,
             24,
             6,
+            4,
         ),
         "flat_sparse_keypoint": (
             Path("src/config/flat_sparse_keypoint__train.yml"),
@@ -210,6 +212,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             8,
             12,
             1,
+            0,
         ),
         "mouse_level": (
             Path("src/config/mouse_level__train.yml"),
@@ -218,6 +221,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             8,
             12,
             1,
+            0,
         ),
     }
 
@@ -229,6 +233,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
         observation_length,
         prediction_length,
         frame_step,
+        workers,
     ) in variants.items():
         config = train.load_flat_fit_config(path)
 
@@ -237,6 +242,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
         assert config.observation_length == observation_length
         assert config.prediction_length == prediction_length
         assert config.frame_step == frame_step
+        assert config.workers == workers
         assert config.checkpoint_frequency == checkpoint_frequency
         assert config.motion_score == "mean_keypoint_speed_px_s"
         assert config.motion_sampling is variant.startswith("dense_keypoint")

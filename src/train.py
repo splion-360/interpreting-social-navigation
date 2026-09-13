@@ -22,6 +22,7 @@ from data import (
     MabeWindowDataset,
     MotionProfile,
     MotionStratum,
+    MotionThresholds,
     PoseNormalizer,
     WindowSpec,
     build_motion_profile,
@@ -145,6 +146,7 @@ class FlatFitConfig:
         motion_sampling: Whether to sample training windows by motion stratum.
         motion_group_mix: Desired low/medium/high training-window proportions.
         motion_score: Name of the motion score used for grouping.
+        workers: Number of CPU worker processes used for data-prep scoring.
         learning_rate: Adam learning rate.
         grad_clip: Gradient clipping threshold.
         seed: Random seed for deterministic splits and model initialization.
@@ -180,6 +182,7 @@ class FlatFitConfig:
         default_factory=lambda: dict(DEFAULT_MOTION_MIX)
     )
     motion_score: str = "mean_keypoint_speed_px_s"
+    workers: int = 0
     learning_rate: float = 1e-3
     grad_clip: float = 10.0
     seed: int = 42
@@ -204,6 +207,8 @@ class FlatFitConfig:
             raise ValueError("source_fps must be positive")
         if self.motion_score != "mean_keypoint_speed_px_s":
             raise ValueError("motion_score must be mean_keypoint_speed_px_s")
+        if self.workers < 0:
+            raise ValueError("workers must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -290,11 +295,13 @@ class TrainingWindowData:
     """Resolved train and validation windows for one training run.
 
     Attributes:
+        dataset: Loaded MABe dataset backing the split.
         train_windows: Training windows, optionally motion-balanced.
         validation_windows: Validation windows.
         motion_report: Motion sampling metadata when grouping is enabled.
     """
 
+    dataset: MabeDataset
     train_windows: MabeWindowDataset
     validation_windows: MabeWindowDataset
     motion_report: MotionSamplingReport | None
@@ -386,12 +393,12 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
 
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
+    window_data = _build_training_window_data(config, show_progress=show_progress)
+    train_windows = window_data.train_windows
+    validation_windows = window_data.validation_windows
     device = _select_device(config.device)
     device_info = _device_info(config.device, device)
     _print_device_info(device_info)
-    window_data = _build_training_window_data(config)
-    train_windows = window_data.train_windows
-    validation_windows = window_data.validation_windows
     _print_motion_sampling_report(window_data.motion_report)
     model = FlatSocialAttentionModel().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
@@ -590,17 +597,26 @@ def _build_window_datasets(
     return window_data.train_windows, window_data.validation_windows
 
 
-def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
+def _build_training_window_data(
+    config: FlatFitConfig,
+    *,
+    show_progress: bool = False,
+) -> TrainingWindowData:
     """Load train and validation windows with optional motion-aware sampling.
 
     Args:
         config: Training configuration.
+        show_progress: Whether to print data-preparation progress.
 
     Returns:
         Training windows, validation windows, and motion-sampling metadata.
     """
 
+    if show_progress:
+        print(f"data: loading {config.data_path}")
     dataset = MabeDataset.from_file(config.data_path)
+    if show_progress:
+        print("data: splitting sequences and fitting pixel normalizer")
     train_ids, validation_ids = split_sequence_ids(
         dataset.sequence_ids,
         validation_fraction=config.validation_fraction,
@@ -624,6 +640,7 @@ def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
                 spec=spec,
                 normalizer=normalizer,
                 config=config,
+                show_progress=show_progress,
             )
         )
     else:
@@ -641,6 +658,7 @@ def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
         )
         motion_report = None
     return TrainingWindowData(
+        dataset=dataset,
         train_windows=train_windows,
         validation_windows=validation_windows,
         motion_report=motion_report,
@@ -654,6 +672,7 @@ def _build_motion_sampled_windows(
     spec: WindowSpec,
     normalizer: PoseNormalizer,
     config: FlatFitConfig,
+    show_progress: bool,
 ) -> tuple[MabeWindowDataset, MabeWindowDataset, MotionSamplingReport]:
     """Build train windows after fitting motion groups on train candidates.
 
@@ -663,22 +682,30 @@ def _build_motion_sampled_windows(
         spec: Window specification.
         normalizer: Train-fitted pose normalizer.
         config: Training configuration.
+        show_progress: Whether to print data-preparation progress.
 
     Returns:
         Motion-balanced train and validation windows plus sampling metadata.
     """
 
+    if show_progress:
+        print("data: indexing training motion candidates")
+        print(f"data: motion scoring workers={config.workers}")
     train_candidates = MabeWindowDataset(train_sequences, spec)
     candidate_scores = window_motion_scores_px_s(
         train_candidates,
         seconds_per_step=_seconds_per_step(config),
+        show_progress=show_progress,
+        desc="data: scoring train candidates",
+        workers=config.workers,
     )
     thresholds = fit_motion_thresholds(candidate_scores)
-    train_candidate_profile = build_motion_profile(
-        train_candidates,
+    train_candidate_profile = _motion_profile_from_scores(
+        candidate_scores,
         thresholds=thresholds,
-        seconds_per_step=_seconds_per_step(config),
     )
+    if show_progress:
+        print("data: sampling motion-balanced training windows")
     selected_keys = sample_motion_balanced_window_keys(
         window_keys=train_candidates.window_keys,
         labels=train_candidate_profile.labels,
@@ -695,7 +722,12 @@ def _build_motion_sampled_windows(
         train_selected_pixels,
         thresholds=thresholds,
         seconds_per_step=_seconds_per_step(config),
+        show_progress=show_progress,
+        desc="data: labeling selected train windows",
+        workers=config.workers,
     )
+    if show_progress:
+        print("data: indexing validation motion candidates")
     validation_pixels = MabeWindowDataset(
         validation_sequences,
         spec,
@@ -704,7 +736,12 @@ def _build_motion_sampled_windows(
         validation_pixels,
         thresholds=thresholds,
         seconds_per_step=_seconds_per_step(config),
+        show_progress=show_progress,
+        desc="data: labeling validation candidates",
+        workers=config.workers,
     )
+    if show_progress:
+        print("data: sampling motion-balanced validation windows")
     validation_keys = sample_motion_balanced_window_keys(
         window_keys=validation_pixels.window_keys,
         labels=validation_candidate_profile.labels,
@@ -721,6 +758,9 @@ def _build_motion_sampled_windows(
         validation_selected_pixels,
         thresholds=thresholds,
         seconds_per_step=_seconds_per_step(config),
+        show_progress=show_progress,
+        desc="data: labeling selected validation windows",
+        workers=config.workers,
     )
     train_windows = MabeWindowDataset(
         train_sequences,
@@ -742,6 +782,28 @@ def _build_motion_sampled_windows(
             train_selected=train_selected_profile,
             validation=validation_profile,
         ),
+    )
+
+
+def _motion_profile_from_scores(
+    scores_px_s: np.ndarray,
+    *,
+    thresholds: MotionThresholds,
+) -> MotionProfile:
+    """Build motion labels from already-computed window scores.
+
+    Args:
+        scores_px_s: Per-window motion scores in pixels per second.
+        thresholds: Train-fitted thresholds used to assign strata.
+
+    Returns:
+        Motion profile without rescoring the same windows.
+    """
+
+    return MotionProfile(
+        labels=tuple(thresholds.label(float(score)) for score in scores_px_s),
+        thresholds=thresholds,
+        scores_px_s=tuple(float(score) for score in scores_px_s),
     )
 
 
@@ -1079,6 +1141,7 @@ def _start_wandb(
             "motion_sampling": config.motion_sampling,
             "motion_group_mix": config.motion_group_mix,
             "motion_score": config.motion_score,
+            "workers": config.workers,
             "motion_profile": (
                 motion_report.to_dict() if motion_report is not None else None
             ),
@@ -1435,8 +1498,8 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         config: Training configuration to inspect.
     """
 
-    dataset = MabeDataset.from_file(config.data_path)
-    window_data = _build_training_window_data(config)
+    window_data = _build_training_window_data(config, show_progress=True)
+    dataset = window_data.dataset
     train_windows = window_data.train_windows
     validation_windows = window_data.validation_windows
     train_sequences = [
@@ -1494,6 +1557,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
                     "enabled": False,
                     "score": config.motion_score,
                     "motion_group_mix": config.motion_group_mix,
+                    "workers": config.workers,
                 }
             ),
         },
@@ -1672,6 +1736,7 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "validation_fraction": args.validation_fraction,
         "motion_sampling": args.motion_sampling,
         "motion_score": args.motion_score,
+        "workers": args.workers,
         "learning_rate": args.learning_rate,
         "grad_clip": args.grad_clip,
         "seed": args.seed,
@@ -1737,6 +1802,7 @@ def main() -> None:
     fit.add_argument("--validation-fraction", type=float)
     fit.add_argument("--motion-sampling", action=argparse.BooleanOptionalAction)
     fit.add_argument("--motion-score")
+    fit.add_argument("--workers", type=int)
     fit.add_argument("--learning-rate", type=float)
     fit.add_argument("--grad-clip", type=float)
     fit.add_argument("--seed", type=int)
