@@ -97,9 +97,9 @@ print("video:", result.path)
 
 ## Run Inference and Save Zoomed One-Mouse Video
 
-This creates one MP4 with two adjacent panels: the actual mouse on the left and
-the sampled model rollout on the right. Use `MOUSE_INDEX` to inspect one mouse
-more closely.
+This creates one MP4 per mouse with two adjacent panels: the actual mouse on the
+left and the sampled model rollout on the right. Use `MOUSE_INDICES` to inspect
+one mouse or all three mice.
 
 Output path:
 
@@ -126,7 +126,7 @@ TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
 CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
-MOUSE_INDEX = 0
+MOUSE_INDICES = (0, 1, 2)
 SEED = 42
 DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -136,29 +136,31 @@ if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
 
-result = save_single_mouse_prediction_video(
-    config=train_config,
-    test_config=test_config,
-    checkpoint_path=CHECKPOINT,
-    mouse_index=MOUSE_INDEX,
-    sequence_id=SEQ_ID,
-    window_index=WINDOW_INDEX,
-    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
-    fps=8,
-    interval_ms=120,
-    seed=SEED,
-    filename_suffix=f"__{RUN_TIMESTAMP}",
-)
+for mouse_index in MOUSE_INDICES:
+    result = save_single_mouse_prediction_video(
+        config=train_config,
+        test_config=test_config,
+        checkpoint_path=CHECKPOINT,
+        mouse_index=mouse_index,
+        sequence_id=SEQ_ID,
+        window_index=WINDOW_INDEX,
+        output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
+        fps=8,
+        interval_ms=120,
+        seed=SEED,
+        filename_suffix=f"__{RUN_TIMESTAMP}",
+    )
 
-print("sequence_id:", result.sequence_id)
-print("start_frame:", result.start_frame)
-print("graph:", result.graph_variant)
-print("mouse_index:", MOUSE_INDEX)
-print("observed_frames:", train_config.observation_length)
-print("predicted_frames:", train_config.prediction_length)
-print("frame_step:", train_config.frame_step)
-print("effective_fps:", train_config.source_fps / train_config.frame_step)
-print("video:", result.path)
+    print("sequence_id:", result.sequence_id)
+    print("start_frame:", result.start_frame)
+    print("graph:", result.graph_variant)
+    print("mouse_index:", mouse_index)
+    print("observed_frames:", train_config.observation_length)
+    print("predicted_frames:", train_config.prediction_length)
+    print("frame_step:", train_config.frame_step)
+    print("effective_fps:", train_config.source_fps / train_config.frame_step)
+    print("video:", result.path)
+    print()
 ```
 
 ## Print Exact-Window Error Profile
