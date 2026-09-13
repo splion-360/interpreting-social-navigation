@@ -61,8 +61,10 @@ improvements would mean that low-motion windows are masking model failure.
 
 ## Recorded result
 
-The checkpoint at epoch 45 was evaluated on 1,000 windows. These aggregate
-metrics are all lower-is-better:
+Snapshot recorded on 2026-09-12 in
+`outputs/evaluations/dense_keypoint/comparison_8_12/results.jsonl`. At that time,
+`flat_best.pt` resolved to epoch 45 with validation loss -6.962924 and was
+evaluated on 1,000 windows. These aggregate metrics are all lower-is-better:
 
 | Method | cADE px | cFDE px | kADE px | kFDE px | BHE deg | BLE px | ROE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -39,7 +40,7 @@ from data import (
     split_sequence_ids,
 )
 from loss import gaussian_2d_parameters
-from metric import compute_pixel_metrics, ground_truth_motion_px
+from metric import PRIMARY_METRIC_NAMES, compute_pixel_metrics, ground_truth_motion_px
 from models import FlatSocialAttentionModel
 from st_graph import GraphSequence
 from train import (
@@ -62,25 +63,6 @@ TABLE_METRIC_NAMES = (
     "relative_ordering_error_by_mouse_axis",
     "edge_angle_error_deg_by_mouse",
     "edge_bone_length_error_px_by_mouse",
-)
-PRIMARY_METRIC_NAMES = (
-    "centroid_ade_px",
-    "centroid_fde_px",
-    "keypoint_ade_px",
-    "keypoint_fde_px",
-    "centroid_x_offset_px",
-    "centroid_y_offset_px",
-    "centroid_velocity_error_px_per_frame",
-    "keypoint_velocity_error_px_per_frame",
-    "displacement_magnitude_error_px",
-    "displacement_direction_error_deg",
-    "displacement_gain",
-    "skeleton_orientation_error_deg",
-    "bone_length_error_px",
-    "body_heading_error_deg",
-    "relative_ordering_error",
-    "relative_ordering_error_forward",
-    "relative_ordering_error_lateral",
 )
 MOTION_STRATA = ("low", "medium", "high")
 MotionStratum = Literal["low", "medium", "high"]
@@ -264,6 +246,7 @@ class EvaluationResult:
         checkpoint_validation_loss: Validation loss stored in the checkpoint.
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
+        window_digest: Fingerprint of selected sequence/start-frame keys.
     """
 
     split: str
@@ -274,6 +257,7 @@ class EvaluationResult:
     checkpoint_validation_loss: float | None
     motion_profile: dict[str, Any] | None = None
     metrics_by_motion: dict[str, dict[str, Any]] | None = None
+    window_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -288,6 +272,7 @@ class BaselineEvaluationResult:
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
         evaluation_seconds: Wall-clock time spent predicting and scoring windows.
+        window_digest: Fingerprint of selected sequence/start-frame keys.
     """
 
     baseline: BaselineName
@@ -297,6 +282,7 @@ class BaselineEvaluationResult:
     motion_profile: dict[str, Any]
     metrics_by_motion: dict[str, dict[str, Any]]
     evaluation_seconds: float = 0.0
+    window_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -517,6 +503,7 @@ def evaluate_flat_checkpoint(
         checkpoint_validation_loss=checkpoint.get("validation_loss"),
         motion_profile=motion_profile.to_dict(),
         metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
+        window_digest=_window_selection_digest(windows),
     )
 
 
@@ -591,6 +578,7 @@ def evaluate_motion_baseline(
         motion_profile=motion_profile.to_dict(),
         metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
         evaluation_seconds=perf_counter() - evaluation_started,
+        window_digest=_window_selection_digest(windows),
     )
 
 
@@ -920,6 +908,17 @@ def _build_motion_profile(
             )
         )
     return stratify_motion_scores(np.asarray(scores, dtype=np.float32))
+
+
+def _window_selection_digest(windows: MabeWindowDataset) -> str:
+    """Fingerprint selected sequence and start-frame keys in evaluation order."""
+
+    digest = hashlib.sha256()
+    for sequence_id, start_frame in windows.window_keys:
+        digest.update(sequence_id.encode())
+        digest.update(b"\0")
+        digest.update(start_frame.to_bytes(8, byteorder="big", signed=False))
+    return digest.hexdigest()
 
 
 def _append_metric_values(

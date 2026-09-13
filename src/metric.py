@@ -13,6 +13,43 @@ from constants import MOUSE_SKELETON_EDGES, NUM_KEYPOINTS
 BODY_HEADING_EDGE = (9, 3)
 BODY_FRAME_ORIGIN_KEYPOINT = 6
 BODY_FRAME_AXES = ("forward", "lateral")
+PRIMARY_METRIC_NAMES = (
+    "centroid_ade_px",
+    "centroid_fde_px",
+    "keypoint_ade_px",
+    "keypoint_fde_px",
+    "centroid_x_offset_px",
+    "centroid_y_offset_px",
+    "centroid_velocity_error_px_per_frame",
+    "keypoint_velocity_error_px_per_frame",
+    "displacement_magnitude_error_px",
+    "displacement_direction_error_deg",
+    "displacement_gain",
+    "skeleton_orientation_error_deg",
+    "bone_length_error_px",
+    "body_heading_error_deg",
+    "relative_ordering_error",
+    "relative_ordering_error_forward",
+    "relative_ordering_error_lateral",
+)
+RELATIVE_ERROR_METRIC_NAMES = frozenset(
+    {
+        "centroid_ade_px",
+        "centroid_fde_px",
+        "keypoint_ade_px",
+        "keypoint_fde_px",
+        "centroid_velocity_error_px_per_frame",
+        "keypoint_velocity_error_px_per_frame",
+        "displacement_magnitude_error_px",
+        "displacement_direction_error_deg",
+        "skeleton_orientation_error_deg",
+        "bone_length_error_px",
+        "body_heading_error_deg",
+        "relative_ordering_error",
+        "relative_ordering_error_forward",
+        "relative_ordering_error_lateral",
+    }
+)
 
 
 @dataclass(frozen=True)

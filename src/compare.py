@@ -1,20 +1,20 @@
-"""File description: Fair held-out comparisons of learned and deterministic predictors."""
+"""File description: CLI orchestration for fair trajectory predictor comparisons."""
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from math import isfinite
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 import yaml
-from rich import box
-from rich.console import Console
-from rich.table import Table
 
+from comparison import (
+    ComparableMetrics,
+    build_comparison_record,
+    print_comparison_tables,
+)
 from evaluate import (
     BaselineEvaluationResult,
     EvaluationResult,
@@ -26,27 +26,6 @@ from evaluate import (
     save_evaluation_record,
 )
 from train import load_flat_fit_config
-
-
-MOTION_STRATA = ("low", "medium", "high")
-ERROR_METRIC_NAMES = (
-    "centroid_ade_px",
-    "centroid_fde_px",
-    "keypoint_ade_px",
-    "keypoint_fde_px",
-    "centroid_velocity_error_px_per_frame",
-    "keypoint_velocity_error_px_per_frame",
-    "displacement_magnitude_error_px",
-    "displacement_direction_error_deg",
-    "skeleton_orientation_error_deg",
-    "bone_length_error_px",
-    "body_heading_error_deg",
-    "body_frame_keypoint_ade_px",
-    "body_frame_keypoint_fde_px",
-    "relative_ordering_error",
-    "relative_ordering_error_forward",
-    "relative_ordering_error_lateral",
-)
 
 
 @dataclass(frozen=True)
@@ -68,131 +47,6 @@ class ComparisonConfig:
     checkpoint_path: Path
     results_path: Path
     model_name: str = "social_attention"
-
-
-@dataclass(frozen=True)
-class ComparableMetrics:
-    """Metrics from one method evaluated on a shared window collection.
-
-    Attributes:
-        name: Method name used in tables and result records.
-        windows: Number of evaluated windows.
-        metrics: Aggregate metrics over every window.
-        metrics_by_motion: Aggregate metrics by ground-truth motion stratum.
-        motion_profile: Shared stratum thresholds and counts.
-        runtime_seconds: Wall-clock evaluation time when available.
-    """
-
-    name: str
-    windows: int
-    metrics: dict[str, Any]
-    metrics_by_motion: dict[str, dict[str, Any]]
-    motion_profile: dict[str, Any]
-    runtime_seconds: float | None = None
-
-
-def relative_error_improvements(
-    *,
-    candidate: dict[str, Any],
-    reference: dict[str, Any],
-) -> dict[str, float | None]:
-    """Calculate lower-is-better improvements relative to a reference method.
-
-    Args:
-        candidate: Metrics for the method being compared.
-        reference: Persistence metrics used as the denominator.
-
-    Returns:
-        Fractional improvements for recognized scalar errors. Positive values
-        indicate lower error than persistence. Undefined references return ``None``.
-    """
-
-    improvements: dict[str, float | None] = {}
-    for name in ERROR_METRIC_NAMES:
-        candidate_value = candidate.get(name)
-        reference_value = reference.get(name)
-        if (
-            not isinstance(candidate_value, int | float)
-            or not isinstance(reference_value, int | float)
-            or not isfinite(candidate_value)
-            or not isfinite(reference_value)
-        ):
-            improvements[name] = None
-        elif reference_value == 0.0:
-            improvements[name] = None
-        else:
-            improvements[name] = (reference_value - candidate_value) / reference_value
-    return improvements
-
-
-def build_comparison_record(
-    *,
-    methods: list[ComparableMetrics],
-    observation_length: int,
-    prediction_length: int,
-    seed: int,
-) -> dict[str, Any]:
-    """Build a comparison record after verifying the shared evaluation contract.
-
-    Args:
-        methods: Results for persistence, learned, and other baseline methods.
-        observation_length: Number of input frames used by every method.
-        prediction_length: Number of future frames predicted by every method.
-        seed: Evaluation seed shared by stochastic methods.
-
-    Returns:
-        JSON-ready result with raw metrics and improvements over persistence.
-
-    Raises:
-        ValueError: If persistence is absent or methods used different windows or
-            motion-stratification profiles.
-    """
-
-    by_name = {method.name: method for method in methods}
-    if "persistence" not in by_name:
-        raise ValueError("comparison requires persistence as its reference")
-
-    reference = by_name["persistence"]
-    for method in methods:
-        if method.windows != reference.windows:
-            raise ValueError("comparison methods evaluated different window counts")
-        if method.motion_profile != reference.motion_profile:
-            raise ValueError("comparison methods used different motion strata")
-
-    method_records: dict[str, Any] = {}
-    for method in methods:
-        improvement_by_motion = {
-            stratum: relative_error_improvements(
-                candidate=method.metrics_by_motion[stratum],
-                reference=reference.metrics_by_motion[stratum],
-            )
-            for stratum in MOTION_STRATA
-        }
-        method_records[method.name] = {
-            "metrics": method.metrics,
-            "metrics_by_motion": method.metrics_by_motion,
-            "relative_improvement_over_persistence": {
-                "overall": relative_error_improvements(
-                    candidate=method.metrics,
-                    reference=reference.metrics,
-                ),
-                "by_motion": improvement_by_motion,
-            },
-            "runtime_seconds": method.runtime_seconds,
-        }
-
-    return {
-        "timestamp_utc": datetime.now(UTC).isoformat(),
-        "reference": "persistence",
-        "window_contract": {
-            "observation_length": observation_length,
-            "prediction_length": prediction_length,
-            "windows": reference.windows,
-            "seed": seed,
-        },
-        "motion_profile": reference.motion_profile,
-        "methods": method_records,
-    }
 
 
 def load_comparison_config(path: Path) -> ComparisonConfig:
@@ -225,6 +79,7 @@ def _comparable_baseline(result: BaselineEvaluationResult) -> ComparableMetrics:
         metrics=result.metrics,
         metrics_by_motion=result.metrics_by_motion,
         motion_profile=result.motion_profile,
+        window_digest=result.window_digest,
         runtime_seconds=result.evaluation_seconds,
     )
 
@@ -245,6 +100,7 @@ def _comparable_model(
         metrics=result.metrics,
         metrics_by_motion=result.metrics_by_motion,
         motion_profile=result.motion_profile,
+        window_digest=result.window_digest,
         runtime_seconds=runtime_seconds,
     )
 
@@ -307,55 +163,6 @@ def run_comparison(config: ComparisonConfig) -> dict[str, Any]:
     }
     save_evaluation_record(record, config.results_path)
     return record
-
-
-def print_comparison_tables(
-    record: dict[str, Any],
-    *,
-    console: Console | None = None,
-) -> None:
-    """Print raw errors and improvements for overall and stratified results.
-
-    Args:
-        record: Comparison record returned by :func:`build_comparison_record`.
-        console: Optional Rich console.
-    """
-
-    output = console or Console()
-    method_names = tuple(record["methods"])
-    groups = ("overall", *MOTION_STRATA)
-    for group in groups:
-        table = Table(title=f"8 -> 12 comparison: {group}", box=box.SIMPLE_HEAVY)
-        table.add_column("metric", style="cyan", no_wrap=True)
-        for method_name in method_names:
-            table.add_column(method_name, justify="right")
-        for metric_name in ERROR_METRIC_NAMES:
-            values: list[str] = []
-            has_value = False
-            for method_name in method_names:
-                method = record["methods"][method_name]
-                metrics = (
-                    method["metrics"]
-                    if group == "overall"
-                    else method["metrics_by_motion"][group]
-                )
-                improvement = method["relative_improvement_over_persistence"]
-                improvement = (
-                    improvement["overall"]
-                    if group == "overall"
-                    else improvement["by_motion"][group]
-                )
-                value = metrics.get(metric_name)
-                gain = improvement.get(metric_name)
-                if isinstance(value, int | float) and isfinite(value):
-                    has_value = True
-                    suffix = f" ({gain:+.1%})" if isinstance(gain, int | float) else ""
-                    values.append(f"{value:.3f}{suffix}")
-                else:
-                    values.append("-")
-            if has_value:
-                table.add_row(metric_name, *values)
-        output.print(table)
 
 
 def main() -> None:

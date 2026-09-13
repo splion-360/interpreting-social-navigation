@@ -1,6 +1,6 @@
 """File description: Behavioral tests for fair model and baseline comparisons."""
 
-from compare import (
+from comparison import (
     ComparableMetrics,
     build_comparison_record,
     relative_error_improvements,
@@ -23,7 +23,7 @@ def test_relative_error_improvements_use_persistence_as_reference() -> None:
 
     assert improvements["centroid_fde_px"] == 0.2
     assert improvements["displacement_direction_error_deg"] is None
-    assert "displacement_gain" not in improvements
+    assert improvements["displacement_gain"] is None
 
 
 def test_build_comparison_record_requires_matching_motion_profiles() -> None:
@@ -42,6 +42,7 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
             "high": {"centroid_fde_px": 20.0},
         },
         motion_profile=profile,
+        window_digest="shared-window-digest",
     )
     social_attention = ComparableMetrics(
         name="social_attention",
@@ -53,6 +54,7 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
             "high": {"centroid_fde_px": 15.0},
         },
         motion_profile=profile,
+        window_digest="shared-window-digest",
     )
 
     record = build_comparison_record(
@@ -67,6 +69,7 @@ def test_build_comparison_record_requires_matching_motion_profiles() -> None:
         "prediction_length": 12,
         "windows": 3,
         "seed": 42,
+        "window_digest": "shared-window-digest",
     }
     assert record["motion_profile"] == profile
     improvement = record["methods"]["social_attention"][

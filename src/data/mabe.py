@@ -352,6 +352,12 @@ class MabeWindowDataset:
     def __len__(self) -> int:
         return len(self._index)
 
+    @property
+    def window_keys(self) -> tuple[tuple[str, int], ...]:
+        """Return the deterministic sequence and start-frame selection."""
+
+        return self._index
+
     def __getitem__(self, index: int) -> Window:
         sequence_id, start = self._index[index]
         sequence = self.sequences[sequence_id]
