@@ -202,14 +202,20 @@ outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1440.mp4
 outputs/visualizations/temporal_sampling/03X9MA72NIC1R0QHT78U__start_1520.mp4
 ```
 
-Decision: keep `frame_step=12` for the paper-rate baseline because it preserves
-motion-ranking well and matches the Social Attention temporal contract. Do not
-treat it as lossless pose-motion sampling; fine keypoint path length is
-compressed by downsampling, so a future fine-motion experiment should compare
-against `frame_step=6`.
+Decision: use 5 FPS for the next dense-keypoint baseline. For 30 FPS MABe data,
+that means `frame_step=6`. To preserve the original Social Attention durations,
+the next training contract should use `observation_length=16`,
+`prediction_length=24`, and `window_length=40`, giving 3.2 seconds of observed
+history and 4.8 seconds of predicted future.
+
+The paper-rate `frame_step=12` setup remains useful as a reference point because
+it exactly matches the original 8-step/12-step temporal contract, but it keeps
+only about half of the median raw keypoint path length. The 5 FPS setup keeps
+more fine pose motion while preserving the same observed and predicted
+durations.
 
 Visual inspection note: the worst retained-motion examples still show coherent
 whole-body poses at the sampled cadence, but the sampled points skip fine
 within-body motion. Existing training YAMLs intentionally remain at
-`frame_step=1`; the paper-rate training YAML belongs to the dense-keypoint
-training ticket.
+`frame_step=1`; the 5 FPS training YAML belongs to the dense-keypoint training
+ticket.
