@@ -53,6 +53,8 @@ def test_pixel_metrics_are_zero_for_perfect_prediction() -> None:
     assert metrics.relative_ordering_error == 0.0
     assert metrics.relative_ordering_error_forward == 0.0
     assert metrics.relative_ordering_error_lateral == 0.0
+    assert metrics.body_frame_keypoint_ade_px == 0.0
+    assert metrics.body_frame_keypoint_fde_px == 0.0
     assert metrics.body_frame_keypoint_error_px_by_mouse.shape == (1, 12)
     assert metrics.relative_ordering_error_by_mouse_axis.shape == (1, 2)
     assert metrics.skeleton_orientation_error_deg == 0.0

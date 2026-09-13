@@ -1,0 +1,78 @@
+---
+cwd: ../..
+---
+
+# Train Dense-Keypoint 5 FPS Baseline
+
+This workflow trains the dense-keypoint Social Attention baseline with the
+current 5 FPS temporal contract:
+
+```text
+source_fps=30
+frame_step=6
+effective_fps=5
+observation_length=16  # 3.2 seconds
+prediction_length=24   # 4.8 seconds
+window_length=40
+```
+
+Thresholds are fit from training windows only. Training and validation windows
+are then sampled with the same motion mix:
+
+```text
+low=20%, medium=40%, high=40%
+score=mean_keypoint_speed_px_s
+seed=42
+```
+
+## Inspect Dataset and Training Config
+
+Run this before training. It prints the resolved config, motion thresholds,
+selected train-window counts, validation-window counts, graph shape, device, and
+checkpoint settings without starting optimization.
+
+```sh
+python -m train fit --config src/config/dense_keypoint_5fps__train.yml --show-config
+```
+
+## Start Training
+
+Use W&B for this experiment so the checkpoint, losses, validation metrics, and
+motion-group tables are versioned outside the local workspace.
+
+```sh
+python -m train fit --config src/config/dense_keypoint_5fps__train.yml --wandb
+```
+
+The CLI prints epoch loss plus a compact validation metric line:
+
+```text
+validation_metrics: cFDE=... kFDE=... CVE=... KVE=... BHE=... ROE=...
+```
+
+W&B logs every epoch:
+
+- `train/loss`
+- `validation/loss`
+- scalar validation metrics: `cADE`, `cFDE`, `kADE`, `kFDE`, `CVE`, `KVE`,
+  `BHE`, `BFK-ADE`, `BFK-FDE`, `BLE`, `SOE`, `ROE`
+- `validation/motion_metrics_table`
+- best and periodic model artifacts when checkpointing is enabled
+
+## Compare Against Deterministic Baselines
+
+Run this after training creates
+`checkpoints/dense_keypoint_5fps/flat_best.pt`.
+
+```sh
+python src/compare.py --config src/config/dense_keypoint_5fps__compare.yml
+```
+
+The comparison writes:
+
+```text
+outputs/evaluations/dense_keypoint_5fps/comparison/results.jsonl
+```
+
+Use this record to compare Social Attention against persistence, rigid constant
+velocity, and per-keypoint constant velocity on the same held-out windows.

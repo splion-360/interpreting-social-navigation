@@ -28,6 +28,8 @@ PRIMARY_METRIC_NAMES = (
     "skeleton_orientation_error_deg",
     "bone_length_error_px",
     "body_heading_error_deg",
+    "body_frame_keypoint_ade_px",
+    "body_frame_keypoint_fde_px",
     "relative_ordering_error",
     "relative_ordering_error_forward",
     "relative_ordering_error_lateral",
@@ -45,6 +47,8 @@ RELATIVE_ERROR_METRIC_NAMES = frozenset(
         "skeleton_orientation_error_deg",
         "bone_length_error_px",
         "body_heading_error_deg",
+        "body_frame_keypoint_ade_px",
+        "body_frame_keypoint_fde_px",
         "relative_ordering_error",
         "relative_ordering_error_forward",
         "relative_ordering_error_lateral",
@@ -69,6 +73,8 @@ class PixelMetricBundle:
         displacement_magnitude_error_px: Mean net centroid travel-distance error.
         displacement_direction_error_deg: Mean net centroid direction error.
         displacement_gain: Predicted-to-target net centroid displacement ratio.
+        body_frame_keypoint_ade_px: Mean keypoint error in the actual body frame.
+        body_frame_keypoint_fde_px: Final keypoint error in the actual body frame.
         relative_ordering_error: Mean local-body-frame keypoint ordering error.
         relative_ordering_error_forward: Ordering error along the body axis.
         relative_ordering_error_lateral: Ordering error across the body axis.
@@ -94,6 +100,8 @@ class PixelMetricBundle:
     displacement_magnitude_error_px: float
     displacement_direction_error_deg: float
     displacement_gain: float
+    body_frame_keypoint_ade_px: float
+    body_frame_keypoint_fde_px: float
     relative_ordering_error: float
     relative_ordering_error_forward: float
     relative_ordering_error_lateral: float
@@ -130,6 +138,8 @@ class PixelMetricBundle:
             "displacement_magnitude_error_px": self.displacement_magnitude_error_px,
             "displacement_direction_error_deg": (self.displacement_direction_error_deg),
             "displacement_gain": self.displacement_gain,
+            "body_frame_keypoint_ade_px": self.body_frame_keypoint_ade_px,
+            "body_frame_keypoint_fde_px": self.body_frame_keypoint_fde_px,
             "relative_ordering_error": self.relative_ordering_error,
             "relative_ordering_error_forward": self.relative_ordering_error_forward,
             "relative_ordering_error_lateral": self.relative_ordering_error_lateral,
@@ -234,6 +244,8 @@ def compute_pixel_metrics(
             target,
             initial_pose=motion_origin,
         ),
+        body_frame_keypoint_ade_px=_nanmean(body_frame_errors),
+        body_frame_keypoint_fde_px=_nanmean(body_frame_errors[-1]),
         relative_ordering_error=_nanmean(ordering_by_mouse_axis),
         relative_ordering_error_forward=_nanmean(ordering_by_mouse_axis[:, 0]),
         relative_ordering_error_lateral=_nanmean(ordering_by_mouse_axis[:, 1]),

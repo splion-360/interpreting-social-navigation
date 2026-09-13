@@ -9,6 +9,7 @@ import pytest
 import torch
 
 import evaluate as evaluate_module
+import inference as inference_module
 from evaluate import (
     EvaluationResult,
     _aggregate_metric_values,
@@ -110,7 +111,7 @@ def test_rollout_reuses_sampled_positions_to_recompute_edges(
         del generator
         return outputs[:, :2]
 
-    monkeypatch.setattr(evaluate_module, "sample_bivariate_gaussian", fake_sample)
+    monkeypatch.setattr(inference_module, "sample_bivariate_gaussian", fake_sample)
     rollout = rollout_flat_keypoint_model(
         model=cast(Any, IncrementModel()),
         observed_keypoints=observed,

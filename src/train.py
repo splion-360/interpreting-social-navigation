@@ -14,7 +14,7 @@ import yaml
 from torch import Tensor
 from tqdm import tqdm
 
-from constants import DEFAULT_SOURCE_FPS
+from constants import COORDINATES, DEFAULT_SOURCE_FPS, NUM_KEYPOINTS, NUM_MICE
 from data import (
     DEFAULT_MOTION_MIX,
     MOTION_STRATA,
@@ -22,6 +22,7 @@ from data import (
     MabeSequence,
     MabeWindowDataset,
     MotionProfile,
+    MotionStratum,
     PoseNormalizer,
     WindowSpec,
     build_motion_profile,
@@ -31,7 +32,9 @@ from data import (
     split_sequence_ids,
     window_motion_scores_px_s,
 )
+from inference import rollout_flat_keypoint_model
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
+from metric import compute_pixel_metrics
 from models import FlatSocialAttentionModel
 from st_graph import (
     GraphSequence,
@@ -53,6 +56,29 @@ GRAPH_BUILDERS = {
     "flat_sparse_keypoint": build_flat_sparse_keypoint_graph,
     "mouse_level": build_mouse_level_graph,
 }
+VALIDATION_METRIC_GRAPH_VARIANTS = {"dense_keypoint", "flat_sparse_keypoint"}
+VALIDATION_METRIC_ALIASES = {
+    "centroid_ade_px": "cADE",
+    "centroid_fde_px": "cFDE",
+    "keypoint_ade_px": "kADE",
+    "keypoint_fde_px": "kFDE",
+    "centroid_velocity_error_px_s": "CVE",
+    "keypoint_velocity_error_px_s": "KVE",
+    "body_heading_error_deg": "BHE",
+    "body_frame_keypoint_ade_px": "BFK-ADE",
+    "body_frame_keypoint_fde_px": "BFK-FDE",
+    "bone_length_error_px": "BLE",
+    "skeleton_orientation_error_deg": "SOE",
+    "relative_ordering_error": "ROE",
+}
+VALIDATION_CLI_METRICS = (
+    "cFDE",
+    "kFDE",
+    "CVE",
+    "KVE",
+    "BHE",
+    "ROE",
+)
 
 
 @dataclass(frozen=True)
@@ -285,8 +311,23 @@ class EpochLossSummary:
     """
 
     loss: float
-    loss_by_motion: dict[str, float]
-    counts_by_motion: dict[str, int]
+    loss_by_motion: dict[MotionStratum, float]
+    counts_by_motion: dict[MotionStratum, int]
+
+
+@dataclass(frozen=True)
+class ValidationMetricSummary:
+    """Autoregressive validation metrics for one epoch.
+
+    Attributes:
+        metrics: Scalar metrics keyed by abbreviation.
+        metrics_by_motion: Scalar metrics keyed by motion stratum and abbreviation.
+        counts_by_motion: Number of windows per motion stratum.
+    """
+
+    metrics: dict[str, float]
+    metrics_by_motion: dict[MotionStratum, dict[str, float]]
+    counts_by_motion: dict[MotionStratum, int]
 
 
 def run_flat_warmup(config: FlatWarmupConfig) -> FlatWarmupResult:
@@ -396,6 +437,18 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
         )
         final_train_loss = train_summary.loss
         final_validation_loss = validation_summary.loss
+        validation_metrics = _run_validation_metrics(
+            model=model,
+            windows=validation_windows,
+            config=config,
+            device=device,
+            motion_labels=(
+                window_data.motion_report.validation.labels
+                if window_data.motion_report is not None
+                else None
+            ),
+            show_progress=show_progress,
+        )
 
         print(
             f"epoch={epoch}/{config.epochs} "
@@ -403,6 +456,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             f"validation_loss={final_validation_loss:.6f}"
         )
         _print_validation_motion_losses(validation_summary)
+        _print_validation_metrics(validation_metrics)
         _wandb_log(
             run,
             {
@@ -410,12 +464,26 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                 "train/loss": final_train_loss,
                 "validation/loss": final_validation_loss,
                 **{
+                    f"validation/{name}": value
+                    for name, value in validation_metrics.metrics.items()
+                },
+                **{
                     f"validation/loss/{stratum}": loss
                     for stratum, loss in validation_summary.loss_by_motion.items()
                 },
+                **{
+                    f"validation/{stratum}/{name}": value
+                    for stratum, values in validation_metrics.metrics_by_motion.items()
+                    for name, value in values.items()
+                },
             },
         )
-        _wandb_log_validation_motion_table(run, epoch, validation_summary)
+        _wandb_log_validation_motion_table(
+            run,
+            epoch,
+            validation_summary,
+            validation_metrics,
+        )
 
         is_best_checkpoint = final_validation_loss < best_validation_loss
         if is_best_checkpoint:
@@ -549,12 +617,14 @@ def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
     train_sequences = dataset.select(train_ids)
     validation_sequences = dataset.select(validation_ids)
     if config.motion_sampling:
-        train_windows, motion_report = _build_motion_sampled_windows(
-            train_sequences=train_sequences,
-            validation_sequences=validation_sequences,
-            spec=spec,
-            normalizer=normalizer,
-            config=config,
+        train_windows, validation_windows, motion_report = (
+            _build_motion_sampled_windows(
+                train_sequences=train_sequences,
+                validation_sequences=validation_sequences,
+                spec=spec,
+                normalizer=normalizer,
+                config=config,
+            )
         )
     else:
         train_windows = MabeWindowDataset(
@@ -563,13 +633,13 @@ def _build_training_window_data(config: FlatFitConfig) -> TrainingWindowData:
             normalizer=normalizer,
             max_windows=config.max_train_windows,
         )
+        validation_windows = MabeWindowDataset(
+            validation_sequences,
+            spec,
+            normalizer=normalizer,
+            max_windows=config.max_validation_windows,
+        )
         motion_report = None
-    validation_windows = MabeWindowDataset(
-        validation_sequences,
-        spec,
-        normalizer=normalizer,
-        max_windows=config.max_validation_windows,
-    )
     return TrainingWindowData(
         train_windows=train_windows,
         validation_windows=validation_windows,
@@ -584,7 +654,7 @@ def _build_motion_sampled_windows(
     spec: WindowSpec,
     normalizer: PoseNormalizer,
     config: FlatFitConfig,
-) -> tuple[MabeWindowDataset, MotionSamplingReport]:
+) -> tuple[MabeWindowDataset, MabeWindowDataset, MotionSamplingReport]:
     """Build train windows after fitting motion groups on train candidates.
 
     Args:
@@ -595,7 +665,7 @@ def _build_motion_sampled_windows(
         config: Training configuration.
 
     Returns:
-        Motion-balanced training windows and sampling metadata.
+        Motion-balanced train and validation windows plus sampling metadata.
     """
 
     train_candidates = MabeWindowDataset(train_sequences, spec)
@@ -629,10 +699,26 @@ def _build_motion_sampled_windows(
     validation_pixels = MabeWindowDataset(
         validation_sequences,
         spec,
+    )
+    validation_candidate_profile = build_motion_profile(
+        validation_pixels,
+        thresholds=thresholds,
+        seconds_per_step=_seconds_per_step(config),
+    )
+    validation_keys = sample_motion_balanced_window_keys(
+        window_keys=validation_pixels.window_keys,
+        labels=validation_candidate_profile.labels,
+        mix=config.motion_group_mix,
         max_windows=config.max_validation_windows,
+        seed=config.seed + 1,
+    )
+    validation_selected_pixels = MabeWindowDataset(
+        validation_sequences,
+        spec,
+        window_keys=validation_keys,
     )
     validation_profile = build_motion_profile(
-        validation_pixels,
+        validation_selected_pixels,
         thresholds=thresholds,
         seconds_per_step=_seconds_per_step(config),
     )
@@ -642,10 +728,20 @@ def _build_motion_sampled_windows(
         normalizer=normalizer,
         window_keys=selected_keys,
     )
-    return train_windows, MotionSamplingReport(
-        train_candidates=train_candidate_profile,
-        train_selected=train_selected_profile,
-        validation=validation_profile,
+    validation_windows = MabeWindowDataset(
+        validation_sequences,
+        spec,
+        normalizer=normalizer,
+        window_keys=validation_keys,
+    )
+    return (
+        train_windows,
+        validation_windows,
+        MotionSamplingReport(
+            train_candidates=train_candidate_profile,
+            train_selected=train_selected_profile,
+            validation=validation_profile,
+        ),
     )
 
 
@@ -659,13 +755,15 @@ def _run_epoch(
     epoch: int,
     split: str,
     show_progress: bool,
-    motion_labels: tuple[str, ...] | None = None,
+    motion_labels: tuple[MotionStratum, ...] | None = None,
 ) -> EpochLossSummary:
     """Run one train or validation epoch."""
 
     model.train(optimizer is not None)
     batch_losses = []
-    motion_losses: dict[str, list[float]] = {name: [] for name in MOTION_STRATA}
+    motion_losses: dict[MotionStratum, list[float]] = {
+        name: [] for name in MOTION_STRATA
+    }
     iterator = range(0, len(windows), config.batch_size)
     progress = tqdm(
         iterator,
@@ -753,6 +851,146 @@ def _batch_loss(
         )
     loss_values = [float(loss.detach().cpu()) for loss in losses]
     return torch.stack(losses).mean(), loss_values
+
+
+def _run_validation_metrics(
+    *,
+    model: FlatSocialAttentionModel,
+    windows: MabeWindowDataset,
+    config: FlatFitConfig,
+    device: torch.device,
+    motion_labels: tuple[MotionStratum, ...] | None,
+    show_progress: bool,
+) -> ValidationMetricSummary:
+    """Run autoregressive validation metrics for the current model.
+
+    Args:
+        model: Model after the current epoch update.
+        windows: Normalized validation windows.
+        config: Training configuration.
+        device: Device used for inference.
+        motion_labels: Optional per-window motion labels from train thresholds.
+        show_progress: Whether to render a validation-metrics progress bar.
+
+    Returns:
+        Overall and motion-stratified scalar validation metrics.
+    """
+
+    if config.graph_variant not in VALIDATION_METRIC_GRAPH_VARIANTS:
+        return ValidationMetricSummary(
+            metrics={},
+            metrics_by_motion={},
+            counts_by_motion=dict.fromkeys(MOTION_STRATA, 0),
+        )
+
+    normalizer = windows.normalizer
+    if normalizer is None:
+        raise ValueError("validation metrics require normalized windows")
+
+    build_graph = _graph_builder(config.graph_variant)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(config.seed)
+    metric_values: dict[str, list[float]] = {}
+    by_motion: dict[MotionStratum, dict[str, list[float]]] = {
+        name: {} for name in MOTION_STRATA
+    }
+    counts_by_motion = dict.fromkeys(MOTION_STRATA, 0)
+    was_training = model.training
+    model.eval()
+
+    iterator = tqdm(
+        range(len(windows)),
+        desc="validation metrics",
+        unit="window",
+        disable=not show_progress,
+    )
+    with torch.no_grad():
+        for window_index in iterator:
+            window = windows[window_index]
+            rollout = rollout_flat_keypoint_model(
+                model=model,
+                observed_keypoints=window.observed_keypoints,
+                prediction_length=config.prediction_length,
+                build_graph=build_graph,
+                device=device,
+                generator=generator,
+            )
+            predicted_future = normalizer.inverse_transform(
+                rollout.nodes[config.observation_length :].reshape(
+                    config.prediction_length,
+                    NUM_MICE,
+                    NUM_KEYPOINTS,
+                    COORDINATES,
+                )
+            )
+            target_future = normalizer.inverse_transform(window.future_keypoints)
+            initial_pose = normalizer.inverse_transform(window.observed_keypoints[-1])
+            metrics = _abbreviated_validation_metrics(
+                compute_pixel_metrics(
+                    predicted_future,
+                    target_future,
+                    initial_pose=initial_pose,
+                    seconds_per_step=_seconds_per_step(config),
+                ).to_numpy_dict()
+            )
+            _append_scalar_metrics(metric_values, metrics)
+            if motion_labels is not None:
+                stratum = motion_labels[window_index]
+                counts_by_motion[stratum] += 1
+                _append_scalar_metrics(by_motion[stratum], metrics)
+
+    model.train(was_training)
+    return ValidationMetricSummary(
+        metrics=_aggregate_scalar_metrics(metric_values),
+        metrics_by_motion={
+            stratum: _aggregate_scalar_metrics(values)
+            for stratum, values in by_motion.items()
+            if values
+        },
+        counts_by_motion=counts_by_motion,
+    )
+
+
+def _abbreviated_validation_metrics(
+    metrics: dict[str, float | np.ndarray],
+) -> dict[str, float]:
+    """Keep validation metrics required for training logs.
+
+    Args:
+        metrics: Full pixel-space metric dictionary.
+
+    Returns:
+        Scalar metrics keyed by the agreed training-log abbreviations.
+    """
+
+    return {
+        alias: float(value)
+        for metric_name, alias in VALIDATION_METRIC_ALIASES.items()
+        if isinstance((value := metrics[metric_name]), int | float)
+    }
+
+
+def _append_scalar_metrics(
+    destination: dict[str, list[float]],
+    metrics: dict[str, float],
+) -> None:
+    """Append scalar metrics to an aggregation dictionary."""
+
+    for name, value in metrics.items():
+        destination.setdefault(name, []).append(value)
+
+
+def _aggregate_scalar_metrics(
+    metric_values: dict[str, list[float]],
+) -> dict[str, float]:
+    """Average scalar metric values while ignoring undefined windows."""
+
+    aggregated = {}
+    for name, values in metric_values.items():
+        array = np.asarray(values, dtype=np.float32)
+        finite = array[np.isfinite(array)]
+        aggregated[name] = float(finite.mean()) if finite.size else float("nan")
+    return aggregated
 
 
 def _save_checkpoint(
@@ -844,6 +1082,7 @@ def _start_wandb(
             "motion_profile": (
                 motion_report.to_dict() if motion_report is not None else None
             ),
+            "validation_metric_aliases": VALIDATION_METRIC_ALIASES,
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
             "seed": config.seed,
@@ -1033,34 +1272,68 @@ def _print_validation_motion_losses(summary: EpochLossSummary) -> None:
     print(f"validation_by_motion: {values}")
 
 
+def _print_validation_metrics(summary: ValidationMetricSummary) -> None:
+    """Print the most useful validation metrics after each epoch.
+
+    Args:
+        summary: Autoregressive validation metric summary.
+    """
+
+    if not summary.metrics:
+        return
+
+    values = " ".join(
+        f"{name}={summary.metrics[name]:.3f}"
+        for name in VALIDATION_CLI_METRICS
+        if name in summary.metrics
+    )
+    print(f"validation_metrics: {values}")
+
+
 def _wandb_log_validation_motion_table(
     run: Any | None,
     epoch: int,
-    summary: EpochLossSummary,
+    loss_summary: EpochLossSummary,
+    metric_summary: ValidationMetricSummary,
 ) -> None:
-    """Log validation motion-stratum losses as a W&B table.
+    """Log validation motion-stratum losses and metrics as a W&B table.
 
     Args:
         run: Active W&B run, or `None` when W&B is disabled.
         epoch: Epoch number for the table rows.
-        summary: Validation loss summary.
+        loss_summary: Validation loss summary.
+        metric_summary: Autoregressive validation metric summary.
     """
 
-    if run is None or not summary.loss_by_motion:
+    if run is None or not metric_summary.metrics_by_motion:
         return
 
     import wandb
 
-    table = wandb.Table(columns=["epoch", "motion_group", "windows", "loss"])
+    table = wandb.Table(
+        columns=[
+            "epoch",
+            "motion_group",
+            "windows",
+            "loss",
+            *VALIDATION_METRIC_ALIASES.values(),
+        ]
+    )
     for stratum in MOTION_STRATA:
-        if stratum in summary.loss_by_motion:
-            table.add_data(
-                epoch,
-                stratum,
-                summary.counts_by_motion[stratum],
-                summary.loss_by_motion[stratum],
-            )
-    run.log({"validation/motion_loss_table": table, "epoch": epoch})
+        if stratum not in metric_summary.metrics_by_motion:
+            continue
+        metrics = metric_summary.metrics_by_motion[stratum]
+        table.add_data(
+            epoch,
+            stratum,
+            metric_summary.counts_by_motion[stratum],
+            loss_summary.loss_by_motion.get(stratum, float("nan")),
+            *(
+                metrics.get(alias, float("nan"))
+                for alias in VALIDATION_METRIC_ALIASES.values()
+            ),
+        )
+    run.log({"validation/motion_metrics_table": table, "epoch": epoch})
 
 
 def _seconds_per_step(config: FlatFitConfig) -> float:

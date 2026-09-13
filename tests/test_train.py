@@ -187,25 +187,59 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
 
 def test_variant_train_configs_load_from_src_config() -> None:
     variants = {
-        "dense_keypoint": (Path("src/config/dense_keypoint__train.yml"), 20),
+        "dense_keypoint": (
+            Path("src/config/dense_keypoint__train.yml"),
+            20,
+            20,
+            8,
+            12,
+            1,
+        ),
+        "dense_keypoint_5fps": (
+            Path("src/config/dense_keypoint_5fps__train.yml"),
+            10,
+            40,
+            16,
+            24,
+            6,
+        ),
         "flat_sparse_keypoint": (
             Path("src/config/flat_sparse_keypoint__train.yml"),
             10,
+            20,
+            8,
+            12,
+            1,
         ),
-        "mouse_level": (Path("src/config/mouse_level__train.yml"), 10),
+        "mouse_level": (
+            Path("src/config/mouse_level__train.yml"),
+            10,
+            20,
+            8,
+            12,
+            1,
+        ),
     }
 
     assert train.DEFAULT_TRAIN_CONFIG_PATH == variants["dense_keypoint"][0]
-    for variant, (path, checkpoint_frequency) in variants.items():
+    for variant, (
+        path,
+        checkpoint_frequency,
+        window_length,
+        observation_length,
+        prediction_length,
+        frame_step,
+    ) in variants.items():
         config = train.load_flat_fit_config(path)
 
-        assert config.graph_variant == variant
-        assert config.window_length == 20
-        assert config.observation_length == 8
-        assert config.prediction_length == 12
+        assert config.graph_variant == variant.removesuffix("_5fps")
+        assert config.window_length == window_length
+        assert config.observation_length == observation_length
+        assert config.prediction_length == prediction_length
+        assert config.frame_step == frame_step
         assert config.checkpoint_frequency == checkpoint_frequency
         assert config.motion_score == "mean_keypoint_speed_px_s"
-        assert config.motion_sampling is (variant == "dense_keypoint")
+        assert config.motion_sampling is variant.startswith("dense_keypoint")
 
 
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
@@ -276,6 +310,41 @@ def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) ->
         window_data.motion_report.train_candidates.thresholds.low_max_px_s
         <= window_data.motion_report.train_candidates.thresholds.medium_max_px_s
     )
+
+
+def test_validation_metric_abbreviations_keep_agreed_scalars() -> None:
+    metrics = train._abbreviated_validation_metrics(
+        {
+            "centroid_ade_px": 1.0,
+            "centroid_fde_px": 2.0,
+            "keypoint_ade_px": 3.0,
+            "keypoint_fde_px": 4.0,
+            "centroid_velocity_error_px_s": 5.0,
+            "keypoint_velocity_error_px_s": 6.0,
+            "body_heading_error_deg": 7.0,
+            "body_frame_keypoint_ade_px": 8.0,
+            "body_frame_keypoint_fde_px": 9.0,
+            "bone_length_error_px": 10.0,
+            "skeleton_orientation_error_deg": 11.0,
+            "relative_ordering_error": 12.0,
+            "edge_angle_error_deg_by_mouse": np.zeros((3, 12, 12)),
+        }
+    )
+
+    assert metrics == {
+        "cADE": 1.0,
+        "cFDE": 2.0,
+        "kADE": 3.0,
+        "kFDE": 4.0,
+        "CVE": 5.0,
+        "KVE": 6.0,
+        "BHE": 7.0,
+        "BFK-ADE": 8.0,
+        "BFK-FDE": 9.0,
+        "BLE": 10.0,
+        "SOE": 11.0,
+        "ROE": 12.0,
+    }
 
 
 def test_device_info_reports_cpu_without_gpu_name() -> None:
@@ -438,6 +507,48 @@ def test_wandb_checkpoint_logging_uploads_model_artifact(
     }
     assert added_files == [str(checkpoint_path)]
     assert aliases == ["best", "epoch-2"]
+
+
+def test_wandb_motion_metric_table_logs_epoch_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tables = []
+    logs = []
+
+    class FakeTable:
+        def __init__(self, columns: list[str]) -> None:
+            self.columns = columns
+            self.rows = []
+            tables.append(self)
+
+        def add_data(self, *values: Any) -> None:
+            self.rows.append(values)
+
+    class FakeRun:
+        def log(self, values: dict[str, Any]) -> None:
+            logs.append(values)
+
+    monkeypatch.setitem(sys.modules, "wandb", SimpleNamespace(Table=FakeTable))
+
+    train._wandb_log_validation_motion_table(
+        FakeRun(),
+        epoch=3,
+        loss_summary=EpochLossSummary(
+            loss=1.0,
+            loss_by_motion={"low": 0.5},
+            counts_by_motion={"low": 2, "medium": 0, "high": 0},
+        ),
+        metric_summary=train.ValidationMetricSummary(
+            metrics={"cADE": 1.0},
+            metrics_by_motion={"low": {"cADE": 1.0, "cFDE": 2.0}},
+            counts_by_motion={"low": 2, "medium": 0, "high": 0},
+        ),
+    )
+
+    assert tables[0].columns[:4] == ["epoch", "motion_group", "windows", "loss"]
+    assert "cADE" in tables[0].columns
+    assert tables[0].rows[0][:4] == (3, "low", 2, 0.5)
+    assert logs[0]["validation/motion_metrics_table"] is tables[0]
 
 
 def test_resolve_resume_checkpoint_prefers_local_checkpoint(tmp_path: Path) -> None:

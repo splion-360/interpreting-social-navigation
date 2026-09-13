@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +19,6 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
-from torch import Tensor
 from tqdm.auto import tqdm
 
 from baseline import BaselineName, predict_motion_baseline, valid_baseline_names
@@ -42,10 +40,13 @@ from data import (
     mean_keypoint_speed_px_s,
     split_sequence_ids,
 )
-from loss import gaussian_2d_parameters
+from inference import (
+    RolloutResult,
+    rollout_flat_keypoint_model,
+    sample_bivariate_gaussian,
+)
 from metric import PRIMARY_METRIC_NAMES, compute_pixel_metrics
 from models import FlatSocialAttentionModel
-from st_graph import GraphSequence
 from train import (
     FlatFitConfig,
     _graph_builder,
@@ -77,6 +78,11 @@ SKELETON_EDGE_CELLS = frozenset(
 animate_prediction_comparison: Any | None = None
 animate_single_mouse_prediction_comparison: Any | None = None
 save_animation: Any | None = None
+__all__ = [
+    "RolloutResult",
+    "rollout_flat_keypoint_model",
+    "sample_bivariate_gaussian",
+]
 
 
 @dataclass(frozen=True)
@@ -234,21 +240,6 @@ def resolve_baseline_window_config(
 
 
 @dataclass(frozen=True)
-class RolloutResult:
-    """Autoregressive trajectory rollout for one window.
-
-    Attributes:
-        nodes: Predicted node coordinates shaped `[time, nodes, 2]`.
-        gaussian_outputs: Raw Gaussian parameters for predicted future frames.
-        attention_weights: Per-frame attention weights from prediction steps.
-    """
-
-    nodes: np.ndarray
-    gaussian_outputs: np.ndarray
-    attention_weights: tuple[dict[int, tuple[Tensor, tuple[int, ...]]], ...]
-
-
-@dataclass(frozen=True)
 class EvaluationResult:
     """Aggregate trajectory metrics for a checkpoint.
 
@@ -315,121 +306,6 @@ class PredictionVideoResult:
     sequence_id: str
     start_frame: int
     graph_variant: str
-
-
-def sample_bivariate_gaussian(
-    outputs: Tensor,
-    *,
-    generator: torch.Generator | None = None,
-) -> Tensor:
-    """Sample 2D positions from raw bivariate Gaussian model outputs.
-
-    Args:
-        outputs: Raw Gaussian parameters shaped `[..., 5]`.
-        generator: Optional random generator for reproducible sampling.
-
-    Returns:
-        Sampled coordinates shaped `[..., 2]`.
-    """
-
-    params = gaussian_2d_parameters(outputs)
-    eps_x = torch.randn(
-        params.mu_x.shape,
-        generator=generator,
-        device=outputs.device,
-        dtype=outputs.dtype,
-    )
-    eps_y = torch.randn(
-        params.mu_y.shape,
-        generator=generator,
-        device=outputs.device,
-        dtype=outputs.dtype,
-    )
-    one_minus_rho_sq = torch.clamp(1 - params.rho.square(), min=1e-6)
-    x = params.mu_x + params.sigma_x * eps_x
-    y = params.mu_y + params.sigma_y * (
-        params.rho * eps_x + torch.sqrt(one_minus_rho_sq) * eps_y
-    )
-    return torch.stack((x, y), dim=-1)
-
-
-def rollout_flat_keypoint_model(
-    *,
-    model: FlatSocialAttentionModel,
-    observed_keypoints: np.ndarray,
-    prediction_length: int,
-    build_graph: Callable[[np.ndarray], GraphSequence],
-    device: torch.device,
-    generator: torch.Generator | None = None,
-) -> RolloutResult:
-    """Roll a flat keypoint model forward from observed frames.
-
-    Args:
-        model: Trained flat Social Attention model.
-        observed_keypoints: Observed keypoints shaped `[time, 3, 12, 2]`.
-        prediction_length: Number of future frames to generate.
-        build_graph: Graph builder matching the checkpoint/config variant.
-        device: Inference device.
-        generator: Optional random generator for reproducible sampling.
-
-    Returns:
-        Predicted full sequence containing observed and generated nodes.
-    """
-
-    observed = observed_keypoints.astype(np.float32)
-    total_length = observed.shape[0] + prediction_length
-    rollout_keypoints = np.zeros(
-        (total_length, NUM_MICE, NUM_KEYPOINTS, COORDINATES), dtype=np.float32
-    )
-    rollout_keypoints[: observed.shape[0]] = observed
-    state = None
-    attention: list[dict[int, tuple[Tensor, tuple[int, ...]]]] = []
-    gaussian_outputs: list[np.ndarray] = []
-
-    if observed.shape[0] > 1:
-        warm_graph = build_graph(rollout_keypoints[: observed.shape[0] - 1])
-        with torch.no_grad():
-            warm_result = model.forward_with_state(
-                nodes=torch.from_numpy(warm_graph.nodes).to(device),
-                edge_features=torch.from_numpy(warm_graph.edge_features).to(device),
-                edge_specs=warm_graph.edge_specs,
-                nodes_present=warm_graph.nodes_present,
-                edges_present=warm_graph.edges_present,
-                state=None,
-            )
-        state = warm_result.state
-
-    for step_idx in range(prediction_length):
-        current_frame = observed.shape[0] - 1 + step_idx
-        graph = build_graph(rollout_keypoints[: current_frame + 1])
-        with torch.no_grad():
-            result = model.forward_with_state(
-                nodes=torch.from_numpy(
-                    graph.nodes[current_frame : current_frame + 1]
-                ).to(device),
-                edge_features=torch.from_numpy(
-                    graph.edge_features[current_frame : current_frame + 1]
-                ).to(device),
-                edge_specs=graph.edge_specs,
-                nodes_present=(graph.nodes_present[current_frame],),
-                edges_present=(graph.edges_present[current_frame],),
-                state=state,
-            )
-        state = result.state
-        output = result.outputs[0]
-        next_nodes = sample_bivariate_gaussian(output, generator=generator)
-        gaussian_outputs.append(output.detach().cpu().numpy())
-        attention.extend(result.attention_weights)
-        rollout_keypoints[current_frame + 1] = _flat_nodes_to_keypoints(
-            next_nodes.detach().cpu().numpy()
-        )
-
-    rollout_graph = build_graph(rollout_keypoints)
-    return RolloutResult(
-        nodes=rollout_graph.nodes,
-        gaussian_outputs=np.stack(gaussian_outputs, axis=0),
-        attention_weights=tuple(attention),
-    )
 
 
 def evaluate_flat_checkpoint(
@@ -872,12 +748,6 @@ def _single_mouse_visualization_functions() -> tuple[Any, Any]:
         animate_single_mouse_prediction_comparison = loaded_animate
         save_animation = loaded_save
     return animate_single_mouse_prediction_comparison, save_animation
-
-
-def _flat_nodes_to_keypoints(nodes: np.ndarray) -> np.ndarray:
-    """Convert flat keypoint nodes back to `[3, 12, 2]` keypoints."""
-
-    return nodes.reshape(NUM_MICE, NUM_KEYPOINTS, COORDINATES).astype(np.float32)
 
 
 def _window_pixel_metrics(

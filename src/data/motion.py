@@ -11,8 +11,8 @@ import numpy as np
 from data.mabe import MabeWindowDataset
 
 
-MOTION_STRATA = ("low", "medium", "high")
 MotionStratum = Literal["low", "medium", "high"]
+MOTION_STRATA: tuple[MotionStratum, ...] = ("low", "medium", "high")
 DEFAULT_MOTION_MIX = {"low": 0.2, "medium": 0.4, "high": 0.4}
 
 

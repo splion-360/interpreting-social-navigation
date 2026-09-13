@@ -39,6 +39,8 @@ ground-truth mouse position and heading.
 | Signed horizontal offset | `centroid_x_offset_px` | `(-inf, inf)` | closer to 0 | Detects left/right centroid bias; positive means right. |
 | Signed vertical offset | `centroid_y_offset_px` | `(-inf, inf)` | closer to 0 | Detects up/down centroid bias; positive means down. |
 | Global body orientation | `body_heading_error_deg` | `[0, 180]` | lower | Checks whether the mouse faces the correct direction. |
+| Body-frame keypoint position over time | `body_frame_keypoint_ade_px` | `[0, inf)` | lower | Tracks keypoint placement after expressing predictions in the actual mouse frame. |
+| Final body-frame keypoint position | `body_frame_keypoint_fde_px` | `[0, inf)` | lower | Captures final-frame local pose and offset error in the actual mouse frame. |
 | Semantic keypoint ordering | `relative_ordering_error` | `[0, 1]` | lower | Checks whether keypoints preserve pairwise front/back and side ordering. |
 | Front/back ordering | `relative_ordering_error_forward` | `[0, 1]` | lower | Isolates ordering along the body axis. |
 | Left/right ordering | `relative_ordering_error_lateral` | `[0, 1]` | lower | Isolates ordering across the body axis. |
@@ -67,13 +69,14 @@ ignored because a keypoint has no self-edge length or angle.
 - Signed centroid offset measures directional bias, such as persistent rightward
   drift, which unsigned ADE/FDE cannot show.
 - Heading error measures global orientation.
+- Body-frame keypoint ADE/FDE measures local keypoint placement in the actual
+  mouse frame.
 - Relative ordering error measures whether keypoints cross each other
   semantically, even when distances are small.
 - Bone-length error measures scale and stretch.
 - Edge-angle error measures pairwise pose direction.
-- The per-keypoint body-frame table is diagnostic only. Its scalar ADE/FDE forms
-  are omitted because using the actual mouse frame makes them equivalent to
-  keypoint ADE/FDE under a shared rigid transform.
+- The per-keypoint body-frame table is diagnostic; the scalar ADE/FDE forms are
+  logged during training as `BFK-ADE` and `BFK-FDE`.
 
 A model can score well on one and fail another. For example, it can predict the
 right centroid while scrambling nose, ear, and tail ordering.
@@ -91,6 +94,8 @@ metric_contract = [
     ("centroid_x_offset_px", "(-inf, inf)", "closer to 0", "px"),
     ("centroid_y_offset_px", "(-inf, inf)", "closer to 0", "px"),
     ("body_heading_error_deg", "[0, 180]", "lower", "degrees"),
+    ("body_frame_keypoint_ade_px", "[0, inf)", "lower", "px"),
+    ("body_frame_keypoint_fde_px", "[0, inf)", "lower", "px"),
     ("relative_ordering_error", "[0, 1]", "lower", "fraction"),
     ("relative_ordering_error_forward", "[0, 1]", "lower", "fraction"),
     ("relative_ordering_error_lateral", "[0, 1]", "lower", "fraction"),
