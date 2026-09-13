@@ -553,6 +553,7 @@ def save_test_prediction_video(
     fps: int = 8,
     interval_ms: int = 120,
     seed: int | None = None,
+    filename_suffix: str | None = None,
 ) -> PredictionVideoResult:
     """Run test-set inference for one window and save a comparison MP4.
 
@@ -566,6 +567,7 @@ def save_test_prediction_video(
         fps: Frames per second for the saved MP4.
         interval_ms: Matplotlib animation interval.
         seed: Optional random seed for reproducible Gaussian sampling.
+        filename_suffix: Optional suffix appended to the sequence ID.
 
     Returns:
         Metadata for the saved video.
@@ -588,7 +590,10 @@ def save_test_prediction_video(
         step=1,
         interval_ms=interval_ms,
     )
-    output_path = output_root / config.graph_variant / f"{window.sequence_id}.mp4"
+    suffix = filename_suffix or ""
+    output_path = (
+        output_root / config.graph_variant / f"{window.sequence_id}{suffix}.mp4"
+    )
     saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(
         path=saved_path,
@@ -610,6 +615,7 @@ def save_single_mouse_prediction_video(
     fps: int = 8,
     interval_ms: int = 120,
     seed: int | None = None,
+    filename_suffix: str | None = None,
 ) -> PredictionVideoResult:
     """Run test-set inference and save a zoomed one-mouse comparison MP4.
 
@@ -624,6 +630,7 @@ def save_single_mouse_prediction_video(
         fps: Frames per second for the saved MP4.
         interval_ms: Matplotlib animation interval.
         seed: Optional random seed for reproducible Gaussian sampling.
+        filename_suffix: Optional suffix appended to the output filename.
 
     Returns:
         Metadata for the saved video.
@@ -651,10 +658,11 @@ def save_single_mouse_prediction_video(
         step=1,
         interval_ms=interval_ms,
     )
+    suffix = filename_suffix or ""
     output_path = (
         output_root
         / config.graph_variant
-        / f"{window.sequence_id}__mouse_{mouse_index}.mp4"
+        / f"{window.sequence_id}__mouse_{mouse_index}{suffix}.mp4"
     )
     saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(

@@ -4,12 +4,13 @@ cwd: ../..
 
 # Visualize Test Predictions
 
-Generate one MP4 comparing the held-out MABe ground-truth future against a sampled model rollout.
+Generate MP4s comparing the held-out MABe ground-truth future against a sampled
+model rollout from the trained 5 FPS flat dense triplet checkpoint.
 
 Output path:
 
 ```text
-outputs/visualizations/{graph_name}/{seq_id}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{graph_name}/{seq_id}__{timestamp}.mp4
 ```
 
 ## Select a Test Trajectory
@@ -45,6 +46,7 @@ This samples future keypoint coordinates from the predicted bivariate Gaussian d
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
+from datetime import datetime
 import os
 from pathlib import Path
 import sys
@@ -63,6 +65,8 @@ SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
 DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+
 train_config = load_flat_fit_config(TRAIN_CONFIG)
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
@@ -74,15 +78,20 @@ result = save_test_prediction_video(
     checkpoint_path=CHECKPOINT,
     sequence_id=SEQ_ID,
     window_index=WINDOW_INDEX,
-    output_root=repo_root / "outputs/visualizations",
+    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
     fps=8,
     interval_ms=120,
     seed=SEED,
+    filename_suffix=f"__{RUN_TIMESTAMP}",
 )
 
 print("sequence_id:", result.sequence_id)
 print("start_frame:", result.start_frame)
 print("graph:", result.graph_variant)
+print("observed_frames:", train_config.observation_length)
+print("predicted_frames:", train_config.prediction_length)
+print("frame_step:", train_config.frame_step)
+print("effective_fps:", train_config.source_fps / train_config.frame_step)
 print("video:", result.path)
 ```
 
@@ -95,11 +104,12 @@ more closely.
 Output path:
 
 ```text
-outputs/visualizations/{graph_name}/{seq_id}__mouse_{mouse_index}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{graph_name}/{seq_id}__mouse_{mouse_index}__{timestamp}.mp4
 ```
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
+from datetime import datetime
 import os
 from pathlib import Path
 import sys
@@ -119,6 +129,7 @@ WINDOW_INDEX = 0
 MOUSE_INDEX = 0
 SEED = 42
 DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 train_config = load_flat_fit_config(TRAIN_CONFIG)
 if DEVICE is not None:
@@ -132,16 +143,21 @@ result = save_single_mouse_prediction_video(
     mouse_index=MOUSE_INDEX,
     sequence_id=SEQ_ID,
     window_index=WINDOW_INDEX,
-    output_root=repo_root / "outputs/visualizations",
+    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
     fps=8,
     interval_ms=120,
     seed=SEED,
+    filename_suffix=f"__{RUN_TIMESTAMP}",
 )
 
 print("sequence_id:", result.sequence_id)
 print("start_frame:", result.start_frame)
 print("graph:", result.graph_variant)
 print("mouse_index:", MOUSE_INDEX)
+print("observed_frames:", train_config.observation_length)
+print("predicted_frames:", train_config.prediction_length)
+print("frame_step:", train_config.frame_step)
+print("effective_fps:", train_config.source_fps / train_config.frame_step)
 print("video:", result.path)
 ```
 
@@ -191,7 +207,10 @@ metrics = compute_pixel_metrics(predicted_future, target_future).to_dict()
 print("sequence_id:", window.sequence_id)
 print("window_index:", WINDOW_INDEX)
 print("start_frame:", window.start_frame)
+print("observed_frames:", train_config.observation_length)
 print("prediction_frames:", predicted_future.shape[0])
+print("frame_step:", train_config.frame_step)
+print("effective_fps:", train_config.source_fps / train_config.frame_step)
 print_evaluation_metrics(metrics)
 ```
 
