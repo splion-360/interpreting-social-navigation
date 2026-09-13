@@ -28,22 +28,33 @@ ground-truth mouse position and heading.
 
 ## Primary Metrics
 
-| Problem | Metric | Range | Better | Reason |
-|---|---:|---:|---:|---|
-| Mouse position over time | `centroid_ade_px` | `[0, inf)` | lower | Tracks global mouse trajectory without over-weighting individual keypoints. |
-| Mouse final position | `centroid_fde_px` | `[0, inf)` | lower | Captures final rollout drift. |
-| Keypoint position over time | `keypoint_ade_px` | `[0, inf)` | lower | Reference metric for full keypoint displacement. |
-| Final keypoint position | `keypoint_fde_px` | `[0, inf)` | lower | Reference metric for final-frame keypoint displacement. |
-| Centroid velocity | `centroid_velocity_error_px_s` (`CVE`) | `[0, inf)` | lower | Checks whether the mouse centroid has the correct first derivative. |
-| Keypoint velocity | `keypoint_velocity_error_px_s` (`KVE`) | `[0, inf)` | lower | Checks whether individual keypoints have the correct first derivative. |
-| Signed horizontal offset | `centroid_x_offset_px` | `(-inf, inf)` | closer to 0 | Detects left/right centroid bias; positive means right. |
-| Signed vertical offset | `centroid_y_offset_px` | `(-inf, inf)` | closer to 0 | Detects up/down centroid bias; positive means down. |
-| Global body orientation | `body_heading_error_deg` | `[0, 180]` | lower | Checks whether the mouse faces the correct direction. |
-| Body-frame keypoint position over time | `body_frame_keypoint_ade_px` | `[0, inf)` | lower | Tracks keypoint placement after expressing predictions in the actual mouse frame. |
-| Final body-frame keypoint position | `body_frame_keypoint_fde_px` | `[0, inf)` | lower | Captures final-frame local pose and offset error in the actual mouse frame. |
-| Semantic keypoint ordering | `relative_ordering_error` | `[0, 1]` | lower | Checks whether keypoints preserve pairwise front/back and side ordering. |
-| Front/back ordering | `relative_ordering_error_forward` | `[0, 1]` | lower | Isolates ordering along the body axis. |
-| Left/right ordering | `relative_ordering_error_lateral` | `[0, 1]` | lower | Isolates ordering across the body axis. |
+| Problem | Metric | Short name | Range | Better | Reason |
+|---|---|---:|---:|---:|---|
+| Mouse position over time | `centroid_ade_px` | `cADE` | `[0, inf)` | lower | Tracks global mouse trajectory without over-weighting individual keypoints. |
+| Mouse final position | `centroid_fde_px` | `cFDE` | `[0, inf)` | lower | Captures final rollout drift. |
+| Keypoint position over time | `keypoint_ade_px` | `kADE` | `[0, inf)` | lower | Reference metric for full keypoint displacement. |
+| Final keypoint position | `keypoint_fde_px` | `kFDE` | `[0, inf)` | lower | Reference metric for final-frame keypoint displacement. |
+| Signed horizontal offset | `centroid_x_offset_px` | `xOffset` | `(-inf, inf)` | closer to 0 | Detects left/right centroid bias; positive means right in image coordinates. |
+| Signed vertical offset | `centroid_y_offset_px` | `yOffset` | `(-inf, inf)` | closer to 0 | Detects up/down centroid bias; positive means down in image coordinates. |
+| Centroid velocity | `centroid_velocity_error_px_s` | `CVE` | `[0, inf)` | lower | Checks whether the mouse centroid has the correct first derivative. |
+| Keypoint velocity | `keypoint_velocity_error_px_s` | `KVE` | `[0, inf)` | lower | Checks whether individual keypoints have the correct first derivative. |
+| Net travel distance | `displacement_magnitude_error_px` | `DME` | `[0, inf)` | lower | Compares how far the centroid traveled over the prediction horizon. |
+| Net travel direction | `displacement_direction_error_deg` | `DDE` | `[0, 180]` or `nan` | lower | Compares the direction of net centroid displacement when target motion is non-trivial. |
+| Net travel scale | `displacement_gain` | `DG` | `[0, inf)` or `nan` | closer to 1 | Ratio of predicted-to-target centroid displacement magnitude. |
+| Pairwise pose orientation | `skeleton_orientation_error_deg` | `SOE` | `[0, 180]` | lower | Mean angle error over all off-diagonal keypoint-pair vectors. |
+| Pairwise body scale | `bone_length_error_px` | `BLE` | `[0, inf)` | lower | Mean distance error over all off-diagonal keypoint pairs. |
+| Global body orientation | `body_heading_error_deg` | `BHE` | `[0, 180]` | lower | Checks whether the mouse back-axis points in the correct direction. |
+| Body-frame keypoint position over time | `body_frame_keypoint_ade_px` | `BFK-ADE` | `[0, inf)` | lower | Tracks keypoint placement after expressing predictions in the actual mouse frame. |
+| Final body-frame keypoint position | `body_frame_keypoint_fde_px` | `BFK-FDE` | `[0, inf)` | lower | Captures final-frame local pose and offset error in the actual mouse frame. |
+| Semantic keypoint ordering | `relative_ordering_error` | `ROE` | `[0, 1]` | lower | Checks whether keypoints preserve pairwise front/back and side ordering. |
+| Front/back ordering | `relative_ordering_error_forward` | `ROE-F` | `[0, 1]` | lower | Isolates ordering along the body axis. |
+| Left/right ordering | `relative_ordering_error_lateral` | `ROE-L` | `[0, 1]` | lower | Isolates ordering across the body axis. |
+
+`SOE` means skeleton orientation error. Despite the name, it is not limited to
+the hand-defined anatomical skeleton. The current implementation computes dense
+pairwise vectors between every pair of keypoints, ignores the diagonal, compares
+the predicted vector angle against the ground-truth vector angle, and averages
+the angular error over frames, mice, and keypoint pairs.
 
 ## Diagnostic Tables
 
@@ -74,7 +85,7 @@ ignored because a keypoint has no self-edge length or angle.
 - Relative ordering error measures whether keypoints cross each other
   semantically, even when distances are small.
 - Bone-length error measures scale and stretch.
-- Edge-angle error measures pairwise pose direction.
+- SOE / edge-angle error measures pairwise pose direction.
 - The per-keypoint body-frame table is diagnostic; the scalar ADE/FDE forms are
   logged during training as `BFK-ADE` and `BFK-FDE`.
 
@@ -85,32 +96,40 @@ right centroid while scrambling nose, ear, and tail ordering.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 metric_contract = [
-    ("centroid_ade_px", "[0, inf)", "lower", "px"),
-    ("centroid_fde_px", "[0, inf)", "lower", "px"),
-    ("keypoint_ade_px", "[0, inf)", "lower", "px"),
-    ("keypoint_fde_px", "[0, inf)", "lower", "px"),
-    ("centroid_velocity_error_px_s", "[0, inf)", "lower", "px/s"),
-    ("keypoint_velocity_error_px_s", "[0, inf)", "lower", "px/s"),
-    ("centroid_x_offset_px", "(-inf, inf)", "closer to 0", "px"),
-    ("centroid_y_offset_px", "(-inf, inf)", "closer to 0", "px"),
-    ("body_heading_error_deg", "[0, 180]", "lower", "degrees"),
-    ("body_frame_keypoint_ade_px", "[0, inf)", "lower", "px"),
-    ("body_frame_keypoint_fde_px", "[0, inf)", "lower", "px"),
-    ("relative_ordering_error", "[0, 1]", "lower", "fraction"),
-    ("relative_ordering_error_forward", "[0, 1]", "lower", "fraction"),
-    ("relative_ordering_error_lateral", "[0, 1]", "lower", "fraction"),
+    ("centroid_ade_px", "cADE", "[0, inf)", "lower", "px"),
+    ("centroid_fde_px", "cFDE", "[0, inf)", "lower", "px"),
+    ("keypoint_ade_px", "kADE", "[0, inf)", "lower", "px"),
+    ("keypoint_fde_px", "kFDE", "[0, inf)", "lower", "px"),
+    ("centroid_x_offset_px", "xOffset", "(-inf, inf)", "closer to 0", "px"),
+    ("centroid_y_offset_px", "yOffset", "(-inf, inf)", "closer to 0", "px"),
+    ("centroid_velocity_error_px_s", "CVE", "[0, inf)", "lower", "px/s"),
+    ("keypoint_velocity_error_px_s", "KVE", "[0, inf)", "lower", "px/s"),
+    ("displacement_magnitude_error_px", "DME", "[0, inf)", "lower", "px"),
+    ("displacement_direction_error_deg", "DDE", "[0, 180] or nan", "lower", "degrees"),
+    ("displacement_gain", "DG", "[0, inf) or nan", "closer to 1", "ratio"),
+    ("skeleton_orientation_error_deg", "SOE", "[0, 180]", "lower", "degrees"),
+    ("bone_length_error_px", "BLE", "[0, inf)", "lower", "px"),
+    ("body_heading_error_deg", "BHE", "[0, 180]", "lower", "degrees"),
+    ("body_frame_keypoint_ade_px", "BFK-ADE", "[0, inf)", "lower", "px"),
+    ("body_frame_keypoint_fde_px", "BFK-FDE", "[0, inf)", "lower", "px"),
+    ("relative_ordering_error", "ROE", "[0, 1]", "lower", "fraction"),
+    ("relative_ordering_error_forward", "ROE-F", "[0, 1]", "lower", "fraction"),
+    ("relative_ordering_error_lateral", "ROE-L", "[0, 1]", "lower", "fraction"),
 ]
 
-for name, value_range, better, unit in metric_contract:
-    print(f"{name:36} range={value_range:9} better={better:5} unit={unit}")
+for name, short_name, value_range, better, unit in metric_contract:
+    print(
+        f"{short_name:8} {name:38} "
+        f"range={value_range:16} better={better:11} unit={unit}"
+    )
 ```
 
 ## Evaluation Command
 
 ```bash {"interpreter":"/bin/bash"}
 python src/evaluate.py \
-  --config src/config/train__flat_dense_triplet_30fps.yml \
+  --config src/config/train__flat_dense_triplet_5fps.yml \
   --test-config src/config/test__mabe.yml \
-  --checkpoint checkpoints/flat_dense_triplet_30fps/flat_best.pt \
+  --checkpoint checkpoints/flat_dense_triplet_5fps/flat_best.pt \
   --split test
 ```
