@@ -783,7 +783,7 @@ def test_save_test_prediction_video_uses_requested_output_path(
         filename_suffix="__20260913_120000",
     )
 
-    assert result.path == output_root / "dense_keypoint" / "test_0__20260913_120000.mp4"
+    assert result.path == output_root / "test_0__20260913_120000.mp4"
     assert result.sequence_id == "test_0"
     assert result.start_frame == 0
     assert saved["path"] == result.path
@@ -859,10 +859,7 @@ def test_save_single_mouse_prediction_video_uses_mouse_output_path(
         filename_suffix="__20260913_120000",
     )
 
-    assert (
-        result.path
-        == output_root / "dense_keypoint" / "test_0__mouse_1__20260913_120000.mp4"
-    )
+    assert result.path == output_root / "test_0__mouse_1__20260913_120000.mp4"
     assert result.sequence_id == "test_0"
     assert result.start_frame == 0
     assert saved["path"] == result.path

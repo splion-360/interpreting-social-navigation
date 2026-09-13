@@ -563,7 +563,7 @@ def save_test_prediction_video(
         checkpoint_path: Local checkpoint containing model weights.
         sequence_id: Optional MABe sequence ID. Defaults to the first test sequence.
         window_index: Deterministic window index within the selected sequence set.
-        output_root: Base output folder. The graph variant and sequence ID are appended.
+        output_root: Directory where the sequence MP4 is saved.
         fps: Frames per second for the saved MP4.
         interval_ms: Matplotlib animation interval.
         seed: Optional random seed for reproducible Gaussian sampling.
@@ -591,9 +591,7 @@ def save_test_prediction_video(
         interval_ms=interval_ms,
     )
     suffix = filename_suffix or ""
-    output_path = (
-        output_root / config.graph_variant / f"{window.sequence_id}{suffix}.mp4"
-    )
+    output_path = output_root / f"{window.sequence_id}{suffix}.mp4"
     saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(
         path=saved_path,
@@ -626,7 +624,7 @@ def save_single_mouse_prediction_video(
         mouse_index: Mouse index to visualize, from `0` to `2`.
         sequence_id: Optional MABe sequence ID. Defaults to the first test sequence.
         window_index: Deterministic window index within the selected sequence set.
-        output_root: Base output folder. The graph variant is appended.
+        output_root: Directory where the one-mouse MP4 is saved.
         fps: Frames per second for the saved MP4.
         interval_ms: Matplotlib animation interval.
         seed: Optional random seed for reproducible Gaussian sampling.
@@ -659,11 +657,7 @@ def save_single_mouse_prediction_video(
         interval_ms=interval_ms,
     )
     suffix = filename_suffix or ""
-    output_path = (
-        output_root
-        / config.graph_variant
-        / f"{window.sequence_id}__mouse_{mouse_index}{suffix}.mp4"
-    )
+    output_path = output_root / f"{window.sequence_id}__mouse_{mouse_index}{suffix}.mp4"
     saved_path = save(animation_obj, output_path, fps=fps)
     return PredictionVideoResult(
         path=saved_path,

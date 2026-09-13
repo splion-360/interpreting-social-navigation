@@ -10,7 +10,7 @@ model rollout from the trained 5 FPS flat dense triplet checkpoint.
 Output path:
 
 ```text
-outputs/visualizations/flat_dense_triplet_5fps/{graph_name}/{seq_id}__{timestamp}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__{timestamp}.mp4
 ```
 
 ## Select a Test Trajectory
@@ -104,7 +104,7 @@ more closely.
 Output path:
 
 ```text
-outputs/visualizations/flat_dense_triplet_5fps/{graph_name}/{seq_id}__mouse_{mouse_index}__{timestamp}.mp4
+outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_{mouse_index}__{timestamp}.mp4
 ```
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
