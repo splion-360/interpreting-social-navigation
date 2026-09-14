@@ -7,11 +7,14 @@ from typing import Any
 
 import numpy as np
 
-from data.schema import MOUSE_SKELETON_EDGES, NUM_KEYPOINTS
+from data.schema import (
+    BODY_FRAME_ORIGIN_KEYPOINT,
+    BODY_HEADING_EDGE,
+    MOUSE_SKELETON_EDGES,
+    NUM_KEYPOINTS,
+)
 
 
-BODY_HEADING_EDGE = (9, 3)
-BODY_FRAME_ORIGIN_KEYPOINT = 6
 BODY_FRAME_AXES = ("forward", "lateral")
 PRIMARY_METRIC_NAMES = (
     "centroid_ade_px",

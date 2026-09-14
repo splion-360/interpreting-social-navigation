@@ -6,11 +6,11 @@ import numpy as np
 from scipy.stats import ks_2samp
 
 from data import KEYPOINT_NAMES, MabeWindowDataset
-from data.schema import MOUSE_SKELETON_EDGES
-
-
-BODY_HEADING_EDGE = (9, 3)
-BODY_FRAME_ORIGIN_KEYPOINT = 6
+from data.schema import (
+    BODY_FRAME_ORIGIN_KEYPOINT,
+    BODY_HEADING_EDGE,
+    MOUSE_SKELETON_EDGES,
+)
 
 
 def trajectory_window_features(
@@ -51,13 +51,6 @@ def trajectory_window_features(
         ],
         axis=-1,
     )
-    inter_mouse_distances = np.stack(
-        [
-            np.linalg.norm(centroids[:, target] - centroids[:, source], axis=-1)
-            for source, target in ((0, 1), (0, 2), (1, 2))
-        ],
-        axis=-1,
-    )
     features = {
         "mean_keypoint_speed_px_s": float(np.linalg.norm(velocity, axis=-1).mean()),
         "mean_keypoint_acceleration_px_s2": float(
@@ -68,9 +61,18 @@ def trajectory_window_features(
         "body_heading_cos": float(heading[..., 0].mean()),
         "body_heading_sin": float(heading[..., 1].mean()),
         "mean_skeleton_edge_length_px": float(skeleton_lengths.mean()),
-        "mean_inter_mouse_distance_px": float(inter_mouse_distances.mean()),
         "missing_keypoint_fraction": float(np.all(keypoints == 0.0, axis=-1).mean()),
     }
+    if keypoints.shape[1] > 1:
+        inter_mouse_distances = np.stack(
+            [
+                np.linalg.norm(centroids[:, target] - centroids[:, source], axis=-1)
+                for source in range(keypoints.shape[1])
+                for target in range(source + 1, keypoints.shape[1])
+            ],
+            axis=-1,
+        )
+        features["mean_inter_mouse_distance_px"] = float(inter_mouse_distances.mean())
     for keypoint_index, keypoint_name in enumerate(KEYPOINT_NAMES):
         features[f"local_{keypoint_name}_forward_px"] = float(
             local_forward[..., keypoint_index].mean()
@@ -99,15 +101,21 @@ def window_feature_distributions(
     values: dict[str, list[float]] = {}
     for index in range(len(windows)):
         window = windows[index]
+        sequence = windows.sequences[window.sequence_id]
+        raw_keypoints = sequence.keypoints[window.frame_indices]
         keypoints = (
             windows.normalizer.inverse_transform(window.keypoints)
             if windows.normalizer is not None
             else window.keypoints
         )
-        for name, value in trajectory_window_features(
+        features = trajectory_window_features(
             keypoints,
             seconds_per_step=seconds_per_step,
-        ).items():
+        )
+        features["missing_keypoint_fraction"] = float(
+            np.all(raw_keypoints == 0.0, axis=-1).mean()
+        )
+        for name, value in features.items():
             values.setdefault(name, []).append(value)
     return {
         name: np.asarray(feature_values, dtype=np.float32)

@@ -113,9 +113,12 @@ The Gaussian calibration result supports the same diagnosis. At the first step,
 95% ellipse coverage is about 95% for both models. By the final autoregressive
 step it falls to 5.2% for dense sampled rollouts and 2.4% for single sampled
 rollouts, while teacher-forced coverage remains about 96%. The selected training
-and validation distributions do not show a material mismatch: the largest
-absolute standardized feature shift is 0.185 and the largest reported KS
-statistic is 0.139. Therefore validation OOD is not the leading explanation.
+and validation distributions do not show a material mismatch in either variant.
+The largest absolute standardized feature shift is 0.185 for dense triplet and
+0.204 for single mouse; their largest reported KS statistics are 0.139 and 0.140.
+Therefore held-out validation OOD is not the leading explanation. This does not
+rule out the model's own autoregressive outputs becoming OOD relative to the
+teacher-forced states seen during training.
 
 The immediate bottleneck is exposure bias plus independent per-keypoint sampling.
 Single-mouse training improves sampled body scale (BLE) but does not by itself

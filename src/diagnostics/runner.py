@@ -84,7 +84,10 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
         max_triplet_windows=config.max_triplet_windows,
         seed=config.seeds[0],
     )
-    distribution_audit = _build_distribution_audit(dense_config)
+    distribution_audit = {
+        "dense_triplet": _build_distribution_audit(dense_config),
+        "single_mouse": _build_distribution_audit(single_config),
+    }
     device = _select_device(config.device or dense_config.device)
     LOGGER.info("diagnostics: using %s", device)
     models = {

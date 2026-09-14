@@ -105,21 +105,23 @@ def _diagnostic_distribution_table(record: dict[str, Any]) -> Table:
     """Build a table of the largest train-validation feature shifts."""
 
     table = Table(title="Largest train-validation shifts", box=box.SIMPLE_HEAVY)
+    table.add_column("model", no_wrap=True)
     table.add_column("feature", style="cyan")
     table.add_column("standardized difference", justify="right")
     table.add_column("KS", justify="right")
-    features = record["distribution_audit"]["features"]
-    ordered = sorted(
-        features.items(),
-        key=lambda item: abs(item[1]["standardized_mean_difference"]),
-        reverse=True,
-    )
-    for name, values in ordered[:8]:
-        table.add_row(
-            name,
-            _format_optional(values["standardized_mean_difference"]),
-            _format_optional(values["ks_statistic"]),
+    for model_name, audit in record["distribution_audit"].items():
+        ordered = sorted(
+            audit["features"].items(),
+            key=lambda item: abs(item[1]["standardized_mean_difference"]),
+            reverse=True,
         )
+        for name, values in ordered[:5]:
+            table.add_row(
+                model_name,
+                name,
+                _format_optional(values["standardized_mean_difference"]),
+                _format_optional(values["ks_statistic"]),
+            )
     return table
 
 

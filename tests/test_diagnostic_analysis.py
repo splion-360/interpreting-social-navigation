@@ -4,10 +4,12 @@ import numpy as np
 import pytest
 import torch
 
+from data import MabeSequence, MabeWindowDataset, WindowSpec
 from diagnostics import (
     calibration_profile,
     compare_feature_distributions,
     trajectory_window_features,
+    window_feature_distributions,
 )
 from inference import bivariate_gaussian_mean
 
@@ -83,3 +85,17 @@ def test_trajectory_window_features_capture_motion_and_heading() -> None:
     assert features["missing_keypoint_fraction"] == 0.0
     assert "local_nose_forward_px" in features
     assert "local_tail_tip_lateral_px" in features
+
+
+def test_window_features_preserve_source_missingness_for_single_mouse() -> None:
+    keypoints = np.ones((3, 1, 12, 2), dtype=np.float32) * 100.0
+    keypoints[1, 0, 0] = 0.0
+    windows = MabeWindowDataset(
+        [MabeSequence(sequence_id="single", keypoints=keypoints)],
+        WindowSpec(length=3, observation_length=2, prediction_length=1),
+    )
+
+    features = window_feature_distributions(windows, seconds_per_step=0.2)
+
+    assert features["missing_keypoint_fraction"][0] == pytest.approx(1.0 / 36.0)
+    assert "mean_inter_mouse_distance_px" not in features
