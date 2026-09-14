@@ -1,8 +1,13 @@
 """File description: Behavioral tests for fair model and baseline comparisons."""
 
+from io import StringIO
+
+from rich.console import Console
+
 from benchmark_report import (
     BenchmarkMetrics,
     build_benchmark_record,
+    print_benchmark_tables,
     relative_error_improvements,
 )
 
@@ -83,3 +88,44 @@ def test_build_benchmark_record_requires_matching_motion_profiles() -> None:
     assert improvement["overall"]["centroid_fde_px"] == 0.2
     assert improvement["by_motion"]["low"]["centroid_fde_px"] == -0.5
     assert improvement["by_motion"]["high"]["centroid_fde_px"] == 0.25
+
+
+def test_print_benchmark_tables_embeds_quantiles_in_main_table() -> None:
+    profile = {
+        "score": "mean_keypoint_speed_px_s",
+        "thresholds_px_s": {"low_max": 2.0, "medium_max": 5.0},
+        "counts": {"low": 1, "medium": 1, "high": 1},
+    }
+    record = build_benchmark_record(
+        methods=[
+            BenchmarkMetrics(
+                name="persistence",
+                windows=3,
+                metrics={"centroid_fde_px": 10.0},
+                metrics_by_motion={
+                    "low": {"centroid_fde_px": 2.0},
+                    "medium": {"centroid_fde_px": 5.0},
+                    "high": {"centroid_fde_px": 20.0},
+                },
+                motion_profile=profile,
+                window_digest="shared-window-digest",
+                metric_quantiles={"centroid_fde_px": {"p50": 7.0, "p99": 19.0}},
+                metric_quantiles_by_motion={
+                    "low": {"centroid_fde_px": {"p50": 2.0, "p99": 2.0}},
+                    "medium": {"centroid_fde_px": {"p50": 5.0, "p99": 5.0}},
+                    "high": {"centroid_fde_px": {"p50": 20.0, "p99": 20.0}},
+                },
+            )
+        ],
+        observation_length=16,
+        prediction_length=24,
+        seed=42,
+    )
+    output = StringIO()
+    console = Console(file=output, force_terminal=False, width=180)
+
+    print_benchmark_tables(record, console=console)
+
+    text = output.getvalue()
+    assert "mean=10.000 (+0.0%) p50=7.000 p99=19.000" in text
+    assert "benchmark quantiles" not in text

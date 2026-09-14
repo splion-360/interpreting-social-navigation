@@ -209,66 +209,62 @@ def print_benchmark_tables(
                 )
                 value = metrics.get(metric_name)
                 gain = improvement.get(metric_name)
-                if isinstance(value, int | float) and isfinite(value):
+                cell_value = _benchmark_metric_cell(
+                    value=value,
+                    gain=gain,
+                    quantiles=_metric_quantiles_for_group(
+                        method=method,
+                        metric_name=metric_name,
+                        group=group,
+                    ),
+                )
+                if cell_value is not None:
                     has_value = True
-                    suffix = f" ({gain:+.1%})" if isinstance(gain, int | float) else ""
-                    values.append(f"{value:.3f}{suffix}")
+                    values.append(cell_value)
                 else:
                     values.append("-")
             if has_value:
                 table.add_row(metric_name, *values)
         output.print(table)
-        quantile_table = _benchmark_quantile_table(
-            record=record,
-            group=group,
-            method_names=method_names,
-            title=f"{contract_name} benchmark quantiles: {group}",
-        )
-        if quantile_table is not None:
-            output.print(quantile_table)
 
 
-def _benchmark_quantile_table(
+def _benchmark_metric_cell(
     *,
-    record: dict[str, Any],
-    group: str,
-    method_names: tuple[str, ...],
-    title: str,
-) -> Table | None:
-    """Build a p50/p99 benchmark table when quantile fields are present."""
+    value: Any,
+    gain: Any,
+    quantiles: dict[str, float] | None,
+) -> str | None:
+    """Format one mean/quantile benchmark table cell."""
 
-    if not any(
-        record["methods"][name].get("metric_quantiles") for name in method_names
-    ):
+    if not isinstance(value, int | float) or not isfinite(value):
         return None
 
-    table = Table(title=title, box=box.SIMPLE_HEAVY)
-    table.add_column("metric", style="cyan", no_wrap=True)
-    for method_name in method_names:
-        table.add_column(method_name, justify="right")
+    suffix = f" ({gain:+.1%})" if isinstance(gain, int | float) else ""
+    parts = [f"mean={value:.3f}{suffix}"]
+    if quantiles is None:
+        return f"{value:.3f}{suffix}"
 
-    has_rows = False
-    for metric_name in PRIMARY_METRIC_NAMES:
-        values: list[str] = []
-        has_value = False
-        for method_name in method_names:
-            method = record["methods"][method_name]
-            quantiles = (
-                method.get("metric_quantiles")
-                if group == "overall"
-                else (method.get("metric_quantiles_by_motion") or {}).get(group)
-            )
-            metric_quantiles = quantiles.get(metric_name) if quantiles else None
-            if isinstance(metric_quantiles, dict):
-                p50 = metric_quantiles.get("p50")
-                p99 = metric_quantiles.get("p99")
-                if isinstance(p50, int | float) and isinstance(p99, int | float):
-                    has_value = True
-                    values.append(f"p50={p50:.3f} p99={p99:.3f}")
-                    continue
-            values.append("-")
-        if has_value:
-            has_rows = True
-            table.add_row(metric_name, *values)
+    p50 = quantiles.get("p50")
+    p99 = quantiles.get("p99")
+    if isinstance(p50, int | float) and isfinite(p50):
+        parts.append(f"p50={p50:.3f}")
+    if isinstance(p99, int | float) and isfinite(p99):
+        parts.append(f"p99={p99:.3f}")
+    return " ".join(parts)
 
-    return table if has_rows else None
+
+def _metric_quantiles_for_group(
+    *,
+    method: dict[str, Any],
+    metric_name: str,
+    group: str,
+) -> dict[str, float] | None:
+    """Return one metric's quantiles for an overall or motion-slice table."""
+
+    quantiles = (
+        method.get("metric_quantiles")
+        if group == "overall"
+        else (method.get("metric_quantiles_by_motion") or {}).get(group)
+    )
+    metric_quantiles = quantiles.get(metric_name) if quantiles else None
+    return metric_quantiles if isinstance(metric_quantiles, dict) else None
