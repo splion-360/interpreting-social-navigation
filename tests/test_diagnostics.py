@@ -8,6 +8,8 @@ import pytest
 from data import MabeDataset
 from diagnostics import (
     build_matched_window_data,
+    compute_horizon_profile,
+    horizon_profile_rows,
     load_pose_diagnostic_config,
 )
 from train import FlatFitConfig
@@ -177,3 +179,65 @@ def test_matched_window_data_uses_held_out_sequences(tmp_path: Path) -> None:
 
     assert all(case.sequence_id.startswith("heldout_") for case in data.cases)
     assert MabeDataset.from_file(test_path).sequence_ids == ("heldout_0", "heldout_1")
+
+
+def test_horizon_profile_reports_exact_step_errors() -> None:
+    initial_pose = np.zeros((1, 12, 2), dtype=np.float32)
+    target = np.zeros((3, 1, 12, 2), dtype=np.float32)
+    predicted = np.zeros_like(target)
+    predicted[:, :, :, 0] = np.asarray([1.0, 3.0, 6.0])[:, None, None]
+
+    profile = compute_horizon_profile(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+        seconds_per_step=0.2,
+    )
+
+    assert [row["horizon_step"] for row in profile] == [1, 2, 3]
+    assert [row["centroid_displacement_error_px"] for row in profile] == [
+        1.0,
+        3.0,
+        6.0,
+    ]
+    assert [row["centroid_velocity_error_px_s"] for row in profile] == [
+        5.0,
+        10.0,
+        15.0,
+    ]
+    assert [row["keypoint_velocity_error_px_s"] for row in profile] == [
+        5.0,
+        10.0,
+        15.0,
+    ]
+
+
+def test_horizon_profile_rows_builds_tidy_plot_data() -> None:
+    record = {
+        "window_contract": {"effective_fps": 5.0},
+        "horizon_profile": {
+            "dense_triplet": {
+                "autoregressive": {
+                    "1": {
+                        "metrics": {"bone_length_error_px": 4.0},
+                        "metric_quantiles": {
+                            "bone_length_error_px": {"p50": 3.0, "p99": 9.0}
+                        },
+                    }
+                }
+            }
+        },
+    }
+
+    rows = horizon_profile_rows(record, statistic="p50")
+
+    assert rows == [
+        {
+            "model": "dense_triplet",
+            "mode": "autoregressive",
+            "horizon_step": 1,
+            "horizon_seconds": 0.2,
+            "metric": "bone_length_error_px",
+            "value": 3.0,
+        }
+    ]

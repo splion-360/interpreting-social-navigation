@@ -12,6 +12,4 @@ case_results_path: outputs/evaluations/pose_diagnostics_5fps/cases.jsonl
 max_triplet_windows: 30
 seeds:
   - 42
-  - 43
-  - 44
 device: cuda

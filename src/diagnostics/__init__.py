@@ -5,7 +5,12 @@ from diagnostics.config import (
     VariantConfig,
     load_pose_diagnostic_config,
 )
-from diagnostics.report import print_pose_diagnostics
+from diagnostics.prediction import compute_horizon_profile
+from diagnostics.report import (
+    horizon_profile_rows,
+    print_pose_diagnostics,
+    save_horizon_profile_figure,
+)
 from diagnostics.runner import run_pose_diagnostics
 from diagnostics.windows import (
     MatchedMouseWindow,
@@ -20,7 +25,10 @@ __all__ = [
     "PoseDiagnosticConfig",
     "VariantConfig",
     "build_matched_window_data",
+    "compute_horizon_profile",
+    "horizon_profile_rows",
     "load_pose_diagnostic_config",
     "print_pose_diagnostics",
     "run_pose_diagnostics",
+    "save_horizon_profile_figure",
 ]

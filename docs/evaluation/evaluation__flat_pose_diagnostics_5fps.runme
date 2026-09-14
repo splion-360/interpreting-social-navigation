@@ -16,7 +16,7 @@ Single checkpoint: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
 Window: 16 observed frames -> 24 predicted frames
 Rate: 5 FPS
 Default sample: 30 triplet windows = 90 paired mouse cases
-Seeds: 42, 43, 44
+Seed: 42
 Output: outputs/evaluations/pose_diagnostics_5fps/results.jsonl
 Per-case rows: outputs/evaluations/pose_diagnostics_5fps/cases.jsonl
 ```
@@ -29,6 +29,7 @@ The diagnostics report:
 - low/medium/high motion slices from the same selected mouse windows
 - Gaussian calibration from sampled bivariate distributions
 - dense-triplet attention mass split into within-mouse and cross-mouse context
+- exact-step P50/P99 error profiles across the 24-frame prediction horizon
 
 ## Run Diagnostics
 
@@ -62,6 +63,45 @@ from diagnostics import print_pose_diagnostics
 result_path = repo_root / "outputs/evaluations/pose_diagnostics_5fps/results.jsonl"
 record = json.loads(result_path.read_text().splitlines()[-1])
 print_pose_diagnostics(record)
+```
+
+## Plot Per-Horizon Errors
+
+Each point measures the error at that exact future frame. It is not an average
+from prediction step 1 through the displayed step. Solid lines are
+autoregressive rollouts; dashed lines are teacher-forced predictions. A widening
+gap between them identifies accumulated rollout error.
+Each model uses the same seeded Gaussian draws in both modes so the comparison
+does not change merely because a different random stream was sampled.
+
+The plots cover trajectory displacement, transition velocity, pose scale,
+orientation, heading, relative ordering, and body-frame keypoint error. P50
+shows the typical paired case, while P99 exposes tail failures.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+from IPython.display import Image, display
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from diagnostics import save_horizon_profile_figure
+
+result_dir = repo_root / "outputs/evaluations/pose_diagnostics_5fps"
+record = json.loads((result_dir / "results.jsonl").read_text().splitlines()[-1])
+
+for statistic in ("p50", "p99"):
+    figure_path = save_horizon_profile_figure(
+        record,
+        result_dir / f"horizon_profile_{statistic}.png",
+        statistic=statistic,
+    )
+    display(Image(filename=str(figure_path)))
 ```
 
 ## Inspect Worst Relative-Ordering Cases

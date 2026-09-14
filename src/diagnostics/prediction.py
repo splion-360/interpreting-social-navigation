@@ -133,7 +133,7 @@ def append_horizon_values(
     mouse_index: int,
     seconds_per_step: float,
 ) -> None:
-    """Append cumulative horizon metrics for one case prediction."""
+    """Append exact-step horizon metrics for one case prediction."""
 
     predicted, target, initial_pose = _case_pixel_arrays(
         prediction=prediction,
@@ -141,14 +141,112 @@ def append_horizon_values(
         normalizer=normalizer,
         mouse_index=mouse_index,
     )
-    for horizon in range(1, predicted.shape[0] + 1):
+    for row in compute_horizon_profile(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+        seconds_per_step=seconds_per_step,
+    ):
+        horizon = int(row.pop("horizon_step"))
+        append_values(destination[horizon], row)
+
+
+def compute_horizon_profile(
+    predicted: np.ndarray,
+    target: np.ndarray,
+    *,
+    initial_pose: np.ndarray,
+    seconds_per_step: float,
+) -> list[dict[str, float | int]]:
+    """Compute exact errors at each future step.
+
+    Unlike an ADE calculated over increasingly long prefixes, each row describes
+    only one future frame. Velocity errors compare the transition into that frame,
+    using the final observation for step one and the preceding future frame later.
+
+    Args:
+        predicted: Predicted poses shaped `[time, mice, keypoints, 2]` in pixels.
+        target: Ground-truth poses with the same shape in pixels.
+        initial_pose: Final observed pose shaped `[mice, keypoints, 2]` in pixels.
+        seconds_per_step: Seconds between consecutive sampled frames.
+
+    Returns:
+        One metric dictionary per future step, ordered from nearest to farthest.
+    """
+
+    profile: list[dict[str, float | int]] = []
+    for step in range(predicted.shape[0]):
         metrics = compute_pixel_metrics(
-            predicted[:horizon],
-            target[:horizon],
+            predicted[step : step + 1],
+            target[step : step + 1],
             initial_pose=initial_pose,
             seconds_per_step=seconds_per_step,
         ).to_numpy_dict()
-        append_values(destination[horizon], metrics)
+        centroid_velocity_error, keypoint_velocity_error = _step_velocity_errors(
+            predicted=predicted,
+            target=target,
+            initial_pose=initial_pose,
+            step=step,
+            seconds_per_step=seconds_per_step,
+        )
+        row: dict[str, float | int] = {
+            "horizon_step": step + 1,
+            "centroid_displacement_error_px": float(metrics["centroid_fde_px"]),
+            "keypoint_displacement_error_px": float(metrics["keypoint_fde_px"]),
+            "centroid_x_offset_px": float(metrics["centroid_x_offset_px"]),
+            "centroid_y_offset_px": float(metrics["centroid_y_offset_px"]),
+            "centroid_velocity_error_px_s": centroid_velocity_error,
+            "keypoint_velocity_error_px_s": keypoint_velocity_error,
+            "displacement_magnitude_error_px": float(
+                metrics["displacement_magnitude_error_px"]
+            ),
+            "displacement_direction_error_deg": float(
+                metrics["displacement_direction_error_deg"]
+            ),
+            "displacement_gain": float(metrics["displacement_gain"]),
+            "body_frame_keypoint_error_px": float(
+                metrics["body_frame_keypoint_fde_px"]
+            ),
+            "skeleton_orientation_error_deg": float(
+                metrics["skeleton_orientation_error_deg"]
+            ),
+            "bone_length_error_px": float(metrics["bone_length_error_px"]),
+            "body_heading_error_deg": float(metrics["body_heading_error_deg"]),
+            "relative_ordering_error": float(metrics["relative_ordering_error"]),
+            "relative_ordering_error_forward": float(
+                metrics["relative_ordering_error_forward"]
+            ),
+            "relative_ordering_error_lateral": float(
+                metrics["relative_ordering_error_lateral"]
+            ),
+        }
+        profile.append(row)
+    return profile
+
+
+def _step_velocity_errors(
+    *,
+    predicted: np.ndarray,
+    target: np.ndarray,
+    initial_pose: np.ndarray,
+    step: int,
+    seconds_per_step: float,
+) -> tuple[float, float]:
+    """Return centroid and keypoint velocity error for one transition."""
+
+    predicted_previous = initial_pose if step == 0 else predicted[step - 1]
+    target_previous = initial_pose if step == 0 else target[step - 1]
+    predicted_velocity = (predicted[step] - predicted_previous) / seconds_per_step
+    target_velocity = (target[step] - target_previous) / seconds_per_step
+    keypoint_error = np.linalg.norm(
+        predicted_velocity - target_velocity,
+        axis=-1,
+    )
+    centroid_error = np.linalg.norm(
+        predicted_velocity.mean(axis=1) - target_velocity.mean(axis=1),
+        axis=-1,
+    )
+    return float(centroid_error.mean()), float(keypoint_error.mean())
 
 
 def calibration_metrics(

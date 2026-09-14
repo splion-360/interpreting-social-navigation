@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,18 @@ from rich.table import Table
 
 from evaluate import MOTION_STRATA
 from metrics import PRIMARY_METRIC_NAMES
+
+
+HORIZON_PLOT_METRICS = (
+    ("centroid_displacement_error_px", "Centroid displacement error", "px"),
+    ("keypoint_displacement_error_px", "Keypoint displacement error", "px"),
+    ("keypoint_velocity_error_px_s", "Keypoint velocity error", "px/s"),
+    ("bone_length_error_px", "Bone-length error", "px"),
+    ("skeleton_orientation_error_deg", "Skeleton orientation error", "degrees"),
+    ("body_heading_error_deg", "Body-heading error", "degrees"),
+    ("relative_ordering_error", "Relative-ordering error", "fraction"),
+    ("body_frame_keypoint_error_px", "Body-frame keypoint error", "px"),
+)
 
 
 def print_pose_diagnostics(
@@ -31,6 +44,114 @@ def print_pose_diagnostics(
     output.print(_diagnostic_motion_table(record))
     output.print(_diagnostic_calibration_table(record))
     output.print(_diagnostic_attention_table(record))
+
+
+def horizon_profile_rows(
+    record: dict[str, Any], *, statistic: str = "p50"
+) -> list[dict[str, str | int | float]]:
+    """Return horizon metrics as tidy rows for tables or plots.
+
+    Args:
+        record: Diagnostic record containing an exact-step horizon profile.
+        statistic: Aggregate to read: `mean`, `p50`, or `p99`.
+
+    Returns:
+        Long-form rows with model, rollout mode, time, metric, and value.
+    """
+
+    effective_fps = float(record["window_contract"]["effective_fps"])
+    rows: list[dict[str, str | int | float]] = []
+    for model_name, by_mode in record["horizon_profile"].items():
+        for mode, by_horizon in by_mode.items():
+            for horizon_text, summary in by_horizon.items():
+                horizon = int(horizon_text)
+                values = (
+                    summary["metrics"]
+                    if statistic == "mean"
+                    else {
+                        name: quantiles.get(statistic)
+                        for name, quantiles in summary["metric_quantiles"].items()
+                    }
+                )
+                for metric_name, value in values.items():
+                    if isinstance(value, int | float) and np.isfinite(value):
+                        rows.append(
+                            {
+                                "model": model_name,
+                                "mode": mode,
+                                "horizon_step": horizon,
+                                "horizon_seconds": horizon / effective_fps,
+                                "metric": metric_name,
+                                "value": float(value),
+                            }
+                        )
+    return rows
+
+
+def save_horizon_profile_figure(
+    record: dict[str, Any],
+    output_path: Path,
+    *,
+    statistic: str = "p50",
+) -> Path:
+    """Plot trajectory and pose errors against prediction time.
+
+    Args:
+        record: Diagnostic record containing exact-step horizon metrics.
+        output_path: PNG path for the rendered profile.
+        statistic: Aggregate to plot: `mean`, `p50`, or `p99`.
+
+    Returns:
+        Path of the saved figure.
+    """
+
+    import matplotlib.pyplot as plt
+
+    rows = horizon_profile_rows(record, statistic=statistic)
+    figure, axes = plt.subplots(2, 4, figsize=(18, 8), sharex=True)
+    colors = {"dense_triplet": "tab:blue", "single_mouse": "tab:orange"}
+    line_styles = {"autoregressive": "-", "teacher_forced": "--"}
+    for axis, (metric_name, title, unit) in zip(
+        axes.ravel(), HORIZON_PLOT_METRICS, strict=True
+    ):
+        for model_name in ("dense_triplet", "single_mouse"):
+            for mode in ("autoregressive", "teacher_forced"):
+                series = [
+                    row
+                    for row in rows
+                    if row["metric"] == metric_name
+                    and row["model"] == model_name
+                    and row["mode"] == mode
+                ]
+                if not series:
+                    continue
+                series.sort(key=lambda row: int(row["horizon_step"]))
+                axis.plot(
+                    [float(row["horizon_seconds"]) for row in series],
+                    [float(row["value"]) for row in series],
+                    color=colors[model_name],
+                    linestyle=line_styles[mode],
+                    label=f"{model_name} / {mode}",
+                )
+        axis.set_title(title)
+        axis.set_ylabel(unit)
+        axis.grid(alpha=0.25)
+    for axis in axes[-1]:
+        axis.set_xlabel("prediction horizon (seconds)")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    figure.suptitle(f"Per-horizon diagnostic profile ({statistic})", y=0.98)
+    figure.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.945),
+        ncol=4,
+    )
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.89))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(figure)
+    return output_path
 
 
 def _diagnostic_overview_table(record: dict[str, Any]) -> Table:

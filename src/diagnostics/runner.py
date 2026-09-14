@@ -134,7 +134,7 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                         observation_length=dense_config.observation_length,
                         build_graph=build_graphs["dense_triplet"],
                         device=device,
-                        seed=_case_seed(seed, case_index, 2),
+                        seed=_case_seed(seed, case_index, 0),
                     ),
                     ("single_mouse", "teacher_forced"): predict_case(
                         model=models["single_mouse"],
@@ -144,7 +144,7 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                         observation_length=single_config.observation_length,
                         build_graph=build_graphs["single_mouse"],
                         device=device,
-                        seed=_case_seed(seed, case_index, 3),
+                        seed=_case_seed(seed, case_index, 1),
                     ),
                 }
                 for (model_name, mode), prediction in predictions_by_name.items():

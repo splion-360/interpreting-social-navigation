@@ -126,7 +126,7 @@ def build_diagnostic_record(
         },
         "methods": summaries,
         "paired_delta_single_minus_dense": _paired_delta_summary(metric_values),
-        "horizon_summary": _horizon_summary(horizon_values),
+        "horizon_profile": _horizon_profile(horizon_values),
         "calibration": {
             model_name: _aggregate_float_values(values)
             for model_name, values in calibration_values.items()
@@ -165,10 +165,10 @@ def _paired_delta_summary(
     return output
 
 
-def _horizon_summary(
+def _horizon_profile(
     horizon_values: dict[str, dict[str, dict[int, dict[str, list[Any]]]]],
 ) -> dict[str, Any]:
-    """Aggregate horizon-wise metrics for compact JSON output."""
+    """Aggregate exact-step horizon metrics for compact JSON output."""
 
     summary: dict[str, Any] = {}
     for model_name, by_mode in horizon_values.items():
