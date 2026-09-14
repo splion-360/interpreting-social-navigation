@@ -33,7 +33,16 @@ The diagnostics report:
 ## Run Diagnostics
 
 ```sh
-python src/diagnostics.py --config src/config/test__flat_pose_diagnostics_5fps.yml
+PYTHONPATH=src python -m diagnostics --config src/config/test__flat_pose_diagnostics_5fps.yml
+```
+
+## Quick CPU Smoke
+
+Use this while another training run owns the GPU. It exercises the same codepath
+on one triplet window and writes to `/tmp`.
+
+```sh
+PYTHONPATH=src python -m diagnostics --config src/config/test__flat_pose_diagnostics_5fps.yml --device cpu --max-triplet-windows 1 --seeds 42 --results-path /tmp/pose_diagnostics_smoke.jsonl --case-results-path /tmp/pose_diagnostics_smoke_cases.jsonl
 ```
 
 ## Reprint Latest Tables
