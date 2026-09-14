@@ -109,12 +109,17 @@ def save_horizon_profile_figure(
 
     rows = horizon_profile_rows(record, statistic=statistic)
     figure, axes = plt.subplots(2, 4, figsize=(18, 8), sharex=True)
-    colors = {"dense_triplet": "tab:blue", "single_mouse": "tab:orange"}
+    model_names = tuple(record["horizon_profile"])
+    color_map = plt.get_cmap("tab10")
+    colors = {
+        model_name: color_map(index % color_map.N)
+        for index, model_name in enumerate(model_names)
+    }
     line_styles = {"autoregressive": "-", "teacher_forced": "--"}
     for axis, (metric_name, title, unit) in zip(
         axes.ravel(), HORIZON_PLOT_METRICS, strict=True
     ):
-        for model_name in ("dense_triplet", "single_mouse"):
+        for model_name in model_names:
             for mode in ("autoregressive", "teacher_forced"):
                 series = [
                     row

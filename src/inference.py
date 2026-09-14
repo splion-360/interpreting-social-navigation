@@ -33,30 +33,36 @@ def sample_bivariate_gaussian(
     outputs: Tensor,
     *,
     generator: torch.Generator | None = None,
+    standard_normal: Tensor | None = None,
 ) -> Tensor:
     """Sample 2D positions from raw bivariate Gaussian model outputs.
 
     Args:
         outputs: Raw Gaussian parameters shaped `[..., 5]`.
         generator: Optional random generator for reproducible sampling.
+        standard_normal: Optional paired standard-normal draws shaped `[..., 2]`.
 
     Returns:
         Sampled coordinates shaped `[..., 2]`.
     """
 
     params = gaussian_2d_parameters(outputs)
-    eps_x = torch.randn(
-        params.mu_x.shape,
-        generator=generator,
-        device=outputs.device,
-        dtype=outputs.dtype,
-    )
-    eps_y = torch.randn(
-        params.mu_y.shape,
-        generator=generator,
-        device=outputs.device,
-        dtype=outputs.dtype,
-    )
+    if standard_normal is None:
+        eps_x = torch.randn(
+            params.mu_x.shape,
+            generator=generator,
+            device=outputs.device,
+            dtype=outputs.dtype,
+        )
+        eps_y = torch.randn(
+            params.mu_y.shape,
+            generator=generator,
+            device=outputs.device,
+            dtype=outputs.dtype,
+        )
+    else:
+        eps_x = standard_normal[..., 0]
+        eps_y = standard_normal[..., 1]
     one_minus_rho_sq = torch.clamp(1 - params.rho.square(), min=1e-6)
     x = params.mu_x + params.sigma_x * eps_x
     y = params.mu_y + params.sigma_y * (
@@ -73,6 +79,7 @@ def rollout_flat_keypoint_model(
     build_graph: Callable[[np.ndarray], GraphSequence],
     device: torch.device,
     generator: torch.Generator | None = None,
+    standard_normal: Tensor | None = None,
 ) -> RolloutResult:
     """Roll a flat keypoint model forward from observed frames.
 
@@ -83,6 +90,7 @@ def rollout_flat_keypoint_model(
         build_graph: Graph builder matching the checkpoint/config variant.
         device: Inference device.
         generator: Optional random generator for reproducible sampling.
+        standard_normal: Optional draws shaped `[prediction, nodes, 2]`.
 
     Returns:
         Predicted full sequence containing observed and generated nodes.
@@ -128,7 +136,13 @@ def rollout_flat_keypoint_model(
             )
         state = result.state
         output = result.outputs[0]
-        next_nodes = sample_bivariate_gaussian(output, generator=generator)
+        if standard_normal is None:
+            next_nodes = sample_bivariate_gaussian(output, generator=generator)
+        else:
+            next_nodes = sample_bivariate_gaussian(
+                output,
+                standard_normal=standard_normal[step_idx],
+            )
         gaussian_outputs.append(output.detach().cpu().numpy())
         attention.extend(result.attention_weights)
         rollout_keypoints[current_frame + 1] = flat_nodes_to_keypoints(

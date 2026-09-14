@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from tqdm.auto import tqdm
@@ -15,7 +15,7 @@ from logging_utils import configure_cli_logging, get_logger
 from models import FlatSocialAttentionModel
 from train import _graph_builder, _select_device, load_flat_fit_config
 
-from .config import PoseDiagnosticConfig, load_pose_diagnostic_config
+from .config import PoseDiagnosticConfig, RolloutMode, load_pose_diagnostic_config
 from .io import save_jsonl, save_jsonl_rows
 from .prediction import (
     append_float_values,
@@ -173,6 +173,7 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                         normalizer=data.normalizer,
                         mouse_index=mouse_index,
                         seconds_per_step=seconds_per_step,
+                        mode=cast(RolloutMode, mode),
                     )
                     if mode == "autoregressive":
                         append_float_values(

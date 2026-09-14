@@ -65,6 +65,12 @@ def predict_case(
 
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
+    node_count = int(np.prod(window.observed_keypoints.shape[1:-1]))
+    standard_normal = torch.randn(
+        (prediction_length, node_count, 2),
+        generator=generator,
+        device=device,
+    )
     if mode == "autoregressive":
         rollout = rollout_flat_keypoint_model(
             model=model,
@@ -72,7 +78,7 @@ def predict_case(
             prediction_length=prediction_length,
             build_graph=build_graph,
             device=device,
-            generator=generator,
+            standard_normal=standard_normal,
         )
         return CasePrediction(
             future_nodes=rollout.nodes[-prediction_length:],
@@ -92,7 +98,10 @@ def predict_case(
     future_outputs = result.outputs[
         observation_length - 1 : observation_length - 1 + prediction_length
     ]
-    samples = sample_bivariate_gaussian(future_outputs, generator=generator)
+    samples = sample_bivariate_gaussian(
+        future_outputs,
+        standard_normal=standard_normal,
+    )
     return CasePrediction(
         future_nodes=samples.detach().cpu().numpy(),
         gaussian_outputs=future_outputs.detach().cpu().numpy(),
@@ -132,6 +141,7 @@ def append_horizon_values(
     normalizer: PoseNormalizer,
     mouse_index: int,
     seconds_per_step: float,
+    mode: RolloutMode,
 ) -> None:
     """Append exact-step horizon metrics for one case prediction."""
 
@@ -146,6 +156,7 @@ def append_horizon_values(
         target,
         initial_pose=initial_pose,
         seconds_per_step=seconds_per_step,
+        mode=mode,
     ):
         horizon = int(row.pop("horizon_step"))
         append_values(destination[horizon], row)
@@ -157,6 +168,7 @@ def compute_horizon_profile(
     *,
     initial_pose: np.ndarray,
     seconds_per_step: float,
+    mode: RolloutMode = "autoregressive",
 ) -> list[dict[str, float | int]]:
     """Compute exact errors at each future step.
 
@@ -169,6 +181,7 @@ def compute_horizon_profile(
         target: Ground-truth poses with the same shape in pixels.
         initial_pose: Final observed pose shaped `[mice, keypoints, 2]` in pixels.
         seconds_per_step: Seconds between consecutive sampled frames.
+        mode: Input policy used to produce the predictions.
 
     Returns:
         One metric dictionary per future step, ordered from nearest to farthest.
@@ -188,6 +201,7 @@ def compute_horizon_profile(
             initial_pose=initial_pose,
             step=step,
             seconds_per_step=seconds_per_step,
+            mode=mode,
         )
         row: dict[str, float | int] = {
             "horizon_step": step + 1,
@@ -231,10 +245,17 @@ def _step_velocity_errors(
     initial_pose: np.ndarray,
     step: int,
     seconds_per_step: float,
+    mode: RolloutMode,
 ) -> tuple[float, float]:
     """Return centroid and keypoint velocity error for one transition."""
 
-    predicted_previous = initial_pose if step == 0 else predicted[step - 1]
+    predicted_previous = (
+        initial_pose
+        if step == 0
+        else target[step - 1]
+        if mode == "teacher_forced"
+        else predicted[step - 1]
+    )
     target_previous = initial_pose if step == 0 else target[step - 1]
     predicted_velocity = (predicted[step] - predicted_previous) / seconds_per_step
     target_velocity = (target[step] - target_previous) / seconds_per_step

@@ -212,6 +212,27 @@ def test_horizon_profile_reports_exact_step_errors() -> None:
     ]
 
 
+def test_teacher_forced_horizon_velocity_uses_previous_target_pose() -> None:
+    initial_pose = np.zeros((1, 12, 2), dtype=np.float32)
+    target = np.zeros((3, 1, 12, 2), dtype=np.float32)
+    predicted = np.zeros_like(target)
+    predicted[:, :, :, 0] = np.asarray([1.0, 3.0, 6.0])[:, None, None]
+
+    profile = compute_horizon_profile(
+        predicted,
+        target,
+        initial_pose=initial_pose,
+        seconds_per_step=0.2,
+        mode="teacher_forced",
+    )
+
+    assert [row["centroid_velocity_error_px_s"] for row in profile] == [
+        5.0,
+        15.0,
+        30.0,
+    ]
+
+
 def test_horizon_profile_rows_builds_tidy_plot_data() -> None:
     record = {
         "window_contract": {"effective_fps": 5.0},

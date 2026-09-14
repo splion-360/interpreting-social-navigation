@@ -72,6 +72,23 @@ def test_sample_bivariate_gaussian_returns_coordinate_samples() -> None:
     assert torch.isfinite(samples).all()
 
 
+def test_sample_bivariate_gaussian_accepts_shared_standard_normal_draws() -> None:
+    outputs = torch.zeros((2, 3, 5))
+    standard_normal = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+            [[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]],
+        ]
+    )
+
+    samples = sample_bivariate_gaussian(
+        outputs,
+        standard_normal=standard_normal,
+    )
+
+    torch.testing.assert_close(samples, standard_normal)
+
+
 def test_motion_stratification_is_deterministic_and_balanced() -> None:
     profile = stratify_motion_scores(
         np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
