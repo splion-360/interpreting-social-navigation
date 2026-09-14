@@ -1,0 +1,93 @@
+---
+cwd: ../..
+---
+
+# Flat Pose Diagnostics at 5 FPS
+
+This notebook checks why the single-mouse model did not clearly improve pose
+metrics over the dense triplet model. The key rule is that both checkpoints are
+evaluated on the same held-out source windows and the same mouse indices.
+
+## Diagnostic Contract
+
+```text
+Dense checkpoint: checkpoints/flat_dense_triplet_5fps/flat_best.pt
+Single checkpoint: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
+Window: 16 observed frames -> 24 predicted frames
+Rate: 5 FPS
+Default sample: 30 triplet windows = 90 paired mouse cases
+Seeds: 42, 43, 44
+Output: outputs/evaluations/pose_diagnostics_5fps/results.jsonl
+Per-case rows: outputs/evaluations/pose_diagnostics_5fps/cases.jsonl
+```
+
+The diagnostics report:
+
+- matched autoregressive metrics for both variants
+- teacher-forced metrics to separate one-step prediction quality from rollout drift
+- single-minus-dense paired deltas and single-model win rates
+- low/medium/high motion slices from the same selected mouse windows
+- Gaussian calibration from sampled bivariate distributions
+- dense-triplet attention mass split into within-mouse and cross-mouse context
+
+## Run Diagnostics
+
+```sh
+python src/diagnostics.py --config src/config/test__flat_pose_diagnostics_5fps.yml
+```
+
+## Reprint Latest Tables
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from diagnostics import print_pose_diagnostics
+
+result_path = repo_root / "outputs/evaluations/pose_diagnostics_5fps/results.jsonl"
+record = json.loads(result_path.read_text().splitlines()[-1])
+print_pose_diagnostics(record)
+```
+
+## Inspect Worst Relative-Ordering Cases
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+case_path = repo_root / "outputs/evaluations/pose_diagnostics_5fps/cases.jsonl"
+rows = [json.loads(line) for line in case_path.read_text().splitlines()]
+single_rows = [
+    row for row in rows
+    if row["model"] == "single_mouse" and row["mode"] == "autoregressive"
+]
+single_rows = sorted(
+    single_rows,
+    key=lambda row: row["metrics"]["relative_ordering_error"],
+    reverse=True,
+)
+
+for row in single_rows[:10]:
+    print(
+        row["sequence_id"],
+        "start=", row["start_frame"],
+        "mouse=", row["mouse_index"],
+        "seed=", row["seed"],
+        "motion=", row["motion_group"],
+        "ROE=", round(row["metrics"]["relative_ordering_error"], 4),
+        "BLE=", round(row["metrics"]["bone_length_error_px"], 3),
+        "SOE=", round(row["metrics"]["skeleton_orientation_error_deg"], 3),
+    )
+```

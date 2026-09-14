@@ -1,0 +1,17 @@
+dense_triplet:
+  train_config_path: src/config/train__flat_dense_triplet_5fps.yml
+  checkpoint_path: checkpoints/flat_dense_triplet_5fps/flat_best.pt
+  display_name: flat-dense-triplet-5fps
+single_mouse:
+  train_config_path: src/config/train__flat_dense_single_mouse_5fps.yml
+  checkpoint_path: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
+  display_name: flat-dense-single-mouse-5fps
+test_config_path: src/config/test__mabe.yml
+results_path: outputs/evaluations/pose_diagnostics_5fps/results.jsonl
+case_results_path: outputs/evaluations/pose_diagnostics_5fps/cases.jsonl
+max_triplet_windows: 30
+seeds:
+  - 42
+  - 43
+  - 44
+device: cuda
