@@ -13,6 +13,7 @@ from evaluate import DEFAULT_TEST_CONFIG_PATH
 
 ModelName = Literal["dense_triplet", "single_mouse"]
 RolloutMode = Literal["autoregressive", "teacher_forced"]
+PredictionStatistic = Literal["sample", "mean"]
 
 
 @dataclass(frozen=True)

@@ -13,27 +13,55 @@ from tqdm.auto import tqdm
 from evaluate import _load_checkpoint, _seconds_per_step, load_test_config
 from logging_utils import configure_cli_logging, get_logger
 from models import FlatSocialAttentionModel
-from train import _graph_builder, _select_device, load_flat_fit_config
+from train import (
+    _build_training_window_data,
+    _graph_builder,
+    _select_device,
+    load_flat_fit_config,
+)
 
-from .config import PoseDiagnosticConfig, RolloutMode, load_pose_diagnostic_config
-from .io import save_jsonl, save_jsonl_rows
+from .config import (
+    PoseDiagnosticConfig,
+    PredictionStatistic,
+    RolloutMode,
+    load_pose_diagnostic_config,
+)
+from .distribution import compare_feature_distributions, window_feature_distributions
+from .io import save_json, save_jsonl, save_jsonl_rows
 from .prediction import (
+    append_calibration_profile_values,
     append_float_values,
     append_horizon_values,
     append_values,
     attention_metrics,
     calibration_metrics,
+    case_calibration_profile,
     case_metrics,
     predict_case,
 )
 from .records import build_diagnostic_record, case_row
-from .report import print_pose_diagnostics
+from .report import (
+    print_pose_diagnostics,
+    save_calibration_profile_figure,
+    save_prediction_mode_figure,
+)
 from .windows import build_matched_window_data
 
 
 LOGGER = get_logger(__name__)
 MODEL_NAMES = ("dense_triplet", "single_mouse")
 ROLLOUT_MODES = ("autoregressive", "teacher_forced")
+PREDICTION_STATISTICS = ("sample", "mean")
+PREDICTION_MODE_NAMES = tuple(
+    f"{mode}_{statistic}"
+    for mode in ROLLOUT_MODES
+    for statistic in PREDICTION_STATISTICS
+)
+CALIBRATION_MODE_NAMES = (
+    "autoregressive_sample",
+    "autoregressive_mean",
+    "teacher_forced",
+)
 
 
 def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
@@ -56,6 +84,7 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
         max_triplet_windows=config.max_triplet_windows,
         seed=config.seeds[0],
     )
+    distribution_audit = _build_distribution_audit(dense_config)
     device = _select_device(config.device or dense_config.device)
     LOGGER.info("diagnostics: using %s", device)
     models = {
@@ -91,6 +120,32 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
         }
         for model_name in MODEL_NAMES
     }
+    prediction_mode_values: dict[str, dict[str, dict[str, list[Any]]]] = {
+        model_name: {mode: {} for mode in PREDICTION_MODE_NAMES}
+        for model_name in MODEL_NAMES
+    }
+    prediction_mode_horizon_values: dict[
+        str, dict[str, dict[int, dict[str, list[Any]]]]
+    ] = {
+        model_name: {
+            mode: {
+                horizon: {} for horizon in range(1, dense_config.prediction_length + 1)
+            }
+            for mode in PREDICTION_MODE_NAMES
+        }
+        for model_name in MODEL_NAMES
+    }
+    calibration_horizon_values: dict[
+        str, dict[str, dict[int, dict[str, list[Any]]]]
+    ] = {
+        model_name: {
+            mode: {
+                horizon: {} for horizon in range(1, dense_config.prediction_length + 1)
+            }
+            for mode in CALIBRATION_MODE_NAMES
+        }
+        for model_name in MODEL_NAMES
+    }
     calibration_values: dict[str, dict[str, list[float]]] = {
         model_name: {} for model_name in MODEL_NAMES
     }
@@ -105,55 +160,36 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
             single_window = data.single_windows[case.single_index]
             motion_label = data.motion_labels[case_index]
             for seed in config.seeds:
-                predictions_by_name = {
-                    ("dense_triplet", "autoregressive"): predict_case(
-                        model=models["dense_triplet"],
-                        window=dense_window,
-                        mode="autoregressive",
-                        prediction_length=dense_config.prediction_length,
-                        observation_length=dense_config.observation_length,
-                        build_graph=build_graphs["dense_triplet"],
-                        device=device,
-                        seed=_case_seed(seed, case_index, 0),
-                    ),
-                    ("single_mouse", "autoregressive"): predict_case(
-                        model=models["single_mouse"],
-                        window=single_window,
-                        mode="autoregressive",
-                        prediction_length=single_config.prediction_length,
-                        observation_length=single_config.observation_length,
-                        build_graph=build_graphs["single_mouse"],
-                        device=device,
-                        seed=_case_seed(seed, case_index, 1),
-                    ),
-                    ("dense_triplet", "teacher_forced"): predict_case(
-                        model=models["dense_triplet"],
-                        window=dense_window,
-                        mode="teacher_forced",
-                        prediction_length=dense_config.prediction_length,
-                        observation_length=dense_config.observation_length,
-                        build_graph=build_graphs["dense_triplet"],
-                        device=device,
-                        seed=_case_seed(seed, case_index, 0),
-                    ),
-                    ("single_mouse", "teacher_forced"): predict_case(
-                        model=models["single_mouse"],
-                        window=single_window,
-                        mode="teacher_forced",
-                        prediction_length=single_config.prediction_length,
-                        observation_length=single_config.observation_length,
-                        build_graph=build_graphs["single_mouse"],
-                        device=device,
-                        seed=_case_seed(seed, case_index, 1),
-                    ),
+                model_inputs = {
+                    "dense_triplet": (dense_window, dense_config, case.mouse_index, 0),
+                    "single_mouse": (single_window, single_config, 0, 1),
                 }
-                for (model_name, mode), prediction in predictions_by_name.items():
-                    window = (
-                        dense_window if model_name == "dense_triplet" else single_window
-                    )
-                    mouse_index = (
-                        case.mouse_index if model_name == "dense_triplet" else 0
-                    )
+                predictions_by_name = {}
+                for model_name, (
+                    window,
+                    model_config,
+                    _,
+                    stream,
+                ) in model_inputs.items():
+                    for mode in ROLLOUT_MODES:
+                        for statistic in PREDICTION_STATISTICS:
+                            mode_name = f"{mode}_{statistic}"
+                            predictions_by_name[(model_name, mode_name)] = predict_case(
+                                model=models[model_name],
+                                window=window,
+                                mode=cast(RolloutMode, mode),
+                                prediction_length=model_config.prediction_length,
+                                observation_length=model_config.observation_length,
+                                build_graph=build_graphs[model_name],
+                                device=device,
+                                seed=_case_seed(seed, case_index, stream),
+                                prediction_statistic=cast(
+                                    PredictionStatistic, statistic
+                                ),
+                            )
+                for (model_name, mode_name), prediction in predictions_by_name.items():
+                    window, _, mouse_index, _ = model_inputs[model_name]
+                    mode, statistic = mode_name.rsplit("_", 1)
                     metrics = case_metrics(
                         prediction=prediction,
                         window=window,
@@ -161,6 +197,33 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                         mouse_index=mouse_index,
                         seconds_per_step=seconds_per_step,
                     )
+                    append_values(
+                        prediction_mode_values[model_name][mode_name], metrics
+                    )
+                    append_horizon_values(
+                        prediction_mode_horizon_values[model_name][mode_name],
+                        prediction=prediction,
+                        window=window,
+                        normalizer=data.normalizer,
+                        mouse_index=mouse_index,
+                        seconds_per_step=seconds_per_step,
+                        mode=cast(RolloutMode, mode),
+                    )
+                    calibration_mode = (
+                        mode_name if mode == "autoregressive" else "teacher_forced"
+                    )
+                    if mode == "autoregressive" or statistic == "sample":
+                        append_calibration_profile_values(
+                            calibration_horizon_values[model_name][calibration_mode],
+                            case_calibration_profile(
+                                prediction=prediction,
+                                window=window,
+                                normalizer=data.normalizer,
+                                mouse_index=mouse_index,
+                            ),
+                        )
+                    if statistic != "sample":
+                        continue
                     append_values(metric_values[model_name][mode], metrics)
                     append_values(
                         metric_values_by_motion[model_name][mode][motion_label],
@@ -200,7 +263,7 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                     attention_values,
                     attention_metrics(
                         predictions_by_name[
-                            ("dense_triplet", "autoregressive")
+                            ("dense_triplet", "autoregressive_sample")
                         ].rollout,
                         mouse_index=case.mouse_index,
                     ),
@@ -214,11 +277,35 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
         metric_values_by_motion=metric_values_by_motion,
         horizon_values=horizon_values,
         calibration_values=calibration_values,
+        prediction_mode_values=prediction_mode_values,
+        prediction_mode_horizon_values=prediction_mode_horizon_values,
+        calibration_horizon_values=calibration_horizon_values,
+        distribution_audit=distribution_audit,
         attention_values=attention_values,
     )
     save_jsonl(record, config.results_path)
     if config.case_results_path is not None:
         save_jsonl_rows(case_rows, config.case_results_path)
+    output_dir = config.results_path.parent
+    save_jsonl(
+        {
+            "timestamp_utc": record["timestamp_utc"],
+            "window_contract": record["window_contract"],
+            "prediction_mode_comparison": record["prediction_mode_comparison"],
+        },
+        output_dir / "prediction_mode_comparison.jsonl",
+    )
+    save_json(record["distribution_audit"], output_dir / "distribution_audit.json")
+    for statistic in ("p50", "p99"):
+        save_prediction_mode_figure(
+            record,
+            output_dir / f"prediction_mode_{statistic}.png",
+            statistic=statistic,
+        )
+    save_calibration_profile_figure(
+        record,
+        output_dir / "calibration_by_horizon.png",
+    )
     return record
 
 
@@ -286,3 +373,29 @@ def _case_seed(seed: int, case_index: int, stream: int) -> int:
     """Build a deterministic seed for one stochastic diagnostic stream."""
 
     return int(seed + 1009 * case_index + 9176 * stream)
+
+
+def _build_distribution_audit(config: Any) -> dict[str, Any]:
+    """Compare selected training and validation trajectory distributions."""
+
+    LOGGER.info("diagnostics: rebuilding train and validation window selections")
+    data = _build_training_window_data(config, show_progress=True)
+    seconds_per_step = _seconds_per_step(config)
+    train_features = window_feature_distributions(
+        data.train_windows,
+        seconds_per_step=seconds_per_step,
+    )
+    validation_features = window_feature_distributions(
+        data.validation_windows,
+        seconds_per_step=seconds_per_step,
+    )
+    return {
+        "train_windows": len(data.train_windows),
+        "validation_windows": len(data.validation_windows),
+        "train_sequences": len(data.train_windows.sequences),
+        "validation_sequences": len(data.validation_windows.sequences),
+        "features": compare_feature_distributions(
+            train_features=train_features,
+            validation_features=validation_features,
+        ),
+    }

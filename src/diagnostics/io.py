@@ -9,6 +9,20 @@ from typing import Any
 from evaluate import _json_safe
 
 
+def save_json(record: dict[str, Any], path: Path) -> None:
+    """Write one JSON-safe record, replacing an older diagnostic snapshot.
+
+    Args:
+        record: JSON-serializable payload.
+        path: Destination path.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_json_safe(record), indent=2, sort_keys=True, allow_nan=False) + "\n"
+    )
+
+
 def save_jsonl(record: dict[str, Any], path: Path) -> None:
     """Append one JSON-safe record to a JSONL file.
 

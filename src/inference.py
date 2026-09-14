@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import torch
@@ -27,6 +28,20 @@ class RolloutResult:
     nodes: np.ndarray
     gaussian_outputs: np.ndarray
     attention_weights: tuple[dict[int, tuple[Tensor, tuple[int, ...]]], ...]
+
+
+def bivariate_gaussian_mean(outputs: Tensor) -> Tensor:
+    """Return mean coordinates from raw bivariate Gaussian outputs.
+
+    Args:
+        outputs: Raw Gaussian parameters shaped `[..., 5]`.
+
+    Returns:
+        Mean coordinates shaped `[..., 2]`.
+    """
+
+    params = gaussian_2d_parameters(outputs)
+    return torch.stack((params.mu_x, params.mu_y), dim=-1)
 
 
 def sample_bivariate_gaussian(
@@ -80,6 +95,7 @@ def rollout_flat_keypoint_model(
     device: torch.device,
     generator: torch.Generator | None = None,
     standard_normal: Tensor | None = None,
+    prediction_statistic: Literal["sample", "mean"] = "sample",
 ) -> RolloutResult:
     """Roll a flat keypoint model forward from observed frames.
 
@@ -91,6 +107,7 @@ def rollout_flat_keypoint_model(
         device: Inference device.
         generator: Optional random generator for reproducible sampling.
         standard_normal: Optional draws shaped `[prediction, nodes, 2]`.
+        prediction_statistic: Whether to feed back a Gaussian sample or mean.
 
     Returns:
         Predicted full sequence containing observed and generated nodes.
@@ -136,7 +153,9 @@ def rollout_flat_keypoint_model(
             )
         state = result.state
         output = result.outputs[0]
-        if standard_normal is None:
+        if prediction_statistic == "mean":
+            next_nodes = bivariate_gaussian_mean(output)
+        elif standard_normal is None:
             next_nodes = sample_bivariate_gaussian(output, generator=generator)
         else:
             next_nodes = sample_bivariate_gaussian(

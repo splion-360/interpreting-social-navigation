@@ -57,6 +57,12 @@ def build_diagnostic_record(
     metric_values_by_motion: dict[str, dict[str, dict[str, dict[str, list[Any]]]]],
     horizon_values: dict[str, dict[str, dict[int, dict[str, list[Any]]]]],
     calibration_values: dict[str, dict[str, list[float]]],
+    prediction_mode_values: dict[str, dict[str, dict[str, list[Any]]]],
+    prediction_mode_horizon_values: dict[
+        str, dict[str, dict[int, dict[str, list[Any]]]]
+    ],
+    calibration_horizon_values: dict[str, dict[str, dict[int, dict[str, list[Any]]]]],
+    distribution_audit: dict[str, Any],
     attention_values: dict[str, list[float]],
 ) -> dict[str, Any]:
     """Assemble a JSON-ready diagnostic record."""
@@ -127,10 +133,16 @@ def build_diagnostic_record(
         "methods": summaries,
         "paired_delta_single_minus_dense": _paired_delta_summary(metric_values),
         "horizon_profile": _horizon_profile(horizon_values),
+        "prediction_mode_comparison": _prediction_mode_summary(
+            prediction_mode_values,
+            prediction_mode_horizon_values,
+        ),
         "calibration": {
             model_name: _aggregate_float_values(values)
             for model_name, values in calibration_values.items()
         },
+        "calibration_by_horizon": _horizon_profile(calibration_horizon_values),
+        "distribution_audit": distribution_audit,
         "attention": _aggregate_float_values(attention_values),
     }
 
@@ -181,6 +193,26 @@ def _horizon_profile(
                 }
                 for horizon, values in by_horizon.items()
                 if values
+            }
+    return summary
+
+
+def _prediction_mode_summary(
+    metric_values: dict[str, dict[str, dict[str, list[Any]]]],
+    horizon_values: dict[str, dict[str, dict[int, dict[str, list[Any]]]]],
+) -> dict[str, Any]:
+    """Aggregate metrics for each conditioning and Gaussian-output mode."""
+
+    summary: dict[str, Any] = {}
+    for model_name, by_mode in metric_values.items():
+        summary[model_name] = {}
+        for mode, values in by_mode.items():
+            summary[model_name][mode] = {
+                "metrics": _aggregate_metric_values(values),
+                "metric_quantiles": _aggregate_metric_quantiles(values),
+                "horizon_profile": _horizon_profile(
+                    {model_name: {mode: horizon_values[model_name][mode]}}
+                )[model_name][mode],
             }
     return summary
 

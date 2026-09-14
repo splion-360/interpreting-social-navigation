@@ -194,6 +194,44 @@ def test_rollout_preserves_single_mouse_pose_shape(
     assert rollout.nodes.shape == (4, 12, 2)
 
 
+def test_rollout_can_feed_back_gaussian_means(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = make_keypoints(frames=2)[:, 0:1]
+
+    class IncrementModel:
+        def forward_with_state(self, **kwargs):
+            nodes = kwargs["nodes"]
+            outputs = torch.zeros((1, nodes.shape[1], 5), dtype=nodes.dtype)
+            outputs[0, :, :2] = nodes[0] + 1.0
+            return SimpleNamespace(
+                outputs=outputs,
+                state=kwargs["state"],
+                attention_weights=({},),
+            )
+
+    def fail_if_sampled(*args, **kwargs):
+        raise AssertionError("mean rollout must not sample")
+
+    monkeypatch.setattr(inference_module, "sample_bivariate_gaussian", fail_if_sampled)
+    rollout = rollout_flat_keypoint_model(
+        model=cast(Any, IncrementModel()),
+        observed_keypoints=observed,
+        prediction_length=2,
+        build_graph=build_single_mouse_dense_keypoint_graph,
+        device=torch.device("cpu"),
+        prediction_statistic="mean",
+    )
+
+    observed_graph = build_single_mouse_dense_keypoint_graph(observed)
+    np.testing.assert_array_equal(
+        rollout.nodes[2], observed_graph.nodes[1] + np.float32(1.0)
+    )
+    np.testing.assert_array_equal(
+        rollout.nodes[3], observed_graph.nodes[1] + np.float32(2.0)
+    )
+
+
 def test_build_evaluation_windows_can_read_separate_test_file(tmp_path) -> None:
     train_path = tmp_path / "mouse_triplet_train.npy"
     test_path = tmp_path / "mouse_triplet_test.npy"

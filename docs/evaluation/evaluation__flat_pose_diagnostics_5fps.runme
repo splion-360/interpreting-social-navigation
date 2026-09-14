@@ -30,6 +30,9 @@ The diagnostics report:
 - Gaussian calibration from sampled bivariate distributions
 - dense-triplet attention mass split into within-mouse and cross-mouse context
 - exact-step P50/P99 error profiles across the 24-frame prediction horizon
+- Gaussian mean versus sampled predictions under both conditioning policies
+- horizon-wise 50%/95% ellipse coverage and predicted uncertainty scale
+- train-versus-validation motion, position, heading, and local-pose distributions
 
 ## Run Diagnostics
 
@@ -64,6 +67,59 @@ result_path = repo_root / "outputs/evaluations/pose_diagnostics_5fps/results.jso
 record = json.loads(result_path.read_text().splitlines()[-1])
 print_pose_diagnostics(record)
 ```
+
+## Inspect No-Retraining Diagnostic Artifacts
+
+The runner writes these alongside the main results:
+
+```text
+prediction_mode_comparison.jsonl  # sample/mean x autoregressive/teacher-forced
+prediction_mode_p50.png           # typical per-horizon failures
+prediction_mode_p99.png           # tail per-horizon failures
+calibration_by_horizon.png        # coverage, Mahalanobis error, and Gaussian scale
+distribution_audit.json           # selected train-versus-validation feature shifts
+```
+
+The Gaussian mean is used only as a diagnostic. The official benchmark remains
+sampled because the model defines future trajectories through its bivariate
+Gaussian outputs.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from IPython.display import Image, display
+from pathlib import Path
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+result_dir = repo_root / "outputs/evaluations/pose_diagnostics_5fps"
+
+for filename in (
+    "prediction_mode_p50.png",
+    "prediction_mode_p99.png",
+    "calibration_by_horizon.png",
+):
+    display(Image(filename=str(result_dir / filename)))
+```
+
+## Current Conclusion
+
+The matched 90-case run shows that the checkpoints learned a strong one-step
+pose predictor, but not a stable free-running pose dynamics model. At the final
+4.8-second step, teacher-forced Gaussian means have roughly 3 px BLE, 6 degrees
+SOE, 2 degrees BHE, and 0.045 ROE for both variants. Autoregressive means degrade
+to 17-22 px BLE, 37-45 degrees SOE, 29-34 degrees BHE, and 0.23-0.26 ROE. Sampling
+then amplifies the failure: final sampled BLE reaches 234 px for dense triplet
+and 65 px for single mouse, with both near 84-85 degrees SOE and 0.47 ROE.
+
+The Gaussian calibration result supports the same diagnosis. At the first step,
+95% ellipse coverage is about 95% for both models. By the final autoregressive
+step it falls to 5.2% for dense sampled rollouts and 2.4% for single sampled
+rollouts, while teacher-forced coverage remains about 96%. The selected training
+and validation distributions do not show a material mismatch: the largest
+absolute standardized feature shift is 0.185 and the largest reported KS
+statistic is 0.139. Therefore validation OOD is not the leading explanation.
+
+The immediate bottleneck is exposure bias plus independent per-keypoint sampling.
+Single-mouse training improves sampled body scale (BLE) but does not by itself
+stabilize joint pose orientation or long-horizon feedback.
 
 ## Plot Per-Horizon Errors
 

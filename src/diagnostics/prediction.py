@@ -11,6 +11,7 @@ import torch
 from data import PoseNormalizer, Window
 from inference import (
     RolloutResult,
+    bivariate_gaussian_mean,
     rollout_flat_keypoint_model,
     sample_bivariate_gaussian,
 )
@@ -18,7 +19,8 @@ from loss import gaussian_2d_parameters
 from metrics import compute_pixel_metrics
 from models import FlatSocialAttentionModel
 
-from .config import RolloutMode
+from .calibration import calibration_profile
+from .config import PredictionStatistic, RolloutMode
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ def predict_case(
     build_graph: Any,
     device: torch.device,
     seed: int,
+    prediction_statistic: PredictionStatistic = "sample",
 ) -> CasePrediction:
     """Predict one window under autoregressive or teacher-forced inputs.
 
@@ -58,6 +61,7 @@ def predict_case(
         build_graph: Graph builder for the variant.
         device: Torch device used for inference.
         seed: Sampling seed.
+        prediction_statistic: Gaussian sample or mean used as the prediction.
 
     Returns:
         Predicted future nodes and Gaussian outputs.
@@ -66,10 +70,14 @@ def predict_case(
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
     node_count = int(np.prod(window.observed_keypoints.shape[1:-1]))
-    standard_normal = torch.randn(
-        (prediction_length, node_count, 2),
-        generator=generator,
-        device=device,
+    standard_normal = (
+        torch.randn(
+            (prediction_length, node_count, 2),
+            generator=generator,
+            device=device,
+        )
+        if prediction_statistic == "sample"
+        else None
     )
     if mode == "autoregressive":
         rollout = rollout_flat_keypoint_model(
@@ -79,6 +87,7 @@ def predict_case(
             build_graph=build_graph,
             device=device,
             standard_normal=standard_normal,
+            prediction_statistic=prediction_statistic,
         )
         return CasePrediction(
             future_nodes=rollout.nodes[-prediction_length:],
@@ -98,12 +107,16 @@ def predict_case(
     future_outputs = result.outputs[
         observation_length - 1 : observation_length - 1 + prediction_length
     ]
-    samples = sample_bivariate_gaussian(
-        future_outputs,
-        standard_normal=standard_normal,
+    predictions = (
+        bivariate_gaussian_mean(future_outputs)
+        if prediction_statistic == "mean"
+        else sample_bivariate_gaussian(
+            future_outputs,
+            standard_normal=standard_normal,
+        )
     )
     return CasePrediction(
-        future_nodes=samples.detach().cpu().numpy(),
+        future_nodes=predictions.detach().cpu().numpy(),
         gaussian_outputs=future_outputs.detach().cpu().numpy(),
         rollout=None,
     )
@@ -306,6 +319,50 @@ def calibration_metrics(
         "coverage_50": float((mahalanobis_sq <= 1.38629436).float().mean().item()),
         "coverage_95": float((mahalanobis_sq <= 5.99146455).float().mean().item()),
     }
+
+
+def case_calibration_profile(
+    *,
+    prediction: CasePrediction,
+    window: Window,
+    normalizer: PoseNormalizer,
+    mouse_index: int,
+) -> list[dict[str, float | int]]:
+    """Measure exact-step calibration for one mouse forecast.
+
+    Args:
+        prediction: Gaussian outputs produced for the case.
+        window: Normalized evaluation window.
+        normalizer: Pixel-coordinate normalizer.
+        mouse_index: Mouse selected from the prediction and target.
+
+    Returns:
+        Calibration measurements for every predicted frame.
+    """
+
+    pose_shape = window.future_keypoints.shape
+    outputs = prediction.gaussian_outputs.reshape((*pose_shape[:-1], 5))[
+        :, mouse_index : mouse_index + 1
+    ]
+    target = window.future_keypoints[:, mouse_index : mouse_index + 1]
+    return calibration_profile(
+        outputs.reshape(outputs.shape[0], -1, 5),
+        target.reshape(target.shape[0], -1, 2),
+        coordinate_scale=normalizer.scale,
+    )
+
+
+def append_calibration_profile_values(
+    destination: dict[int, dict[str, list[float]]],
+    profile: list[dict[str, float | int]],
+) -> None:
+    """Append one case calibration profile into horizon accumulators."""
+
+    for row in profile:
+        horizon = int(row["horizon_step"])
+        for name, value in row.items():
+            if name != "horizon_step":
+                destination[horizon].setdefault(name, []).append(float(value))
 
 
 def attention_metrics(
