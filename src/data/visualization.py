@@ -64,7 +64,8 @@ def plot_pose_frame(
     ax.set_aspect("equal")
     ax.axis("off")
 
-    for mouse_idx, color in enumerate(colors):
+    for mouse_idx in range(pose.shape[0]):
+        color = colors[mouse_idx % len(colors)]
         mouse_pose = pose[mouse_idx]
         point_colors = KEYPOINT_COLORS if color_by_keypoint else color
         ax.scatter(mouse_pose[:, 0], mouse_pose[:, 1], s=10, color=point_colors)
@@ -89,7 +90,7 @@ def plot_pose_frame(
                 ax.plot(
                     path[:, 0],
                     path[:, 1],
-                    color=MOUSE_TRACK_COLORS[mouse_idx],
+                    color=MOUSE_TRACK_COLORS[mouse_idx % len(MOUSE_TRACK_COLORS)],
                     linewidth=1,
                     alpha=0.7,
                 )
@@ -226,7 +227,9 @@ def animate_single_mouse_prediction_comparison(
 
     expected_future = actual_keypoints.shape[0] - observation_length
     if predicted_future_keypoints.shape[0] != expected_future:
-        raise ValueError("predicted_future_keypoints length must match the future horizon")
+        raise ValueError(
+            "predicted_future_keypoints length must match the future horizon"
+        )
 
     actual_mouse = actual_keypoints[:, mouse_index]
     predicted_future_mouse = predicted_future_keypoints[:, mouse_index]
@@ -260,7 +263,9 @@ def animate_single_mouse_prediction_comparison(
             rollout_ax,
             rollout_mouse[frame_idx],
             track=rollout_mouse[: frame_idx + 1],
-            title="Observed context" if frame_idx < observation_length else "Prediction",
+            title="Observed context"
+            if frame_idx < observation_length
+            else "Prediction",
             x_limits=x_limits,
             y_limits=y_limits,
             predicted=frame_idx >= observation_length,
@@ -417,7 +422,9 @@ def animate_prediction_comparison(
 
     expected_future = actual_keypoints.shape[0] - observation_length
     if predicted_future_keypoints.shape[0] != expected_future:
-        raise ValueError("predicted_future_keypoints length must match the future horizon")
+        raise ValueError(
+            "predicted_future_keypoints length must match the future horizon"
+        )
 
     frame_indices = list(range(0, actual_keypoints.shape[0], step))
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -445,7 +452,9 @@ def animate_prediction_comparison(
     )
 
 
-def save_animation(animation_obj: animation.FuncAnimation, path: str | Path, fps: int = 10) -> Path:
+def save_animation(
+    animation_obj: animation.FuncAnimation, path: str | Path, fps: int = 10
+) -> Path:
     """Save an animation to disk using matplotlib's configured writers."""
 
     output_path = Path(path)
