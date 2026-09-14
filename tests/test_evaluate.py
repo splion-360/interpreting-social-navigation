@@ -12,6 +12,7 @@ import evaluate as evaluate_module
 import inference as inference_module
 from evaluate import (
     EvaluationResult,
+    _aggregate_metric_quantiles,
     _aggregate_metric_values,
     _build_evaluation_windows,
     _extreme_pair_cells,
@@ -86,6 +87,19 @@ def test_scalar_metric_aggregation_ignores_undefined_windows() -> None:
     metrics = _aggregate_metric_values({"direction_error_deg": [np.nan, 90.0]})
 
     assert metrics["direction_error_deg"] == 90.0
+
+
+def test_scalar_metric_quantiles_ignore_arrays_and_undefined_windows() -> None:
+    quantiles = _aggregate_metric_quantiles(
+        {
+            "centroid_fde_px": [np.nan, 1.0, 3.0, 9.0],
+            "centroid_offset_px_by_mouse": [np.zeros((3, 2))],
+        }
+    )
+
+    assert quantiles["centroid_fde_px"]["p50"] == 3.0
+    assert quantiles["centroid_fde_px"]["p99"] == pytest.approx(8.88)
+    assert "centroid_offset_px_by_mouse" not in quantiles
 
 
 def test_rollout_reuses_sampled_positions_to_recompute_edges(
@@ -525,6 +539,7 @@ def test_baseline_record_persists_motion_strata() -> None:
         split="test",
         windows=3,
         metrics={"centroid_ade_px": 2.0},
+        metric_quantiles={"centroid_ade_px": {"p50": 2.0, "p99": 2.9}},
         motion_profile={
             "score": "mean_keypoint_speed_px_s",
             "thresholds_px_s": {"low_max": 1.0, "medium_max": 2.0},
@@ -546,6 +561,11 @@ def test_baseline_record_persists_motion_strata() -> None:
                 "skeleton_orientation_error_deg": 6.0,
                 "bone_length_error_px": 9.0,
             },
+        },
+        metric_quantiles_by_motion={
+            "low": {"centroid_ade_px": {"p50": 1.0, "p99": 1.0}},
+            "medium": {"centroid_ade_px": {"p50": 2.0, "p99": 2.0}},
+            "high": {"centroid_ade_px": {"p50": 3.0, "p99": 3.0}},
         },
         evaluation_seconds=1.25,
     )
@@ -571,6 +591,8 @@ def test_baseline_record_persists_motion_strata() -> None:
 
     assert record["motion_profile"] == result.motion_profile
     assert record["metrics_by_motion"] == result.metrics_by_motion
+    assert record["metric_quantiles"] == result.metric_quantiles
+    assert record["metric_quantiles_by_motion"] == result.metric_quantiles_by_motion
     assert record["runtime_seconds"] == 1.25
     assert record["source_fps"] == 30.0
     assert record["frame_step"] == 12

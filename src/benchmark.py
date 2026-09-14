@@ -85,6 +85,8 @@ def _comparable_baseline(result: BaselineEvaluationResult) -> BenchmarkMetrics:
         metrics_by_motion=result.metrics_by_motion,
         motion_profile=result.motion_profile,
         window_digest=result.window_digest,
+        metric_quantiles=result.metric_quantiles,
+        metric_quantiles_by_motion=result.metric_quantiles_by_motion,
         runtime_seconds=result.evaluation_seconds,
     )
 
@@ -106,6 +108,8 @@ def _comparable_model(
         metrics_by_motion=result.metrics_by_motion,
         motion_profile=result.motion_profile,
         window_digest=result.window_digest,
+        metric_quantiles=result.metric_quantiles,
+        metric_quantiles_by_motion=result.metric_quantiles_by_motion,
         runtime_seconds=runtime_seconds,
     )
 

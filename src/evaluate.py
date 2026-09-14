@@ -262,8 +262,10 @@ class EvaluationResult:
         device: Device used for model inference.
         checkpoint_epoch: Epoch stored in the evaluated checkpoint, if available.
         checkpoint_validation_loss: Validation loss stored in the checkpoint.
+        metric_quantiles: Per-metric p50/p99 over evaluated windows.
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
+        metric_quantiles_by_motion: Per-stratum metric p50/p99 summaries.
         window_digest: Fingerprint of selected sequence/start-frame keys.
     """
 
@@ -273,8 +275,10 @@ class EvaluationResult:
     device: str
     checkpoint_epoch: int | None
     checkpoint_validation_loss: float | None
+    metric_quantiles: dict[str, dict[str, float]] | None = None
     motion_profile: dict[str, Any] | None = None
     metrics_by_motion: dict[str, dict[str, Any]] | None = None
+    metric_quantiles_by_motion: dict[str, dict[str, dict[str, float]]] | None = None
     window_digest: str | None = None
 
 
@@ -287,8 +291,10 @@ class BaselineEvaluationResult:
         split: Evaluation split name.
         windows: Number of windows evaluated.
         metrics: Pixel-space evaluation metrics.
+        metric_quantiles: Per-metric p50/p99 over evaluated windows.
         motion_profile: Ground-truth motion thresholds and window counts.
         metrics_by_motion: Aggregate metrics for each motion stratum.
+        metric_quantiles_by_motion: Per-stratum metric p50/p99 summaries.
         evaluation_seconds: Wall-clock time spent predicting and scoring windows.
         window_digest: Fingerprint of selected sequence/start-frame keys.
     """
@@ -297,8 +303,10 @@ class BaselineEvaluationResult:
     split: str
     windows: int
     metrics: dict[str, Any]
+    metric_quantiles: dict[str, dict[str, float]]
     motion_profile: dict[str, Any]
     metrics_by_motion: dict[str, dict[str, Any]]
+    metric_quantiles_by_motion: dict[str, dict[str, dict[str, float]]]
     evaluation_seconds: float = 0.0
     window_digest: str | None = None
 
@@ -410,8 +418,12 @@ def evaluate_flat_checkpoint(
         device=str(device),
         checkpoint_epoch=checkpoint.get("epoch"),
         checkpoint_validation_loss=checkpoint.get("validation_loss"),
+        metric_quantiles=_aggregate_metric_quantiles(metric_values),
         motion_profile=motion_profile.to_dict(),
         metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
+        metric_quantiles_by_motion=_aggregate_metric_quantiles_by_motion(
+            metrics_by_motion
+        ),
         window_digest=_window_selection_digest(windows),
     )
 
@@ -492,8 +504,12 @@ def evaluate_motion_baseline(
         split=split,
         windows=len(windows),
         metrics=_aggregate_metric_values(metric_values),
+        metric_quantiles=_aggregate_metric_quantiles(metric_values),
         motion_profile=motion_profile.to_dict(),
         metrics_by_motion=_aggregate_metrics_by_motion(metrics_by_motion),
+        metric_quantiles_by_motion=_aggregate_metric_quantiles_by_motion(
+            metrics_by_motion
+        ),
         evaluation_seconds=perf_counter() - evaluation_started,
         window_digest=_window_selection_digest(windows),
     )
@@ -913,6 +929,17 @@ def _aggregate_metrics_by_motion(
     }
 
 
+def _aggregate_metric_quantiles_by_motion(
+    values_by_motion: dict[str, dict[str, list[Any]]],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Aggregate p50/p99 scalar metric summaries for each motion stratum."""
+
+    return {
+        stratum: _aggregate_metric_quantiles(values) if values else {}
+        for stratum, values in values_by_motion.items()
+    }
+
+
 def _aggregate_metric_values(metric_values: dict[str, list[Any]]) -> dict[str, Any]:
     """Average scalar and array metrics across evaluated windows.
 
@@ -937,6 +964,35 @@ def _aggregate_metric_values(metric_values: dict[str, list[Any]]) -> dict[str, A
                 float(finite_values.mean()) if finite_values.size else float("nan")
             )
     return aggregates
+
+
+def _aggregate_metric_quantiles(
+    metric_values: dict[str, list[Any]],
+) -> dict[str, dict[str, float]]:
+    """Compute p50 and p99 summaries for scalar per-window metrics.
+
+    Args:
+        metric_values: Per-window metric values keyed by metric name.
+
+    Returns:
+        Scalar metric quantiles. Array-valued diagnostic metrics are omitted.
+    """
+
+    quantiles: dict[str, dict[str, float]] = {}
+    for name, values in metric_values.items():
+        first_value = values[0]
+        if isinstance(first_value, np.ndarray):
+            continue
+        scalar_values = np.asarray(values, dtype=np.float32)
+        finite_values = scalar_values[~np.isnan(scalar_values)]
+        if not finite_values.size:
+            quantiles[name] = {"p50": float("nan"), "p99": float("nan")}
+            continue
+        quantiles[name] = {
+            "p50": float(np.percentile(finite_values, 50)),
+            "p99": float(np.percentile(finite_values, 99)),
+        }
+    return quantiles
 
 
 def _nanmean_stacked(values: list[np.ndarray]) -> np.ndarray:
@@ -1720,8 +1776,10 @@ def build_evaluation_record(
         "metrics": {
             **result.metrics,
         },
+        "metric_quantiles": result.metric_quantiles,
         "motion_profile": result.motion_profile,
         "metrics_by_motion": result.metrics_by_motion,
+        "metric_quantiles_by_motion": result.metric_quantiles_by_motion,
     }
 
 
@@ -1792,8 +1850,10 @@ def build_baseline_evaluation_record(
         "metrics": {
             **result.metrics,
         },
+        "metric_quantiles": result.metric_quantiles,
         "motion_profile": result.motion_profile,
         "metrics_by_motion": result.metrics_by_motion,
+        "metric_quantiles_by_motion": result.metric_quantiles_by_motion,
     }
 
 

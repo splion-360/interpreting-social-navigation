@@ -26,6 +26,14 @@ lateral_axis = perpendicular(forward_axis)
 Using the actual mouse frame asks where the prediction landed relative to the
 ground-truth mouse position and heading.
 
+## Aggregation Convention
+
+`metrics` stores the mean over evaluated windows. Fresh evaluation and benchmark
+records also store `metric_quantiles`, which contains p50 and p99 for each
+scalar metric, and `metric_quantiles_by_motion`, which does the same within each
+motion group. Array-valued diagnostic tables are averaged only; quantiles are
+reported for scalar metrics.
+
 ## Primary Metrics
 
 | Problem | Metric | Short name | Range | Better | Reason |

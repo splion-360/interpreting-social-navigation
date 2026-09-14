@@ -40,7 +40,10 @@ windows:
 
 ## Aggregate metrics
 
-All metrics below are lower-is-better.
+All metrics below are means over the evaluated windows and are lower-is-better.
+This snapshot was generated before p50/p99 quantile logging was added. Re-run
+the benchmark at the end of this notebook to append a fresh record containing
+`metric_quantiles` and `metric_quantiles_by_motion`.
 
 | Method | cADE px | cFDE px | kADE px | kFDE px | CVE px/s | KVE px/s | BHE deg | BFK-ADE px | BFK-FDE px | BLE px | SOE deg | ROE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -73,7 +76,8 @@ complexity: single-mouse dense keypoints and within-mouse dense triplets.
 
 ## Reprint the benchmark tables
 
-Use this cell to reprint the Rich benchmark tables from the recorded JSONL file.
+Use this cell to reprint the Rich benchmark tables from the latest JSONL record.
+If the latest record includes quantiles, the output also includes p50/p99 tables.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 import json
@@ -92,9 +96,70 @@ record = json.loads(result_path.read_text().splitlines()[-1])
 print_benchmark_tables(record)
 ```
 
+## Print compact p50 / p99 summary
+
+Use this after re-running the benchmark. Older records that predate quantile
+logging will print a short message instead.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from rich import box
+from rich.console import Console
+from rich.table import Table
+
+METRICS = (
+    "centroid_fde_px",
+    "keypoint_fde_px",
+    "centroid_velocity_error_px_s",
+    "keypoint_velocity_error_px_s",
+    "body_heading_error_deg",
+    "bone_length_error_px",
+    "skeleton_orientation_error_deg",
+    "relative_ordering_error",
+)
+
+result_path = repo_root / "outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl"
+record = json.loads(result_path.read_text().splitlines()[-1])
+
+if not any(method.get("metric_quantiles") for method in record["methods"].values()):
+    print("Latest record does not include p50/p99. Re-run the benchmark to append quantiles.")
+else:
+    table = Table(title="Flat dense triplet 5FPS p50 / p99", box=box.SIMPLE_HEAVY)
+    table.add_column("method", style="cyan", no_wrap=True)
+    table.add_column("metric", style="magenta", no_wrap=True)
+    table.add_column("mean", justify="right")
+    table.add_column("p50", justify="right")
+    table.add_column("p99", justify="right")
+
+    for method_name, method in record["methods"].items():
+        quantiles = method["metric_quantiles"]
+        for metric_name in METRICS:
+            value = method["metrics"].get(metric_name)
+            metric_quantiles = quantiles.get(metric_name)
+            if value is None or metric_quantiles is None:
+                continue
+            table.add_row(
+                method_name,
+                metric_name,
+                f"{value:.3f}",
+                f"{metric_quantiles['p50']:.3f}",
+                f"{metric_quantiles['p99']:.3f}",
+            )
+
+    Console().print(table)
+```
+
 ## Re-run the benchmark
 
-Use this only when you want to append a fresh benchmark record.
+Use this to append a fresh benchmark record with mean, p50, and p99 summaries.
 
 ```sh
 python src/benchmark.py --config src/config/benchmark__flat_dense_triplet_5fps.yml

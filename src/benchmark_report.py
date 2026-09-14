@@ -25,7 +25,9 @@ class BenchmarkMetrics:
         name: Method name used in tables and result records.
         windows: Number of evaluated windows.
         metrics: Aggregate metrics over every window.
+        metric_quantiles: Per-metric p50/p99 over evaluated windows.
         metrics_by_motion: Aggregate metrics by ground-truth motion stratum.
+        metric_quantiles_by_motion: Per-stratum metric p50/p99 summaries.
         motion_profile: Shared stratum thresholds and counts.
         window_digest: Fingerprint of selected sequence/start-frame keys.
         runtime_seconds: Wall-clock evaluation time when available.
@@ -37,6 +39,8 @@ class BenchmarkMetrics:
     metrics_by_motion: dict[str, dict[str, Any]]
     motion_profile: dict[str, Any]
     window_digest: str | None
+    metric_quantiles: dict[str, dict[str, float]] | None = None
+    metric_quantiles_by_motion: dict[str, dict[str, dict[str, float]]] | None = None
     runtime_seconds: float | None = None
 
 
@@ -127,7 +131,9 @@ def build_benchmark_record(
         }
         method_records[method.name] = {
             "metrics": method.metrics,
+            "metric_quantiles": method.metric_quantiles,
             "metrics_by_motion": method.metrics_by_motion,
+            "metric_quantiles_by_motion": method.metric_quantiles_by_motion,
             "relative_improvement_over_persistence": {
                 "overall": relative_error_improvements(
                     candidate=method.metrics,
@@ -212,3 +218,57 @@ def print_benchmark_tables(
             if has_value:
                 table.add_row(metric_name, *values)
         output.print(table)
+        quantile_table = _benchmark_quantile_table(
+            record=record,
+            group=group,
+            method_names=method_names,
+            title=f"{contract_name} benchmark quantiles: {group}",
+        )
+        if quantile_table is not None:
+            output.print(quantile_table)
+
+
+def _benchmark_quantile_table(
+    *,
+    record: dict[str, Any],
+    group: str,
+    method_names: tuple[str, ...],
+    title: str,
+) -> Table | None:
+    """Build a p50/p99 benchmark table when quantile fields are present."""
+
+    if not any(
+        record["methods"][name].get("metric_quantiles") for name in method_names
+    ):
+        return None
+
+    table = Table(title=title, box=box.SIMPLE_HEAVY)
+    table.add_column("metric", style="cyan", no_wrap=True)
+    for method_name in method_names:
+        table.add_column(method_name, justify="right")
+
+    has_rows = False
+    for metric_name in PRIMARY_METRIC_NAMES:
+        values: list[str] = []
+        has_value = False
+        for method_name in method_names:
+            method = record["methods"][method_name]
+            quantiles = (
+                method.get("metric_quantiles")
+                if group == "overall"
+                else (method.get("metric_quantiles_by_motion") or {}).get(group)
+            )
+            metric_quantiles = quantiles.get(metric_name) if quantiles else None
+            if isinstance(metric_quantiles, dict):
+                p50 = metric_quantiles.get("p50")
+                p99 = metric_quantiles.get("p99")
+                if isinstance(p50, int | float) and isinstance(p99, int | float):
+                    has_value = True
+                    values.append(f"p50={p50:.3f} p99={p99:.3f}")
+                    continue
+            values.append("-")
+        if has_value:
+            has_rows = True
+            table.add_row(metric_name, *values)
+
+    return table if has_rows else None
