@@ -4,20 +4,35 @@ cwd: ../..
 
 # Visualize Test Predictions
 
-Generate MP4s comparing the held-out MABe ground-truth future against a sampled
-model rollout from the trained 5 FPS flat dense triplet checkpoint.
+Generate MP4s comparing held-out MABe ground-truth futures against sampled model
+rollouts. Change `EXPERIMENT` to switch between trained variants without adding
+new notebook sections.
 
-Output path:
+The workflow follows the repo naming convention:
 
 ```text
-outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__{timestamp}.mp4
+src/config/train__{EXPERIMENT}.yml
+checkpoints/{EXPERIMENT}/flat_best.pt
+outputs/visualizations/{EXPERIMENT}/{seq_id}__{timestamp}.mp4
 ```
 
-## Select a Test Trajectory
+## Available trained variants
 
-Leave `SEQ_ID = None` to use the first deterministic sequence in `mouse_triplet_test.npy`.
+| Experiment | Use case |
+| --- | --- |
+| `flat_dense_triplet_5fps` | Dense keypoint graph over all three mice. |
+| `flat_dense_single_mouse_5fps` | Dense keypoint graph over one mouse at a time. |
+
+Add future variants to this table only. The cells below derive the train
+configuration, checkpoint path, and output directory from `EXPERIMENT`.
+
+## Inspect Experiment and Test Trajectory
+
+Leave `SEQ_ID_OR_INDEX` as an integer to select by sorted test-sequence index,
+or set it to a string sequence ID.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+from dataclasses import replace
 import os
 from pathlib import Path
 import sys
@@ -26,23 +41,53 @@ repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "
 os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
 sys.path.insert(0, str(repo_root / "src"))
 
-from data import MabeDataset
+from data import MabeDataset, to_single_mouse_sequences
+from evaluate import load_test_config
+from train import load_flat_fit_config
 
-TEST_DATA = repo_root / "data/mabe/raw/mouse_triplet_test.npy"
-SEQ_ID = 20
+EXPERIMENT = "flat_dense_single_mouse_5fps"
+TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+SEQ_ID_OR_INDEX = 20
+DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 
+train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+if DEVICE is not None:
+    train_config = replace(train_config, device=DEVICE)
+test_config = load_test_config(TEST_CONFIG)
+dataset = MabeDataset.from_file(test_config.data_path)
+sequences = list(dataset.sequences.values())
+if train_config.graph_variant == "single_mouse_dense_keypoint":
+    sequences = to_single_mouse_sequences(sequences)
+sequence_ids = [sequence.sequence_id for sequence in sequences]
 
-dataset = MabeDataset.from_file(TEST_DATA)
-sequence_id = dataset.sequence_ids[SEQ_ID]
-sequence = dataset.sequences[sequence_id]
+sequence_id = (
+    sequence_ids[SEQ_ID_OR_INDEX]
+    if isinstance(SEQ_ID_OR_INDEX, int)
+    else SEQ_ID_OR_INDEX
+)
+sequence = next(sequence for sequence in sequences if sequence.sequence_id == sequence_id)
 
+print("experiment:", EXPERIMENT)
+print("train_config:", repo_root / f"src/config/train__{EXPERIMENT}.yml")
+print("checkpoint:", repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt")
 print("sequence_id:", sequence_id)
 print("keypoints:", sequence.keypoints.shape)
+print("graph_variant:", train_config.graph_variant)
+print("observed_frames:", train_config.observation_length)
+print("predicted_frames:", train_config.prediction_length)
+print("frame_step:", train_config.frame_step)
+print("effective_fps:", train_config.source_fps / train_config.frame_step)
 ```
 
-## Run Inference and Save Video
+## Save Full Prediction Video
 
-This samples future keypoint coordinates from the predicted bivariate Gaussian distribution. It does not use a deterministic mean rollout.
+This samples future keypoint coordinates from the predicted bivariate Gaussian
+distribution. It does not use a deterministic mean rollout.
+
+For the triplet model, this shows all three mice. For the single-mouse model,
+this shows the selected single-mouse sequence produced by that graph variant.
+Set `SEQ_ID = None` to let the evaluator select the first compatible sequence
+for the active variant.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
@@ -58,16 +103,15 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_test_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
+EXPERIMENT = "flat_dense_single_mouse_5fps"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
-DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(TRAIN_CONFIG)
+train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -75,16 +119,17 @@ test_config = load_test_config(TEST_CONFIG)
 result = save_test_prediction_video(
     config=train_config,
     test_config=test_config,
-    checkpoint_path=CHECKPOINT,
+    checkpoint_path=repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt",
     sequence_id=SEQ_ID,
     window_index=WINDOW_INDEX,
-    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
+    output_root=repo_root / f"outputs/visualizations/{EXPERIMENT}",
     fps=8,
     interval_ms=120,
     seed=SEED,
     filename_suffix=f"__{RUN_TIMESTAMP}",
 )
 
+print("experiment:", EXPERIMENT)
 print("sequence_id:", result.sequence_id)
 print("start_frame:", result.start_frame)
 print("graph:", result.graph_variant)
@@ -95,17 +140,12 @@ print("effective_fps:", train_config.source_fps / train_config.frame_step)
 print("video:", result.path)
 ```
 
-## Run Inference and Save Zoomed One-Mouse Video
+## Save Zoomed One-Mouse Video
 
 This creates one MP4 for a selected mouse with two adjacent panels: the actual
-mouse on the left and the sampled model rollout on the right. Use `MOUSE_INDEX`
-to choose which mouse to inspect.
+mouse on the left and the sampled model rollout on the right.
 
-Output path:
-
-```text
-outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_{mouse_index}__{timestamp}.mp4
-```
+Use `MOUSE_INDEX = 0` for the single-mouse experiment.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
@@ -121,17 +161,16 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
+EXPERIMENT = "flat_dense_single_mouse_5fps"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 MOUSE_INDEX = 0
 SEED = 42
-DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(TRAIN_CONFIG)
+train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -139,17 +178,18 @@ test_config = load_test_config(TEST_CONFIG)
 result = save_single_mouse_prediction_video(
     config=train_config,
     test_config=test_config,
-    checkpoint_path=CHECKPOINT,
+    checkpoint_path=repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt",
     mouse_index=MOUSE_INDEX,
     sequence_id=SEQ_ID,
     window_index=WINDOW_INDEX,
-    output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
+    output_root=repo_root / f"outputs/visualizations/{EXPERIMENT}",
     fps=8,
     interval_ms=120,
     seed=SEED,
     filename_suffix=f"__{RUN_TIMESTAMP}",
 )
 
+print("experiment:", EXPERIMENT)
 print("sequence_id:", result.sequence_id)
 print("start_frame:", result.start_frame)
 print("graph:", result.graph_variant)
@@ -161,18 +201,10 @@ print("effective_fps:", train_config.source_fps / train_config.frame_step)
 print("video:", result.path)
 ```
 
-## Run Inference and Save Zoomed Videos for All Mice
+## Save Zoomed Videos for Every Available Mouse
 
-This creates three zoomed MP4s for the same sampled trajectory, one for each
-mouse. All files share one timestamp so the outputs are easy to compare.
-
-Output paths:
-
-```text
-outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_0__{timestamp}.mp4
-outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_1__{timestamp}.mp4
-outputs/visualizations/flat_dense_triplet_5fps/{seq_id}__mouse_2__{timestamp}.mp4
-```
+This creates one zoomed MP4 per available mouse. Triplet experiments generate
+three files; single-mouse experiments generate one file.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
@@ -188,36 +220,36 @@ sys.path.insert(0, str(repo_root / "src"))
 from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
+EXPERIMENT = "flat_dense_single_mouse_5fps"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
-MOUSE_INDICES = (0, 1, 2)
 SEED = 42
-DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(TRAIN_CONFIG)
+train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
+mouse_indices = range(1 if train_config.graph_variant == "single_mouse_dense_keypoint" else 3)
 
-for mouse_index in MOUSE_INDICES:
+for mouse_index in mouse_indices:
     result = save_single_mouse_prediction_video(
         config=train_config,
         test_config=test_config,
-        checkpoint_path=CHECKPOINT,
+        checkpoint_path=repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt",
         mouse_index=mouse_index,
         sequence_id=SEQ_ID,
         window_index=WINDOW_INDEX,
-        output_root=repo_root / "outputs/visualizations/flat_dense_triplet_5fps",
+        output_root=repo_root / f"outputs/visualizations/{EXPERIMENT}",
         fps=8,
         interval_ms=120,
         seed=SEED,
         filename_suffix=f"__{RUN_TIMESTAMP}",
     )
 
+    print("experiment:", EXPERIMENT)
     print("sequence_id:", result.sequence_id)
     print("start_frame:", result.start_frame)
     print("graph:", result.graph_variant)
@@ -232,8 +264,9 @@ for mouse_index in MOUSE_INDICES:
 
 ## Print Exact-Window Error Profile
 
-Use the same `SEQ_ID`, `WINDOW_INDEX`, and `SEED` as the generated video. This
-prints metrics for the visualized rollout only, not the full sequence average.
+Use the same `EXPERIMENT`, `SEQ_ID`, `WINDOW_INDEX`, and `SEED` as the generated
+video. This prints metrics for the visualized rollout only, not the full
+benchmark average.
 
 ```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
 from dataclasses import replace
@@ -249,15 +282,14 @@ from evaluate import _sample_test_prediction, load_test_config, print_evaluation
 from metrics import compute_pixel_metrics
 from train import load_flat_fit_config
 
-TRAIN_CONFIG = repo_root / "src/config/train__flat_dense_triplet_5fps.yml"
+EXPERIMENT = "flat_dense_single_mouse_5fps"
 TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
-CHECKPOINT = repo_root / "checkpoints/flat_dense_triplet_5fps/flat_best.pt"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
-DEVICE = "cuda"  # set to "cpu" or "cuda" to override the train YAML device
+DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 
-train_config = load_flat_fit_config(TRAIN_CONFIG)
+train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -265,7 +297,7 @@ test_config = load_test_config(TEST_CONFIG)
 window, actual_keypoints, predicted_future = _sample_test_prediction(
     config=train_config,
     test_config=test_config,
-    checkpoint_path=CHECKPOINT,
+    checkpoint_path=repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt",
     sequence_id=SEQ_ID,
     window_index=WINDOW_INDEX,
     seed=SEED,
@@ -273,6 +305,7 @@ window, actual_keypoints, predicted_future = _sample_test_prediction(
 target_future = actual_keypoints[train_config.observation_length :]
 metrics = compute_pixel_metrics(predicted_future, target_future).to_dict()
 
+print("experiment:", EXPERIMENT)
 print("sequence_id:", window.sequence_id)
 print("window_index:", WINDOW_INDEX)
 print("start_frame:", window.start_frame)
@@ -288,4 +321,4 @@ print_evaluation_metrics(metrics)
 - The model receives normalized coordinates.
 - The saved video is denormalized back to MABe pixel coordinates.
 - Solid lines/points are ground truth. Dashed `x` markers are sampled predictions for future frames.
-- Mouse labels use `0`, `1`, and `2` for ground truth and `p0`, `p1`, and `p2` for predicted mice in the triplet view.
+- Mouse labels use `0`, `1`, and `2` for ground truth and `p0`, `p1`, and `p2` for predicted mice in triplet views.
