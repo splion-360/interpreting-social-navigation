@@ -1,0 +1,103 @@
+---
+cwd: ../..
+---
+
+# Flat Dense Single-Mouse 5 FPS Evaluation
+
+This notebook records the benchmark for the trained flat dense single-mouse
+model at 5 FPS. The benchmark compares the learned model against deterministic
+motion baselines on the same held-out MABe test windows.
+
+## Evaluation contract
+
+The recorded result comes from:
+
+```text
+outputs/evaluations/flat_dense_single_mouse_5fps/benchmark_16_24/results.jsonl
+```
+
+| Field | Value |
+| --- | --- |
+| Source FPS | 30 |
+| Frame step | 6 |
+| Effective FPS | 5 |
+| Observation | 16 frames / 3.2 seconds |
+| Prediction | 24 frames / 4.8 seconds |
+| Windows | 1,000 |
+| Seed | 42 |
+| Checkpoint | `checkpoints/flat_dense_single_mouse_5fps/flat_best.pt` |
+| Checkpoint epoch | 50 |
+| Validation loss | -6.631166 |
+
+Motion groups use `mean_keypoint_speed_px_s` thresholds fitted from training
+windows:
+
+| Group | Test windows | Rule |
+| --- | ---: | --- |
+| Low | 250 | speed <= 12.078 px/s |
+| Medium | 395 | 12.078 < speed <= 30.615 px/s |
+| High | 355 | speed > 30.615 px/s |
+
+## Aggregate metrics
+
+All metrics below are means over the evaluated windows and are lower-is-better.
+The JSONL record also stores p50 and p99 values; use the reprint cell below to
+display mean, p50, and p99 together.
+
+| Method | cADE px | cFDE px | kADE px | kFDE px | CVE px/s | KVE px/s | BHE deg | BFK-ADE px | BFK-FDE px | BLE px | SOE deg | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | 39.235 | 59.125 | 44.296 | 65.796 | 30.230 | 39.487 | 27.653 | 44.340 | 65.862 | 7.932 | 31.481 | 0.185 |
+| Rigid constant velocity | 66.747 | 115.672 | 70.876 | 120.769 | 39.561 | 48.520 | 27.653 | 70.947 | 120.890 | 7.932 | 31.481 | 0.185 |
+| Keypoint constant velocity | 66.747 | 115.672 | 75.289 | 129.557 | 39.561 | 49.684 | 31.793 | 75.364 | 129.687 | 21.397 | 36.568 | 0.213 |
+| Social Attention flat dense single-mouse 5FPS | 106.124 | 196.077 | 117.241 | 206.739 | 64.741 | 128.155 | 61.850 | 117.329 | 206.910 | 44.897 | 68.566 | 0.389 |
+
+## Centroid FDE by motion group
+
+| Motion group | Persistence | Rigid CV | Keypoint CV | Social Attention |
+| --- | ---: | ---: | ---: | ---: |
+| Low | 3.450 px | 9.518 px | 9.518 px | 161.652 px |
+| Medium | 13.483 px | 36.700 px | 36.700 px | 169.720 px |
+| High | 149.117 px | 278.299 px | 278.299 px | 249.647 px |
+
+## Interpretation
+
+Persistence remains the strongest baseline in this single-mouse run. The learned
+model is worse than persistence across trajectory, velocity, pose, structure,
+and ordering metrics. The failure is not explained only by multi-mouse
+interaction complexity: even when the task is reduced to a single mouse, this
+flat dense Social Attention setup does not beat a static-pose predictor.
+
+The high-motion slice is still the most useful diagnostic slice. The learned
+model narrows the gap against constant-velocity baselines there, but it remains
+worse than persistence on centroid FDE and much worse on keypoint/pose metrics.
+
+## Reprint the benchmark tables
+
+Use this cell to reprint the Rich benchmark tables from the latest JSONL record.
+If the latest record includes quantiles, each method cell includes mean, p50,
+and p99 together.
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from benchmark_report import print_benchmark_tables
+
+result_path = repo_root / "outputs/evaluations/flat_dense_single_mouse_5fps/benchmark_16_24/results.jsonl"
+record = json.loads(result_path.read_text().splitlines()[-1])
+print_benchmark_tables(record)
+```
+
+## Re-run the benchmark
+
+Use this to append a fresh benchmark record with mean, p50, and p99 summaries.
+
+```sh
+python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_5fps.yml
+```
