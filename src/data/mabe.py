@@ -163,6 +163,31 @@ def to_single_mouse_sequences(sequences: Sequence[MabeSequence]) -> list[MabeSeq
     return extracted
 
 
+def expand_single_mouse_window_keys(
+    window_keys: Sequence[tuple[str, int]],
+    sequences: Sequence[MabeSequence],
+) -> tuple[tuple[str, int], ...]:
+    """Expand source-triplet window keys into matched single-mouse keys.
+
+    Args:
+        window_keys: Selected source `(sequence_id, start_frame)` pointers.
+        sequences: Source triplet sequences referenced by the pointers.
+
+    Returns:
+        One pointer per mouse, preserving source-window and mouse order.
+    """
+
+    mouse_counts = {
+        sequence.sequence_id: int(sequence.keypoints.shape[1])
+        for sequence in sequences
+    }
+    return tuple(
+        (single_mouse_sequence_id(sequence_id, mouse_index), start_frame)
+        for sequence_id, start_frame in window_keys
+        for mouse_index in range(mouse_counts[sequence_id])
+    )
+
+
 @dataclass(frozen=True)
 class WindowSpec:
     """Windowing policy for trajectory forecasting examples.

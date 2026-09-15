@@ -27,6 +27,7 @@ from data import (
     PoseNormalizer,
     WindowSpec,
     build_motion_profile,
+    expand_single_mouse_window_keys,
     fill_missing_keypoints,
     fit_motion_thresholds,
     sample_motion_balanced_window_keys,
@@ -151,6 +152,8 @@ class FlatFitConfig:
         observation_length: Number of conditioning frames.
         prediction_length: Number of forecast target frames.
         graph_variant: Graph builder used for flat model inputs.
+        single_mouse_window_source: Whether single-mouse windows are sampled
+            independently or expanded from selected source triplet windows.
         stride: Raw-frame gap between consecutive window starts.
         frame_step: Raw-frame gap between sampled frames inside one window.
         source_fps: Source dataset frame rate before temporal downsampling.
@@ -185,6 +188,7 @@ class FlatFitConfig:
     observation_length: int = 8
     prediction_length: int = 12
     graph_variant: str = "dense_keypoint"
+    single_mouse_window_source: str = "independent"
     stride: int = 20
     frame_step: int = 1
     source_fps: float = DEFAULT_SOURCE_FPS
@@ -223,6 +227,17 @@ class FlatFitConfig:
             raise ValueError("motion_score must be mean_keypoint_speed_px_s")
         if self.workers < 0:
             raise ValueError("workers must be non-negative")
+        if self.single_mouse_window_source not in {"independent", "triplet"}:
+            raise ValueError(
+                "single_mouse_window_source must be independent or triplet"
+            )
+        if (
+            self.single_mouse_window_source == "triplet"
+            and self.graph_variant != "single_mouse_dense_keypoint"
+        ):
+            raise ValueError(
+                "triplet window sourcing requires single_mouse_dense_keypoint"
+            )
 
 
 @dataclass(frozen=True)
@@ -424,7 +439,7 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
 
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
-    window_data = _build_training_window_data(config, show_progress=show_progress)
+    window_data = build_training_window_data(config, show_progress=show_progress)
     train_windows = window_data.train_windows
     validation_windows = window_data.validation_windows
     device = _select_device(config.device)
@@ -628,11 +643,11 @@ def _build_window_datasets(
 ) -> tuple[MabeWindowDataset, MabeWindowDataset]:
     """Load train and validation window datasets."""
 
-    window_data = _build_training_window_data(config)
+    window_data = build_training_window_data(config)
     return window_data.train_windows, window_data.validation_windows
 
 
-def _build_training_window_data(
+def build_training_window_data(
     config: FlatFitConfig,
     *,
     show_progress: bool = False,
@@ -667,13 +682,15 @@ def _build_training_window_data(
     )
     train_sequences = dataset.select(train_ids)
     validation_sequences = dataset.select(validation_ids)
-    train_sequences = _sequences_for_graph_variant(
-        train_sequences, config.graph_variant
-    )
-    validation_sequences = _sequences_for_graph_variant(
-        validation_sequences,
-        config.graph_variant,
-    )
+    matched_single_mouse = config.single_mouse_window_source == "triplet"
+    if not matched_single_mouse:
+        train_sequences = _sequences_for_graph_variant(
+            train_sequences, config.graph_variant
+        )
+        validation_sequences = _sequences_for_graph_variant(
+            validation_sequences,
+            config.graph_variant,
+        )
     if config.motion_sampling:
         train_windows, validation_windows, motion_report = (
             _build_motion_sampled_windows(
@@ -683,20 +700,23 @@ def _build_training_window_data(
                 normalizer=normalizer,
                 config=config,
                 show_progress=show_progress,
+                matched_single_mouse=matched_single_mouse,
             )
         )
     else:
-        train_windows = MabeWindowDataset(
-            train_sequences,
-            spec,
+        train_windows = _build_selected_windows(
+            sequences=train_sequences,
+            spec=spec,
             normalizer=normalizer,
             max_windows=config.max_train_windows,
+            matched_single_mouse=matched_single_mouse,
         )
-        validation_windows = MabeWindowDataset(
-            validation_sequences,
-            spec,
+        validation_windows = _build_selected_windows(
+            sequences=validation_sequences,
+            spec=spec,
             normalizer=normalizer,
             max_windows=config.max_validation_windows,
+            matched_single_mouse=matched_single_mouse,
         )
         motion_report = None
     return TrainingWindowData(
@@ -734,6 +754,7 @@ def _build_motion_sampled_windows(
     normalizer: PoseNormalizer,
     config: FlatFitConfig,
     show_progress: bool,
+    matched_single_mouse: bool,
 ) -> tuple[MabeWindowDataset, MabeWindowDataset, MotionSamplingReport]:
     """Build train windows after fitting motion groups on train candidates.
 
@@ -744,6 +765,8 @@ def _build_motion_sampled_windows(
         normalizer: Train-fitted pose normalizer.
         config: Training configuration.
         show_progress: Whether to print data-preparation progress.
+        matched_single_mouse: Whether selected triplet keys should be expanded
+            into one training window per mouse.
 
     Returns:
         Motion-balanced train and validation windows plus sampling metadata.
@@ -823,6 +846,28 @@ def _build_motion_sampled_windows(
         desc="data: labeling selected validation windows",
         workers=config.workers,
     )
+    if matched_single_mouse:
+        train_source_sequences = train_sequences
+        validation_source_sequences = validation_sequences
+        mice_per_window = int(train_source_sequences[0].keypoints.shape[1])
+        train_sequences = to_single_mouse_sequences(train_source_sequences)
+        validation_sequences = to_single_mouse_sequences(validation_source_sequences)
+        selected_keys = expand_single_mouse_window_keys(
+            selected_keys,
+            train_source_sequences,
+        )
+        validation_keys = expand_single_mouse_window_keys(
+            validation_keys,
+            validation_source_sequences,
+        )
+        train_selected_profile = _repeat_motion_profile(
+            train_selected_profile,
+            repeats=mice_per_window,
+        )
+        validation_profile = _repeat_motion_profile(
+            validation_profile,
+            repeats=mice_per_window,
+        )
     train_windows = MabeWindowDataset(
         train_sequences,
         spec,
@@ -842,6 +887,66 @@ def _build_motion_sampled_windows(
             train_candidates=train_candidate_profile,
             train_selected=train_selected_profile,
             validation=validation_profile,
+        ),
+    )
+
+
+def _build_selected_windows(
+    *,
+    sequences: list[MabeSequence],
+    spec: WindowSpec,
+    normalizer: PoseNormalizer,
+    max_windows: int | None,
+    matched_single_mouse: bool,
+) -> MabeWindowDataset:
+    """Build capped windows, optionally expanding each triplet key by mouse.
+
+    Args:
+        sequences: Source sequences after the train/validation split.
+        spec: Window specification.
+        normalizer: Train-fitted pixel normalizer.
+        max_windows: Maximum source windows to select.
+        matched_single_mouse: Whether to expand source keys into mouse samples.
+
+    Returns:
+        Normalized windows for the configured graph input.
+    """
+
+    if not matched_single_mouse:
+        return MabeWindowDataset(
+            sequences,
+            spec,
+            normalizer=normalizer,
+            max_windows=max_windows,
+        )
+    source_windows = MabeWindowDataset(sequences, spec, max_windows=max_windows)
+    return MabeWindowDataset(
+        to_single_mouse_sequences(sequences),
+        spec,
+        normalizer=normalizer,
+        window_keys=expand_single_mouse_window_keys(
+            source_windows.window_keys,
+            sequences,
+        ),
+    )
+
+
+def _repeat_motion_profile(profile: MotionProfile, *, repeats: int) -> MotionProfile:
+    """Repeat source-window motion labels for each extracted mouse.
+
+    Args:
+        profile: Motion profile defined on source triplet windows.
+        repeats: Number of mice extracted from every source window.
+
+    Returns:
+        Motion profile aligned with expanded single-mouse windows.
+    """
+
+    return MotionProfile(
+        labels=tuple(label for label in profile.labels for _ in range(repeats)),
+        thresholds=profile.thresholds,
+        scores_px_s=tuple(
+            score for score in profile.scores_px_s for _ in range(repeats)
         ),
     )
 
@@ -1580,7 +1685,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
         config: Training configuration to inspect.
     """
 
-    window_data = _build_training_window_data(config, show_progress=True)
+    window_data = build_training_window_data(config, show_progress=True)
     dataset = window_data.dataset
     train_windows = window_data.train_windows
     validation_windows = window_data.validation_windows
@@ -1822,6 +1927,7 @@ def _fit_overrides(args: argparse.Namespace) -> dict[str, Any]:
         "observation_length": args.observation_length,
         "prediction_length": args.prediction_length,
         "graph_variant": args.graph_variant,
+        "single_mouse_window_source": args.single_mouse_window_source,
         "stride": args.stride,
         "frame_step": args.frame_step,
         "source_fps": args.source_fps,
@@ -1889,6 +1995,10 @@ def main() -> None:
     fit.add_argument("--observation-length", type=int)
     fit.add_argument("--prediction-length", type=int)
     fit.add_argument("--graph-variant", choices=sorted(GRAPH_BUILDERS))
+    fit.add_argument(
+        "--single-mouse-window-source",
+        choices=("independent", "triplet"),
+    )
     fit.add_argument("--stride", type=int)
     fit.add_argument("--frame-step", type=int)
     fit.add_argument("--source-fps", type=float)

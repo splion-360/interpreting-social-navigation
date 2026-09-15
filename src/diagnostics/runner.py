@@ -17,7 +17,7 @@ from metrics import PRIMARY_METRIC_NAMES
 from models import FlatSocialAttentionModel
 from train import (
     FlatFitConfig,
-    _build_training_window_data,
+    build_training_window_data,
     _graph_builder,
     _select_device,
     load_flat_fit_config,
@@ -418,7 +418,7 @@ def _build_distribution_audit(config: FlatFitConfig) -> dict[str, Any]:
     """Compare selected training and validation trajectory distributions."""
 
     LOGGER.info("diagnostics: rebuilding train and validation window selections")
-    data = _build_training_window_data(config, show_progress=True)
+    data = build_training_window_data(config, show_progress=True)
     seconds_per_step = _seconds_per_step(config)
     train_features = window_feature_distributions(
         data.train_windows,

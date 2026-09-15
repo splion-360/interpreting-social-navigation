@@ -1,0 +1,57 @@
+---
+cwd: ../..
+runme:
+  id: 01M26SINGLEMOUSEMATCHED5FPS
+  version: v1
+---
+
+# Train Matched Single-Mouse 5 FPS Experiment
+
+This workflow provides a controlled comparison with the dense triplet baseline.
+It selects the exact same 800 training and 200 validation source-triplet windows,
+then expands each selected window into mouse 0, 1, and 2.
+
+## Experiment Contract
+
+| Property | Dense triplet | Matched single mouse |
+| --- | ---: | ---: |
+| Selected source windows | 800 | 800 |
+| Resulting mouse trajectories | 2,400 | 2,400 |
+| Batch size | 2 triplets | 6 mice |
+| Training batches per epoch | 400 | 400 |
+| Validation batches per epoch | 100 | 100 |
+| Seed | 42 | 42 |
+
+Motion strata are assigned before expansion, so every mouse extracted from a
+source window inherits that source window's low, medium, or high label. The
+historical independently sampled checkpoint remains unchanged.
+
+## Inspect Configuration
+
+```sh {"id":"01M26SINGLEMOUSEMATCHEDCONFIG","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/train.py fit --config src/config/train__flat_dense_single_mouse_matched_5fps.yml --show-config
+```
+
+Expected data counts are `train_windows: 2400` and
+`validation_windows: 600`.
+
+## Train
+
+```sh {"id":"01M26SINGLEMOUSEMATCHEDTRAIN","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/train.py fit --config src/config/train__flat_dense_single_mouse_matched_5fps.yml --wandb
+```
+
+The best checkpoint is written to
+`checkpoints/flat_dense_single_mouse_matched_5fps/flat_best.pt` and uploaded as
+the W&B artifact `flat-dense-single-mouse-matched-5fps-best-checkpoint`.
+
+## Benchmark
+
+Run this after training finishes.
+
+```sh {"id":"01M26SINGLEMOUSEMATCHEDBENCH","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
+python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_matched_5fps.yml
+```
+
+Results are stored under
+`outputs/evaluations/flat_dense_single_mouse_matched_5fps/benchmark_16_24/`.

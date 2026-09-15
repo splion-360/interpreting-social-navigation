@@ -7,6 +7,11 @@ runme:
 
 # Train Flat Dense Single-Mouse 5 FPS Experiment
 
+This is the historical independently sampled single-mouse experiment. It does
+not share source-window selections or optimizer-update counts with the dense
+triplet baseline. Use `train__flat_dense_single_mouse_matched_5fps.runme` for
+the controlled comparison.
+
 This workflow trains the same flat Social Attention architecture on extracted
 single-mouse samples. Original sequence IDs are split before extraction, so all
 three mice from a source sequence stay in the same train or validation split.
@@ -20,13 +25,13 @@ keypoint modeling rather than inter-mouse interaction.
 
 ## Inspect configuration
 
-```sh {"id":"01M24SINGLEMOUSE5FPSCONFIG"}
+```sh {"id":"01M24SINGLEMOUSE5FPSCONFIG","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
 python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --show-config
 ```
 
 ## Train
 
-```sh {"id":"01M24SINGLEMOUSE5FPSTRAIN"}
+```sh {"id":"01M24SINGLEMOUSE5FPSTRAIN","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
 python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --wandb
 ```
 
@@ -35,7 +40,7 @@ python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.
 Run this after training produces
 `checkpoints/flat_dense_single_mouse_5fps/flat_best.pt`.
 
-```sh {"id":"01M24SINGLEMOUSE5FPSBENCH"}
+```sh {"id":"01M24SINGLEMOUSE5FPSBENCH","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
 python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_5fps.yml
 ```
 

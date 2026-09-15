@@ -278,6 +278,19 @@ def test_variant_train_configs_load_from_src_config() -> None:
         )
 
 
+def test_matched_single_mouse_config_matches_dense_update_budget() -> None:
+    config = train.load_flat_fit_config(
+        Path("src/config/train__flat_dense_single_mouse_matched_5fps.yml")
+    )
+
+    assert config.graph_variant == "single_mouse_dense_keypoint"
+    assert config.single_mouse_window_source == "triplet"
+    assert config.max_train_windows == 800
+    assert config.max_validation_windows == 200
+    assert config.batch_size == 6
+    assert config.seed == 42
+
+
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -319,7 +332,7 @@ def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) ->
     data_path = tmp_path / "mouse_triplet_train.npy"
     write_motion_mabe_file(data_path)
 
-    window_data = train._build_training_window_data(
+    window_data = train.build_training_window_data(
         FlatFitConfig(
             data_path=data_path,
             window_length=6,
@@ -355,7 +368,7 @@ def test_single_mouse_fit_windows_split_sources_before_mouse_extraction(
     data_path = tmp_path / "mouse_triplet_train.npy"
     write_motion_mabe_file(data_path, sequences=6, frames=36)
 
-    window_data = train._build_training_window_data(
+    window_data = train.build_training_window_data(
         FlatFitConfig(
             data_path=data_path,
             graph_variant="single_mouse_dense_keypoint",
@@ -386,6 +399,56 @@ def test_single_mouse_fit_windows_split_sources_before_mouse_extraction(
             window_data.train_windows[0],
             window_data.validation_windows[0],
         )
+    )
+
+
+def test_single_mouse_matched_sampling_expands_dense_triplet_windows(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_motion_mabe_file(data_path, sequences=6, frames=36)
+    common = {
+        "data_path": data_path,
+        "window_length": 6,
+        "observation_length": 3,
+        "prediction_length": 3,
+        "stride": 3,
+        "max_train_windows": 6,
+        "max_validation_windows": 3,
+        "validation_fraction": 0.33,
+        "motion_sampling": True,
+        "seed": 42,
+        "device": "cpu",
+    }
+
+    dense = train.build_training_window_data(FlatFitConfig(**common))
+    single = train.build_training_window_data(
+        FlatFitConfig(
+            **common,
+            graph_variant="single_mouse_dense_keypoint",
+            single_mouse_window_source="triplet",
+        )
+    )
+
+    expected_train_keys = tuple(
+        (f"{sequence_id}__mouse_{mouse_index}", start_frame)
+        for sequence_id, start_frame in dense.train_windows.window_keys
+        for mouse_index in range(3)
+    )
+    expected_validation_keys = tuple(
+        (f"{sequence_id}__mouse_{mouse_index}", start_frame)
+        for sequence_id, start_frame in dense.validation_windows.window_keys
+        for mouse_index in range(3)
+    )
+    assert single.train_windows.window_keys == expected_train_keys
+    assert single.validation_windows.window_keys == expected_validation_keys
+    assert single.motion_report is not None
+    assert dense.motion_report is not None
+    assert single.motion_report.train_selected.labels == tuple(
+        label for label in dense.motion_report.train_selected.labels for _ in range(3)
+    )
+    assert single.motion_report.validation.labels == tuple(
+        label for label in dense.motion_report.validation.labels for _ in range(3)
     )
 
 
