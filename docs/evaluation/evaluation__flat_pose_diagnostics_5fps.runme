@@ -4,15 +4,17 @@ cwd: ../..
 
 # Flat Pose Diagnostics at 5 FPS
 
-This notebook checks why the single-mouse model did not clearly improve pose
-metrics over the dense triplet model. The key rule is that both checkpoints are
-evaluated on the same held-out source windows and the same mouse indices.
+This notebook separates one-step pose quality, autoregressive drift, and
+Gaussian sampling behavior across dense triplet, single-mouse, and disconnected
+triplet graphs. All checkpoints are evaluated on the same held-out source
+windows and mouse indices.
 
 ## Diagnostic Contract
 
 ```text
 Dense checkpoint: checkpoints/flat_dense_triplet_5fps/flat_best.pt
 Single checkpoint: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
+Disconnected checkpoint: checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt
 Window: 16 observed frames -> 24 predicted frames
 Rate: 5 FPS
 Default sample: 30 triplet windows = 90 paired mouse cases
@@ -23,9 +25,9 @@ Per-case rows: outputs/evaluations/pose_diagnostics_5fps/cases.jsonl
 
 The diagnostics report:
 
-- matched autoregressive metrics for both variants
+- matched autoregressive metrics for all three variants
 - teacher-forced metrics to separate one-step prediction quality from rollout drift
-- single-minus-dense paired deltas and single-model win rates
+- disconnected-minus-dense paired deltas with source-window bootstrap intervals
 - low/medium/high motion slices from the same selected mouse windows
 - Gaussian calibration from sampled bivariate distributions
 - dense-triplet attention mass split into within-mouse and cross-mouse context
@@ -101,28 +103,56 @@ for filename in (
 
 ## Current Conclusion
 
-The matched 90-case run shows that the checkpoints learned a strong one-step
-pose predictor, but not a stable free-running pose dynamics model. At the final
-4.8-second step, teacher-forced Gaussian means have roughly 3 px BLE, 6 degrees
-SOE, 2 degrees BHE, and 0.045 ROE for both variants. Autoregressive means degrade
-to 17-22 px BLE, 37-45 degrees SOE, 29-34 degrees BHE, and 0.23-0.26 ROE. Sampling
-then amplifies the failure: final sampled BLE reaches 234 px for dense triplet
-and 65 px for single mouse, with both near 84-85 degrees SOE and 0.47 ROE.
+The matched 90-case run shows that all three checkpoints learned useful
+teacher-forced pose predictions. Their teacher-forced Gaussian-mean BLE is about
+4 px over the complete horizon, with SOE near 9 degrees and ROE near 0.06. The
+disconnected graph therefore retains the capacity to predict local pose when it
+receives ground-truth history.
 
-The Gaussian calibration result supports the same diagnosis. At the first step,
-95% ellipse coverage is about 95% for both models. By the final autoregressive
-step it falls to 5.2% for dense sampled rollouts and 2.4% for single sampled
-rollouts, while teacher-forced coverage remains about 96%. The selected training
-and validation distributions do not show a material mismatch in either variant.
-The largest absolute standardized feature shift is 0.185 for dense triplet and
-0.204 for single mouse; their largest reported KS statistics are 0.139 and 0.140.
-Therefore held-out validation OOD is not the leading explanation. This does not
-rule out the model's own autoregressive outputs becoming OOD relative to the
-teacher-forced states seen during training.
+The difference appears during autoregressive feedback. Typical P50 results over
+the full horizon are:
 
-The immediate bottleneck is exposure bias plus independent per-keypoint sampling.
-Single-mouse training improves sampled body scale (BLE) but does not by itself
-stabilize joint pose orientation or long-horizon feedback.
+| mode | model | cADE (px) | BLE (px) | SOE (deg) | BHE (deg) | ROE |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| teacher-forced mean | dense | 4.38 | 4.17 | 9.20 | 5.09 | 0.061 |
+| teacher-forced mean | disconnected | 5.60 | 4.10 | 9.34 | 5.18 | 0.063 |
+| autoregressive mean | dense | 42.85 | 14.90 | 30.71 | 24.06 | 0.192 |
+| autoregressive mean | disconnected | 69.88 | 17.73 | 39.58 | 34.18 | 0.239 |
+| autoregressive sample | dense | 71.73 | 102.78 | 68.70 | 55.99 | 0.389 |
+| autoregressive sample | disconnected | 251.82 | 469.46 | 78.64 | 74.18 | 0.443 |
+
+The clustered paired bootstrap confirms that the sampled disconnected rollout
+is systematically worse. Its mean error increase over dense is 192.3 px cADE
+(95% CI 165.7 to 219.5), 343.6 px BLE (315.8 to 370.9), 9.65 degrees SOE
+(8.27 to 11.15), 12.17 degrees BHE (7.96 to 16.15), and 0.054 ROE
+(0.046 to 0.062). Whole source windows are resampled so the three mice within a
+window are not treated as independent observations.
+
+The largest failure is uncertainty feedback. At the final sampled step, the
+disconnected model's mean sigma reaches about 399 px on x and 596 px on y,
+versus 15 px and 13 px for dense. Its high 95% coverage of 93.4% is therefore not
+evidence of a useful forecast: the ellipse covers the target because it has
+become enormous. Under teacher forcing, its final sigma remains around 9-11 px
+and coverage remains near 96%.
+
+At the first step, 95% ellipse coverage is about 95% for all three models. By the
+final sampled step it falls to 5.2% for dense and 2.4% for single mouse, while
+the disconnected model reaches 93.4% only through its exploding uncertainty.
+The selected training and validation distributions do not show a material
+mismatch. The largest absolute standardized feature shift is 0.185 for the
+triplet selection and 0.204 for single mouse; their largest reported KS
+statistics are 0.139 and 0.140. Dense and disconnected training use the same
+triplet selection. Therefore held-out validation OOD is not the leading
+explanation. This does not rule out each model's autoregressive outputs becoming
+OOD relative to the teacher-forced states seen during training.
+
+The current evidence contradicts the hypothesis that cross-mouse edges are what
+damage pose preservation. In this trained checkpoint they instead correlate
+with substantially more stable autoregressive uncertainty. This is not yet a
+clean causal attribution because the dense model used batch size 2 while the
+disconnected model used batch size 4, giving them different optimizer-update
+counts. A controlled retraining run must hold batch size or total update count
+constant before assigning the difference solely to cross-mouse connectivity.
 
 ## Plot Per-Horizon Errors
 

@@ -21,6 +21,7 @@ from diagnostics.report import (
     save_prediction_mode_figure,
 )
 from diagnostics.runner import run_pose_diagnostics
+from diagnostics.statistics import paired_cluster_bootstrap
 from diagnostics.windows import (
     MatchedMouseWindow,
     MatchedWindowData,
@@ -39,6 +40,7 @@ __all__ = [
     "compute_horizon_profile",
     "horizon_profile_rows",
     "load_pose_diagnostic_config",
+    "paired_cluster_bootstrap",
     "prediction_mode_rows",
     "print_pose_diagnostics",
     "run_pose_diagnostics",

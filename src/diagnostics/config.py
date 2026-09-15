@@ -11,7 +11,7 @@ import yaml
 from evaluate import DEFAULT_TEST_CONFIG_PATH
 
 
-ModelName = Literal["dense_triplet", "single_mouse"]
+ModelName = Literal["dense_triplet", "single_mouse", "disconnected_triplet"]
 RolloutMode = Literal["autoregressive", "teacher_forced"]
 PredictionStatistic = Literal["sample", "mean"]
 
@@ -33,11 +33,12 @@ class VariantConfig:
 
 @dataclass(frozen=True)
 class PoseDiagnosticConfig:
-    """Configuration for dense-triplet versus single-mouse diagnostics.
+    """Configuration for matched flat-model diagnostics.
 
     Attributes:
         dense_triplet: Dense triplet model inputs.
         single_mouse: Single-mouse model inputs.
+        disconnected_triplet: Triplet model without cross-mouse edges.
         test_config_path: Held-out test configuration.
         results_path: JSONL destination for the diagnostic summary.
         case_results_path: Optional JSONL destination for per-case rows.
@@ -49,6 +50,7 @@ class PoseDiagnosticConfig:
 
     dense_triplet: VariantConfig
     single_mouse: VariantConfig
+    disconnected_triplet: VariantConfig
     test_config_path: Path
     results_path: Path
     case_results_path: Path | None
@@ -71,6 +73,7 @@ def load_pose_diagnostic_config(path: Path) -> PoseDiagnosticConfig:
     return PoseDiagnosticConfig(
         dense_triplet=_load_variant_config(raw["dense_triplet"]),
         single_mouse=_load_variant_config(raw["single_mouse"]),
+        disconnected_triplet=_load_variant_config(raw["disconnected_triplet"]),
         test_config_path=Path(raw.get("test_config_path", DEFAULT_TEST_CONFIG_PATH)),
         results_path=Path(raw["results_path"]),
         case_results_path=(

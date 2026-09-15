@@ -11,6 +11,7 @@ from diagnostics import (
     compute_horizon_profile,
     horizon_profile_rows,
     load_pose_diagnostic_config,
+    paired_cluster_bootstrap,
 )
 from train import FlatFitConfig
 
@@ -48,6 +49,10 @@ def test_load_pose_diagnostic_config_reads_paths(tmp_path: Path) -> None:
                 "  train_config_path: src/config/train__flat_dense_single_mouse_5fps.yml",
                 "  checkpoint_path: checkpoints/single.pt",
                 "  display_name: single",
+                "disconnected_triplet:",
+                "  train_config_path: src/config/train__flat_within_mouse_triplet_5fps.yml",
+                "  checkpoint_path: checkpoints/disconnected.pt",
+                "  display_name: disconnected",
                 "test_config_path: src/config/test__mabe.yml",
                 f"results_path: {tmp_path / 'results.jsonl'}",
                 f"case_results_path: {tmp_path / 'cases.jsonl'}",
@@ -62,11 +67,36 @@ def test_load_pose_diagnostic_config_reads_paths(tmp_path: Path) -> None:
 
     assert config.dense_triplet.display_name == "dense"
     assert config.single_mouse.checkpoint_path == Path("checkpoints/single.pt")
+    assert config.disconnected_triplet.checkpoint_path == Path(
+        "checkpoints/disconnected.pt"
+    )
     assert config.results_path == tmp_path / "results.jsonl"
     assert config.case_results_path == tmp_path / "cases.jsonl"
     assert config.max_triplet_windows == 5
     assert config.seeds == (42, 43)
     assert config.device == "cpu"
+
+
+def test_paired_cluster_bootstrap_resamples_whole_triplet_windows() -> None:
+    reference = np.asarray([1.0, 2.0, 3.0, 4.0])
+    comparison = np.asarray([2.0, 3.0, 5.0, 6.0])
+    clusters = np.asarray(["window-a", "window-a", "window-b", "window-b"])
+
+    summary = paired_cluster_bootstrap(
+        reference,
+        comparison,
+        clusters=clusters,
+        seed=42,
+        resamples=1000,
+    )
+
+    assert summary["pairs"] == 4
+    assert summary["clusters"] == 2
+    assert summary["mean_delta"] == pytest.approx(1.5)
+    assert summary["p50_delta"] == pytest.approx(1.5)
+    assert summary["comparison_better_rate"] == 0.0
+    assert summary["mean_delta_ci95_low"] == pytest.approx(1.0)
+    assert summary["mean_delta_ci95_high"] == pytest.approx(2.0)
 
 
 def test_matched_window_data_expands_each_triplet_into_mouse_cases(

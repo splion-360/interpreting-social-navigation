@@ -378,7 +378,11 @@ def save_calibration_profile_figure(record: dict[str, Any], output_path: Path) -
         ("mahalanobis_sq", "Mean squared Mahalanobis", None),
         ("sigma_x_px", "Mean predicted sigma-x", None),
     )
-    colors = {"dense_triplet": "tab:blue", "single_mouse": "tab:orange"}
+    color_map = plt.get_cmap("tab10")
+    colors = {
+        model_name: color_map(index % color_map.N)
+        for index, model_name in enumerate(record["calibration_by_horizon"])
+    }
     line_styles = {
         "autoregressive_sample": "-",
         "autoregressive_mean": ":",
@@ -441,16 +445,17 @@ def _diagnostic_overview_table(record: dict[str, Any]) -> Table:
 
 
 def _diagnostic_metric_table(record: dict[str, Any], *, mode: str) -> Table:
-    """Build dense versus single metric table for one rollout mode."""
+    """Build matched metric table for one rollout mode."""
 
     table = Table(title=f"{mode} matched metrics", box=box.SIMPLE_HEAVY)
     table.add_column("metric", style="cyan", no_wrap=True)
-    for model_name in ("dense_triplet", "single_mouse"):
+    model_names = tuple(record["methods"])
+    for model_name in model_names:
         table.add_column(model_name, justify="right")
     for metric_name in PRIMARY_METRIC_NAMES:
         values = []
         has_value = False
-        for model_name in ("dense_triplet", "single_mouse"):
+        for model_name in model_names:
             method = record["methods"][model_name][mode]
             mean = method["metrics"].get(metric_name)
             quantiles = method["metric_quantiles"].get(metric_name, {})
@@ -463,26 +468,31 @@ def _diagnostic_metric_table(record: dict[str, Any], *, mode: str) -> Table:
 
 
 def _diagnostic_delta_table(record: dict[str, Any]) -> Table:
-    """Build single-minus-dense paired delta table for autoregressive metrics."""
+    """Build disconnected-minus-dense clustered bootstrap table."""
 
     table = Table(
-        title="autoregressive paired delta: single_mouse - dense_triplet",
+        title="autoregressive paired delta: disconnected - dense",
         box=box.SIMPLE_HEAVY,
     )
     table.add_column("metric", style="cyan", no_wrap=True)
-    table.add_column("mean", justify="right")
-    table.add_column("p50", justify="right")
-    table.add_column("p99", justify="right")
-    table.add_column("single better", justify="right")
-    for metric_name, values in record["paired_delta_single_minus_dense"][
-        "autoregressive"
-    ].items():
+    table.add_column("mean delta", justify="right")
+    table.add_column("95% cluster CI", justify="right")
+    table.add_column("p50 delta", justify="right")
+    table.add_column("disconnected better", justify="right")
+    metrics = record["paired_bootstrap"]["modes"]["autoregressive"]
+    for metric_name in PRIMARY_METRIC_NAMES:
+        values = metrics.get(metric_name)
+        if values is None:
+            continue
         table.add_row(
             metric_name,
-            f"{values['mean']:.3f}",
-            f"{values['p50']:.3f}",
-            f"{values['p99']:.3f}",
-            f"{values['single_better_rate']:.1%}",
+            f"{values['mean_delta']:.3f}",
+            (
+                f"[{values['mean_delta_ci95_low']:.3f}, "
+                f"{values['mean_delta_ci95_high']:.3f}]"
+            ),
+            f"{values['p50_delta']:.3f}",
+            f"{values['comparison_better_rate']:.1%}",
         )
     return table
 
@@ -493,8 +503,9 @@ def _diagnostic_motion_table(record: dict[str, Any]) -> Table:
     table = Table(title="autoregressive pose metrics by motion", box=box.SIMPLE_HEAVY)
     table.add_column("metric", style="cyan", no_wrap=True)
     table.add_column("motion", no_wrap=True)
-    table.add_column("dense_triplet", justify="right")
-    table.add_column("single_mouse", justify="right")
+    model_names = tuple(record["methods"])
+    for model_name in model_names:
+        table.add_column(model_name, justify="right")
     for metric_name in (
         "body_heading_error_deg",
         "bone_length_error_px",
@@ -502,20 +513,19 @@ def _diagnostic_motion_table(record: dict[str, Any]) -> Table:
         "relative_ordering_error",
     ):
         for stratum in MOTION_STRATA:
-            dense = (
-                record["methods"]["dense_triplet"]["autoregressive"][
-                    "metrics_by_motion"
-                ]
-                .get(stratum, {})
-                .get(metric_name)
-            )
-            single = (
-                record["methods"]["single_mouse"]["autoregressive"]["metrics_by_motion"]
-                .get(stratum, {})
-                .get(metric_name)
-            )
             table.add_row(
-                metric_name, stratum, _format_optional(dense), _format_optional(single)
+                metric_name,
+                stratum,
+                *[
+                    _format_optional(
+                        record["methods"][model_name]["autoregressive"][
+                            "metrics_by_motion"
+                        ]
+                        .get(stratum, {})
+                        .get(metric_name)
+                    )
+                    for model_name in model_names
+                ],
             )
     return table
 
@@ -525,17 +535,19 @@ def _diagnostic_calibration_table(record: dict[str, Any]) -> Table:
 
     table = Table(title="autoregressive Gaussian calibration", box=box.SIMPLE_HEAVY)
     table.add_column("metric", style="cyan", no_wrap=True)
-    table.add_column("dense_triplet", justify="right")
-    table.add_column("single_mouse", justify="right")
+    model_names = tuple(record["calibration"])
+    for model_name in model_names:
+        table.add_column(model_name, justify="right")
     metrics = sorted(
-        set(record["calibration"]["dense_triplet"])
-        | set(record["calibration"]["single_mouse"])
+        set().union(*(record["calibration"][name] for name in model_names))
     )
     for metric_name in metrics:
         table.add_row(
             metric_name,
-            _format_optional(record["calibration"]["dense_triplet"].get(metric_name)),
-            _format_optional(record["calibration"]["single_mouse"].get(metric_name)),
+            *[
+                _format_optional(record["calibration"][name].get(metric_name))
+                for name in model_names
+            ],
         )
     return table
 

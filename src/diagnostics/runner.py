@@ -7,13 +7,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import torch
 from tqdm.auto import tqdm
 
 from evaluate import _load_checkpoint, _seconds_per_step, load_test_config
 from logging_utils import configure_cli_logging, get_logger
+from metrics import PRIMARY_METRIC_NAMES
 from models import FlatSocialAttentionModel
 from train import (
+    FlatFitConfig,
     _build_training_window_data,
     _graph_builder,
     _select_device,
@@ -43,13 +46,15 @@ from .records import build_diagnostic_record, case_row
 from .report import (
     print_pose_diagnostics,
     save_calibration_profile_figure,
+    save_horizon_profile_figure,
     save_prediction_mode_figure,
 )
+from .statistics import paired_cluster_bootstrap
 from .windows import build_matched_window_data
 
 
 LOGGER = get_logger(__name__)
-MODEL_NAMES = ("dense_triplet", "single_mouse")
+MODEL_NAMES = ("dense_triplet", "single_mouse", "disconnected_triplet")
 ROLLOUT_MODES = ("autoregressive", "teacher_forced")
 PREDICTION_STATISTICS = ("sample", "mean")
 PREDICTION_MODE_NAMES = tuple(
@@ -65,7 +70,7 @@ CALIBRATION_MODE_NAMES = (
 
 
 def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
-    """Run paired diagnostics for dense-triplet and single-mouse checkpoints.
+    """Run matched diagnostics for dense, single, and disconnected checkpoints.
 
     Args:
         config: Diagnostic input paths and sampling controls.
@@ -76,6 +81,10 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
 
     dense_config = load_flat_fit_config(config.dense_triplet.train_config_path)
     single_config = load_flat_fit_config(config.single_mouse.train_config_path)
+    disconnected_config = load_flat_fit_config(
+        config.disconnected_triplet.train_config_path
+    )
+    _ensure_disconnected_contract(dense_config, disconnected_config)
     test_config = load_test_config(config.test_config_path)
     data = build_matched_window_data(
         dense_config=dense_config,
@@ -99,10 +108,15 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
             checkpoint_path=config.single_mouse.checkpoint_path,
             device=device,
         ),
+        "disconnected_triplet": _load_model(
+            checkpoint_path=config.disconnected_triplet.checkpoint_path,
+            device=device,
+        ),
     }
     build_graphs = {
         "dense_triplet": _graph_builder(dense_config.graph_variant),
         "single_mouse": _graph_builder(single_config.graph_variant),
+        "disconnected_triplet": _graph_builder(disconnected_config.graph_variant),
     }
     metric_values: dict[str, dict[str, dict[str, list[Any]]]] = {
         model_name: {mode: {} for mode in ROLLOUT_MODES} for model_name in MODEL_NAMES
@@ -166,6 +180,12 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
                 model_inputs = {
                     "dense_triplet": (dense_window, dense_config, case.mouse_index, 0),
                     "single_mouse": (single_window, single_config, 0, 1),
+                    "disconnected_triplet": (
+                        dense_window,
+                        disconnected_config,
+                        case.mouse_index,
+                        0,
+                    ),
                 }
                 predictions_by_name = {}
                 for model_name, (
@@ -284,6 +304,17 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
         prediction_mode_horizon_values=prediction_mode_horizon_values,
         calibration_horizon_values=calibration_horizon_values,
         distribution_audit=distribution_audit,
+        paired_bootstrap=_paired_bootstrap_summary(
+            metric_values,
+            clusters=np.asarray(
+                [
+                    f"{case.sequence_id}:{case.start_frame}"
+                    for case in data.cases
+                    for _ in config.seeds
+                ]
+            ),
+            seed=config.seeds[0],
+        ),
         attention_values=attention_values,
     )
     save_jsonl(record, config.results_path)
@@ -300,6 +331,11 @@ def run_pose_diagnostics(config: PoseDiagnosticConfig) -> dict[str, Any]:
     )
     save_json(record["distribution_audit"], output_dir / "distribution_audit.json")
     for statistic in ("p50", "p99"):
+        save_horizon_profile_figure(
+            record,
+            output_dir / f"horizon_profile_{statistic}.png",
+            statistic=statistic,
+        )
         save_prediction_mode_figure(
             record,
             output_dir / f"prediction_mode_{statistic}.png",
@@ -317,7 +353,7 @@ def main() -> None:
 
     configure_cli_logging()
     parser = argparse.ArgumentParser(
-        description="Run paired diagnostics between dense triplet and single-mouse models."
+        description="Run matched diagnostics across flat graph variants."
     )
     parser.add_argument(
         "--config",
@@ -378,7 +414,7 @@ def _case_seed(seed: int, case_index: int, stream: int) -> int:
     return int(seed + 1009 * case_index + 9176 * stream)
 
 
-def _build_distribution_audit(config: Any) -> dict[str, Any]:
+def _build_distribution_audit(config: FlatFitConfig) -> dict[str, Any]:
     """Compare selected training and validation trajectory distributions."""
 
     LOGGER.info("diagnostics: rebuilding train and validation window selections")
@@ -401,4 +437,69 @@ def _build_distribution_audit(config: Any) -> dict[str, Any]:
             train_features=train_features,
             validation_features=validation_features,
         ),
+    }
+
+
+def _ensure_disconnected_contract(
+    dense_config: FlatFitConfig,
+    disconnected_config: FlatFitConfig,
+) -> None:
+    """Validate that the cross-edge ablation changes only compatible settings."""
+
+    fields = (
+        "window_length",
+        "observation_length",
+        "prediction_length",
+        "stride",
+        "frame_step",
+        "source_fps",
+    )
+    mismatches = [
+        field
+        for field in fields
+        if getattr(dense_config, field) != getattr(disconnected_config, field)
+    ]
+    if mismatches:
+        raise ValueError(
+            "disconnected diagnostic config differs on: " + ", ".join(mismatches)
+        )
+    if disconnected_config.graph_variant != "within_mouse_dense_keypoint":
+        raise ValueError(
+            "disconnected diagnostic variant must be within_mouse_dense_keypoint"
+        )
+
+
+def _paired_bootstrap_summary(
+    metric_values: dict[str, dict[str, dict[str, list[Any]]]],
+    *,
+    clusters: np.ndarray,
+    seed: int,
+) -> dict[str, Any]:
+    """Compare disconnected and dense errors with clustered paired bootstrap."""
+
+    summary: dict[str, Any] = {}
+    for mode in ROLLOUT_MODES:
+        summary[mode] = {}
+        dense_values = metric_values["dense_triplet"][mode]
+        disconnected_values = metric_values["disconnected_triplet"][mode]
+        for metric_name in PRIMARY_METRIC_NAMES:
+            reference = dense_values.get(metric_name)
+            comparison = disconnected_values.get(metric_name)
+            if reference is None or comparison is None:
+                continue
+            if isinstance(reference[0], np.ndarray) or isinstance(
+                comparison[0], np.ndarray
+            ):
+                continue
+            summary[mode][metric_name] = paired_cluster_bootstrap(
+                np.asarray(reference),
+                np.asarray(comparison),
+                clusters=clusters,
+                seed=seed,
+            )
+    return {
+        "comparison": "disconnected_triplet_minus_dense_triplet",
+        "unit_of_resampling": "source_triplet_window",
+        "resamples": 10_000,
+        "modes": summary,
     }

@@ -63,6 +63,7 @@ def build_diagnostic_record(
     ],
     calibration_horizon_values: dict[str, dict[str, dict[int, dict[str, list[Any]]]]],
     distribution_audit: dict[str, Any],
+    paired_bootstrap: dict[str, Any],
     attention_values: dict[str, list[float]],
 ) -> dict[str, Any]:
     """Assemble a JSON-ready diagnostic record."""
@@ -95,8 +96,14 @@ def build_diagnostic_record(
         "lineage": {
             "dense_train_config_path": str(config.dense_triplet.train_config_path),
             "single_train_config_path": str(config.single_mouse.train_config_path),
+            "disconnected_train_config_path": str(
+                config.disconnected_triplet.train_config_path
+            ),
             "dense_checkpoint_path": str(config.dense_triplet.checkpoint_path),
             "single_checkpoint_path": str(config.single_mouse.checkpoint_path),
+            "disconnected_checkpoint_path": str(
+                config.disconnected_triplet.checkpoint_path
+            ),
             "test_config_path": str(config.test_config_path),
             "case_results_path": str(config.case_results_path)
             if config.case_results_path
@@ -132,6 +139,7 @@ def build_diagnostic_record(
         },
         "methods": summaries,
         "paired_delta_single_minus_dense": _paired_delta_summary(metric_values),
+        "paired_bootstrap": paired_bootstrap,
         "horizon_profile": _horizon_profile(horizon_values),
         "prediction_mode_comparison": _prediction_mode_summary(
             prediction_mode_values,
