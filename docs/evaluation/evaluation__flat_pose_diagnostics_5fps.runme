@@ -123,8 +123,8 @@ the full horizon are:
 
 The clustered paired bootstrap confirms that the sampled disconnected rollout
 is systematically worse. Its mean error increase over dense is 192.3 px cADE
-(95% CI 165.7 to 219.5), 343.6 px BLE (315.8 to 370.9), 9.65 degrees SOE
-(8.27 to 11.15), 12.17 degrees BHE (7.96 to 16.15), and 0.054 ROE
+(95% CI 165.7 to 219.5), 343.6 px BLE (315.8 to 370.9), 9.72 degrees SOE
+(8.27 to 11.15), 12.14 degrees BHE (7.96 to 16.15), and 0.054 ROE
 (0.046 to 0.062). Whole source windows are resampled so the three mice within a
 window are not treated as independent observations.
 
