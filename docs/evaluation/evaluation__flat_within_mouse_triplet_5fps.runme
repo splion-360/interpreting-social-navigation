@@ -1,0 +1,117 @@
+---
+cwd: ../..
+---
+
+# Flat Within-Mouse Triplet 5 FPS Evaluation
+
+This notebook records the held-out benchmark for the triplet model whose dense
+spatial edges are restricted to keypoints belonging to the same mouse. It also
+compares that model with the fully connected dense-triplet model to isolate the
+effect of removing cross-mouse edges.
+
+## Evaluation contract
+
+| Field | Value |
+| --- | --- |
+| Source FPS | 30 |
+| Frame step | 6 |
+| Effective FPS | 5 |
+| Observation | 16 frames / 3.2 seconds |
+| Prediction | 24 frames / 4.8 seconds |
+| Test windows | 1,000 |
+| Seed | 42 |
+| Window digest | `cc1ec3dc18ded599943a7963bf082063c6bb260589626ce9dc26a1377f9fc8b0` |
+| Checkpoint | `checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt` |
+| Checkpoint epoch | 50 |
+| Validation loss | -6.540739 |
+
+The dense and within-mouse triplet benchmarks have the same window digest,
+motion thresholds, and low/medium/high counts. Their results are therefore a
+paired comparison over the same held-out examples.
+
+## Within-mouse model against non-trained baselines
+
+All metrics are lower-is-better. Each cell contains `mean / p50 / p99`.
+
+| Method | cADE px | cFDE px | kADE px | kFDE px | BLE px | SOE deg | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Persistence | 42.579 / 13.755 / 228.037 | 70.636 / 21.336 / 352.637 | 47.081 / 21.106 / 230.253 | 76.432 / 32.771 / 354.247 | 7.590 / 7.180 / 17.792 | 30.730 / 28.089 / 86.430 | 0.181 / 0.169 / 0.486 |
+| Rigid constant velocity | 64.562 / 22.207 / 353.900 | 118.526 / 40.164 / 623.963 | 68.143 / 27.981 / 357.399 | 122.788 / 46.240 / 633.175 | 7.590 / 7.180 / 17.792 | 30.731 / 28.089 / 86.430 | 0.181 / 0.169 / 0.486 |
+| Keypoint constant velocity | 64.562 / 22.207 / 353.900 | 118.526 / 40.164 / 623.963 | 72.238 / 33.749 / 361.457 | 131.099 / 59.596 / 642.056 | 20.950 / 16.146 / 71.479 | 34.376 / 32.792 / 85.647 | 0.201 / 0.195 / 0.478 |
+| Within-mouse triplet | 259.965 / 250.332 / 421.051 | 458.807 / 447.619 / 823.851 | 425.981 / 421.946 / 619.441 | 795.423 / 792.365 / 1042.603 | 460.054 / 454.061 / 692.730 | 78.632 / 78.573 / 87.618 | 0.441 / 0.441 / 0.490 |
+
+## Cross-edge ablation
+
+This table compares the learned models on the identical triplet windows. The
+delta is `(within_mouse - dense) / dense`; a positive value is worse.
+
+| Metric | Dense triplet mean | Within-mouse mean | Delta |
+| --- | ---: | ---: | ---: |
+| cADE | 86.694 px | 259.965 px | +199.9% |
+| cFDE | 167.040 px | 458.807 px | +174.7% |
+| kADE | 125.053 px | 425.981 px | +240.6% |
+| kFDE | 228.337 px | 795.423 px | +248.4% |
+| CVE | 56.879 px/s | 617.557 px/s | +985.7% |
+| KVE | 112.664 px/s | 1972.936 px/s | +1651.2% |
+| BHE | 62.798 deg | 75.359 deg | +20.0% |
+| BFK-ADE | 125.765 px | 427.778 px | +240.1% |
+| BFK-FDE | 229.882 px | 799.095 px | +247.6% |
+| BLE | 114.029 px | 460.054 px | +303.5% |
+| SOE | 68.353 deg | 78.632 deg | +15.0% |
+| ROE | 0.386 | 0.441 | +14.4% |
+
+## Context across trained variants
+
+The p50 values below place the ablation beside the earlier experiments. The
+single-mouse digest differs because it evaluates extracted one-mouse examples,
+so that column is supporting context rather than a paired comparison.
+
+| Model | cFDE px | kFDE px | BHE deg | BLE px | SOE deg | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense triplet | 166.787 | 227.605 | 62.312 | 112.679 | 68.132 | 0.386 |
+| Single mouse | 165.931 | 173.388 | 58.801 | 40.133 | 68.619 | 0.386 |
+| Within-mouse triplet | 447.619 | 792.365 | 75.343 | 454.061 | 78.573 | 0.441 |
+
+## Diagnosis
+
+Removing cross-mouse edges did not preserve pose. It produced substantially
+worse BLE, ROE, SOE, and BHE, while trajectory and keypoint errors also
+increased. The especially large CVE and KVE regressions indicate an unstable
+autoregressive rollout rather than a small localization offset.
+
+This result does not support the hypothesis that cross-mouse edges are the
+cause of the dense model's pose errors. Under the current architecture and
+training setup, the cross-mouse context is helpful, or the within-mouse variant
+cannot learn a stable rollout with the same hyperparameters. One run cannot
+separate those explanations. The appropriate conclusion is therefore that
+simply deleting cross-mouse edges is not a viable improvement.
+
+The negative validation loss is not inconsistent with the poor trajectory
+metrics: Gaussian NLL measures likelihood under teacher-forced one-step
+training, whereas this benchmark measures errors accumulated during a 24-step
+autoregressive rollout.
+
+## Reprint the benchmark tables
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+import os
+from pathlib import Path
+import sys
+
+repo_root = next(path for path in [Path.cwd(), *Path.cwd().parents] if (path / "src").exists())
+os.environ.setdefault("MPLCONFIGDIR", str(repo_root / "outputs/matplotlib"))
+sys.path.insert(0, str(repo_root / "src"))
+
+from benchmark_report import print_benchmark_tables
+
+result_path = repo_root / "outputs/evaluations/flat_within_mouse_triplet_5fps/benchmark_16_24/results.jsonl"
+record = json.loads(result_path.read_text().splitlines()[-1])
+print_benchmark_tables(record)
+```
+
+## Re-run the benchmark
+
+```sh
+python src/benchmark.py --config src/config/benchmark__flat_within_mouse_triplet_5fps.yml
+```
