@@ -444,7 +444,16 @@ def _ensure_disconnected_contract(
     dense_config: FlatFitConfig,
     disconnected_config: FlatFitConfig,
 ) -> None:
-    """Validate that the cross-edge ablation changes only compatible settings."""
+    """Validate that the cross-edge ablation changes only compatible settings.
+
+    Args:
+        dense_config: Dense-triplet training configuration used as the reference.
+        disconnected_config: Within-mouse triplet training configuration.
+
+    Raises:
+        ValueError: If temporal settings differ or the disconnected graph variant
+            is not the expected within-mouse graph.
+    """
 
     fields = (
         "window_length",
@@ -475,7 +484,16 @@ def _paired_bootstrap_summary(
     clusters: np.ndarray,
     seed: int,
 ) -> dict[str, Any]:
-    """Compare disconnected and dense errors with clustered paired bootstrap."""
+    """Compare disconnected and dense errors with clustered paired bootstrap.
+
+    Args:
+        metric_values: Per-model metric observations grouped by rollout mode.
+        clusters: Source-window identifier for every paired mouse observation.
+        seed: Random seed used by the bootstrap.
+
+    Returns:
+        Bootstrap summaries for each scalar metric and rollout mode.
+    """
 
     summary: dict[str, Any] = {}
     for mode in ROLLOUT_MODES:
