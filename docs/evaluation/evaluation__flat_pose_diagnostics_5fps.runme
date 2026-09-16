@@ -136,10 +136,13 @@ within-mouse sigma is about 36 px on x and 28 px on y, compared with 15 px and
 the earlier under-updated checkpoint, but both models remain poorly calibrated:
 final 95% coverage is only 4.4% and 5.2%, respectively.
 
-The controlled conclusion is that cross-mouse edges trade body-scale fidelity
-for sampled trajectory stability. They are not the cause of SOE, BHE, or ROE
-failure. The lower within-mouse validation NLL also does not imply a better
-free-running predictor, reinforcing the mismatch between teacher-forced NLL and
+In this controlled run, removing cross-mouse edges improved body-scale fidelity
+but worsened sampled trajectory stability. It did not reliably change SOE, BHE,
+or ROE. Because this comparison has one trained seed, it does not establish a
+general causal trade-off or rule out cross-mouse edges as a contributing factor;
+the bootstrap measures held-out-window uncertainty, not training-run variation.
+The lower within-mouse validation NLL also did not imply a better free-running
+predictor, reinforcing the mismatch between teacher-forced NLL and
 autoregressive evaluation.
 
 ## Plot Per-Horizon Errors
