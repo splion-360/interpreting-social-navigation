@@ -291,6 +291,20 @@ def test_matched_single_mouse_config_matches_dense_update_budget() -> None:
     assert config.seed == 42
 
 
+def test_within_mouse_config_matches_dense_optimizer_budget() -> None:
+    dense = train.load_flat_fit_config(
+        Path("src/config/train__flat_dense_triplet_5fps.yml")
+    )
+    within_mouse = train.load_flat_fit_config(
+        Path("src/config/train__flat_within_mouse_triplet_5fps.yml")
+    )
+
+    assert within_mouse.batch_size == dense.batch_size == 2
+    assert within_mouse.epochs == dense.epochs == 50
+    assert within_mouse.max_train_windows == dense.max_train_windows == 800
+    assert within_mouse.seed == dense.seed == 42
+
+
 def test_show_flat_fit_setup_prints_data_and_training_metadata(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
