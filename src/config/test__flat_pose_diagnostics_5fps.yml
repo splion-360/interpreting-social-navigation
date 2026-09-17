@@ -3,9 +3,9 @@ dense_triplet:
   checkpoint_path: checkpoints/flat_dense_triplet_5fps/flat_best.pt
   display_name: flat-dense-triplet-5fps
 single_mouse:
-  train_config_path: src/config/train__flat_dense_single_mouse_5fps.yml
-  checkpoint_path: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
-  display_name: flat-dense-single-mouse-5fps
+  train_config_path: src/config/train__flat_dense_single_mouse_matched_5fps.yml
+  checkpoint_path: checkpoints/flat_dense_single_mouse_matched_5fps/flat_best.pt
+  display_name: flat-dense-single-mouse-matched-5fps
 disconnected_triplet:
   train_config_path: src/config/train__flat_within_mouse_triplet_5fps.yml
   checkpoint_path: checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt

@@ -13,7 +13,7 @@ windows and mouse indices.
 
 ```text
 Dense checkpoint: checkpoints/flat_dense_triplet_5fps/flat_best.pt
-Single checkpoint: checkpoints/flat_dense_single_mouse_5fps/flat_best.pt
+Single checkpoint: checkpoints/flat_dense_single_mouse_matched_5fps/flat_best.pt
 Disconnected checkpoint: checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt
 Window: 16 observed frames -> 24 predicted frames
 Rate: 5 FPS
@@ -103,47 +103,57 @@ for filename in (
 
 ## Current Conclusion
 
-This controlled run compares dense and within-mouse triplet checkpoints trained
-with the same batch size 2, 800 training windows, 50 epochs, and seed 42. The
-diagnostic uses 30 held-out triplet windows expanded into 90 paired mouse cases.
-Typical P50 results over the complete prediction horizon are:
+This controlled run compares the dense triplet, matched single-mouse, and
+within-mouse triplet checkpoints. Each uses the same 800 source training
+windows, 50 epochs, seed 42, temporal contract, and matched optimizer-update
+budget. The diagnostic uses 30 held-out triplet windows expanded into 90 paired
+mouse cases. Typical P50 results over the complete prediction horizon are:
 
 | mode | model | cADE (px) | BLE (px) | SOE (deg) | BHE (deg) | ROE |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | teacher-forced mean | dense | 4.38 | 4.17 | 9.20 | 5.09 | 0.061 |
+| teacher-forced mean | single-mouse | 3.64 | 4.11 | 8.96 | 5.00 | 0.062 |
 | teacher-forced mean | within-mouse | 3.76 | 4.49 | 9.98 | 4.86 | 0.069 |
 | autoregressive mean | dense | 42.85 | 14.90 | 30.71 | 24.06 | 0.192 |
+| autoregressive mean | single-mouse | 29.61 | 12.57 | 28.42 | 20.97 | 0.196 |
 | autoregressive mean | within-mouse | 28.93 | 13.10 | 29.54 | 21.51 | 0.180 |
 | autoregressive sample | dense | 71.73 | 102.78 | 68.70 | 55.99 | 0.389 |
+| autoregressive sample | single-mouse | 41.68 | 26.68 | 67.90 | 61.05 | 0.389 |
 | autoregressive sample | within-mouse | 108.65 | 39.68 | 68.25 | 60.05 | 0.389 |
 
-The source-window clustered bootstrap establishes two effects in sampled
-autoregressive rollouts. Removing cross-mouse edges improves BLE by 77.44 px on
-average (95% CI -90.79 to -63.82), with improvement in 94.4% of paired cases.
-It worsens cADE by 30.79 px (15.17 to 46.53), CVE by 24.54 px/s (18.30 to
-31.13), and KVE by 57.74 px/s (48.31 to 67.68). Whole source windows are
-resampled so the three mice are not treated as independent observations.
+Against dense triplet, the matched single-mouse model improves sampled BLE by
+87.85 px on average (95% cluster CI -101.02 to -74.27) and improves it in every
+paired case. It also improves body-frame keypoint ADE by 35.16 px (-45.53 to
+-25.02) and FDE by 68.62 px (-97.72 to -40.78). Its cADE difference is -3.74 px
+(-16.28 to 8.32), so sampled trajectory accuracy is not reliably different.
+The SOE, BHE, and ROE intervals also contain zero.
 
-SOE, BHE, and ROE do not differ reliably: their paired confidence intervals all
-contain zero. The graph ablation therefore improves body scale, not general
-pose orientation or relative keypoint ordering.
+The within-mouse triplet retains its previously established effects: BLE
+improves by 77.44 px (-90.79 to -63.82), while cADE worsens by 30.79 px (15.17
+to 46.53), CVE by 24.54 px/s (18.30 to 31.13), and KVE by 57.74 px/s (48.31 to
+67.68). Whole source windows are resampled so the three mice are not treated as
+independent observations.
+
+Neither no-cross-mouse-edge variant reliably improves SOE, BHE, or ROE. The
+supported shared effect is improved body scale. Only the single-mouse model also
+shows a reliable improvement in body-frame keypoint displacement.
 
 The deterministic Gaussian-mean rollout is better for within-mouse than dense
 on cADE (28.93 versus 42.85 px), while its sampled cADE is worse. This reversal
 comes from uncertainty rather than mean dynamics. At the final sampled step,
 within-mouse sigma is about 36 px on x and 28 px on y, compared with 15 px and
-13 px for dense. This is no longer the catastrophic variance explosion seen in
-the earlier under-updated checkpoint, but both models remain poorly calibrated:
-final 95% coverage is only 4.4% and 5.2%, respectively.
+13 px for dense. Single-mouse lies between them at about 18 px on both axes and
+has the best final 95% coverage, 12.9%, versus 5.2% for dense and 4.4% for
+within-mouse. All remain severely under-covered during autoregressive rollout.
 
-In this controlled run, removing cross-mouse edges improved body-scale fidelity
-but worsened sampled trajectory stability. It did not reliably change SOE, BHE,
-or ROE. Because this comparison has one trained seed, it does not establish a
-general causal trade-off or rule out cross-mouse edges as a contributing factor;
-the bootstrap measures held-out-window uncertainty, not training-run variation.
-The lower within-mouse validation NLL also did not imply a better free-running
-predictor, reinforcing the mismatch between teacher-forced NLL and
-autoregressive evaluation.
+In this controlled run, isolating a single mouse preserves scale and mouse-local
+keypoint positions without a statistically reliable trajectory penalty. Merely
+removing cross-mouse edges while retaining all three mice preserves scale but
+worsens sampled trajectory stability. This suggests that the single-mouse gain
+is not explained by cross-edge removal alone; reducing the graph to one actor is
+also material. Because every model has one trained seed, these are within-run
+findings rather than general causal claims. The bootstrap measures held-out-
+window uncertainty, not training-run variation.
 
 ## Plot Per-Horizon Errors
 
