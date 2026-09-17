@@ -1,0 +1,311 @@
+---
+cwd: ../..
+---
+
+# Research Findings — 2026-09-17
+
+This immutable research checkpoint records what the first controlled set of
+flat Social Attention experiments establishes, what remains inconclusive, and
+which interventions should be tested next.
+
+## Research Question
+
+> How much mouse trajectory and pose structure can the flat Social Attention
+> architecture preserve under controlled 5 FPS autoregressive prediction?
+
+## Checkpoint Conclusion
+
+**Technical conclusion:** Flat Social Attention can learn short-term mouse
+geometry, but its current formulation does not preserve complete mouse pose
+during long sampled autoregressive rollout. Isolating one mouse substantially
+improves body-scale and mouse-local keypoint fidelity, but does not reliably
+improve orientation, heading, or relative ordering. All learned variants remain
+worse than persistence on their respective held-out benchmarks.
+
+**Plain-language interpretation:** The model can make a reasonable next guess
+when it keeps receiving correct mouse poses. When it must continue from its own
+predictions, small mistakes accumulate and the mouse eventually moves or bends
+incorrectly. Giving the model only one mouse makes this failure less severe,
+but repeating the last observed pose is still a stronger predictor.
+
+## How We Arrived Here
+
+The first 30 FPS experiment observed 8 frames and predicted 12 frames, covering
+less than one second. Persistence performed unusually well because many mice
+moved little over that interval. The controlled experiments therefore use 5 FPS,
+observe 16 frames (3.2 seconds), predict 24 frames (4.8 seconds), and balance
+training windows across low-, medium-, and high-motion strata.
+
+The earlier result is historical motivation, not part of the controlled tables
+below. It changed the temporal and sampling protocol rather than establishing an
+architectural conclusion.
+
+## Controlled Experiment Contract
+
+| Property | Value |
+| --- | --- |
+| Dataset | Held-out MABe mouse-triplet trajectories |
+| Effective rate | 5 FPS, sampled every 6th source frame |
+| Window | 16 observed + 24 predicted = 40 frames |
+| Duration | 3.2 seconds observed + 4.8 seconds predicted |
+| Training source windows | 800, motion-balanced 20/40/40 percent |
+| Training epochs | 50 |
+| Training and inference seed | 42 |
+| Paired diagnostic sample | 30 triplet windows = 90 mouse cases |
+| Primary prediction mode | Sampled autoregressive rollout |
+| Statistical unit | Source triplet window |
+| Bootstrap | 10,000 source-window resamples |
+
+The matched single-mouse configuration expands the same selected source windows
+into one case per mouse and adjusts batch size to preserve the optimizer-update
+budget. Teacher-forced and Gaussian-mean predictions are diagnostics, not the
+headline result.
+
+### Metric Glossary
+
+| Metric | Technical meaning | Plain-language meaning |
+| --- | --- | --- |
+| cADE | Mean centroid displacement error over future frames | Was the mouse generally in the right place? |
+| cFDE | Centroid displacement error at the final frame | Did the mouse finish in the right place? |
+| CVE | Centroid velocity error | Did the mouse move at the right speed and direction? |
+| KVE | Keypoint velocity error | Did individual body points move correctly? |
+| BLE | Bone-length error | Did the body stretch or collapse? |
+| SOE | Skeleton orientation error | Did connected body segments point the right way? |
+| BHE | Body-heading error | Was the mouse facing the right way overall? |
+| ROE | Relative-ordering error | Did body points swap their expected relative order? |
+| BFK-ADE/FDE | Body-frame keypoint displacement error | Were body points correct after removing whole-mouse translation and rotation? |
+
+## Model Variants
+
+| Variant | Graph context | Purpose |
+| --- | --- | --- |
+| Dense triplet | Every keypoint attends to keypoints from all three mice | Original flat baseline |
+| Within-mouse triplet | Three mice remain in one example, but cross-mouse edges are removed | Direct cross-edge ablation |
+| Matched single mouse | One mouse and its 12 keypoints per example | Tests reduced actor and graph complexity |
+
+## Primary Results
+
+All metrics are lower-is-better. These are P50 errors across the complete
+sampled autoregressive prediction horizon.
+
+| Model | cADE (px) | cFDE (px) | BLE (px) | SOE (deg) | BHE (deg) | ROE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense triplet | 71.73 | 161.83 | 102.77 | 68.70 | 55.99 | 0.389 |
+| Within-mouse triplet | 108.65 | 205.69 | 39.68 | 68.25 | 60.05 | 0.389 |
+| Matched single mouse | **41.68** | **75.42** | **26.68** | **67.90** | 61.05 | **0.389** |
+
+The equal-looking ROE values are rounded. Their paired differences remain
+inconclusive rather than exactly identical.
+
+## Paired Evidence Against Dense Triplet
+
+Differences are `comparison - dense`; negative values favor the comparison.
+Confidence intervals resample whole source windows so interacting mice are not
+treated as independent observations.
+
+| Comparison | Metric | Mean difference | 95% CI | Finding |
+| --- | --- | ---: | ---: | --- |
+| Single mouse | BLE | -87.85 px | [-101.02, -74.27] | Supported improvement; better in every paired case |
+| Single mouse | BFK-ADE | -35.16 px | [-45.53, -25.02] | Supported improvement |
+| Single mouse | BFK-FDE | -68.62 px | [-97.72, -40.78] | Supported improvement |
+| Single mouse | cADE | -3.74 px | [-16.28, 8.32] | Inconclusive |
+| Single mouse | SOE | -0.98 deg | [-3.14, 1.15] | Inconclusive |
+| Single mouse | BHE | -1.90 deg | [-8.56, 4.83] | Inconclusive |
+| Single mouse | ROE | -0.0059 | [-0.0186, 0.0072] | Inconclusive |
+| Within-mouse triplet | BLE | -77.44 px | [-90.79, -63.82] | Supported improvement |
+| Within-mouse triplet | cADE | +30.79 px | [15.17, 46.53] | Supported regression |
+| Within-mouse triplet | CVE | +24.54 px/s | [18.30, 31.13] | Supported regression |
+| Within-mouse triplet | KVE | +57.74 px/s | [48.31, 67.68] | Supported regression |
+
+Matched single mouse also improves directly over within-mouse triplet:
+
+| Metric | Single - within-mouse | 95% CI |
+| --- | ---: | ---: |
+| cADE | -34.53 px | [-49.96, -18.12] |
+| cFDE | -81.82 px | [-112.51, -51.29] |
+| CVE | -24.59 px/s | [-31.24, -17.91] |
+| KVE | -57.25 px/s | [-67.44, -47.11] |
+| BLE | -10.41 px | [-13.67, -7.21] |
+| BFK-ADE | -33.49 px | [-48.43, -17.72] |
+| BFK-FDE | -80.05 px | [-109.65, -50.63] |
+
+## Findings and Interpretations
+
+### 1. Body scale is the clearest learned difference
+
+**Technical finding:** Both variants without cross-mouse edges have markedly
+lower BLE than the dense graph. The matched single-mouse model also improves
+body-frame keypoint displacement.
+
+**Plain-language interpretation:** The dense model often stretches or collapses
+the mouse. Removing other mice from a keypoint's attention makes it easier to
+keep body parts at approximately the right distances. Showing only one mouse
+also helps keep those parts near their correct mouse-local positions.
+
+### 2. Better BLE does not mean complete pose understanding
+
+**Technical finding:** SOE, BHE, and ROE do not improve reliably for either
+no-cross-mouse-edge variant. Their paired confidence intervals include zero.
+
+**Plain-language interpretation:** A mouse can have roughly correct body-part
+distances while still facing the wrong direction, twisting incorrectly, or
+placing keypoints in the wrong relative order. The model has improved one part
+of anatomy, not learned the whole pose.
+
+### 3. The single-mouse gain is not only a cross-edge effect
+
+**Technical finding:** Within-mouse triplet and single-mouse graphs both remove
+cross-mouse edges, but single mouse has lower paired trajectory, velocity, BLE,
+and body-frame displacement errors with confidence intervals excluding zero.
+
+**Plain-language interpretation:** Deleting connections between mice is not
+enough. Keeping three separate mice alive in the same recurrent prediction is
+itself difficult. Giving the model one actor reduces that burden.
+
+### 4. Autoregressive rollout is the dominant failure mode
+
+Teacher-forced Gaussian-mean P50 errors remain small for all variants: BLE is
+about 4 px, SOE about 9 degrees, and ROE about 0.06. Those errors deteriorate
+sharply when the model consumes its own sampled predictions.
+
+**Plain-language interpretation:** The model behaves well when every previous
+answer is corrected by a teacher. When no teacher corrects it, each imperfect
+answer becomes the input for the next answer and the mistakes compound.
+
+### 5. Predicted uncertainty is not trustworthy yet
+
+At the final future frame, nominal 95% Gaussian coverage is 5.2% for dense,
+4.4% for within-mouse triplet, and 12.9% for single mouse.
+
+**Plain-language interpretation:** When the model says “the real point should
+almost certainly be inside this region,” it is usually outside. Single mouse is
+less overconfident, but none of the models provides calibrated uncertainty.
+
+### 6. The best learned model still loses to persistence
+
+On its 1,000-window benchmark, matched single mouse has P50 cADE 34.36 px, BLE
+27.12 px, SOE 66.98 degrees, and ROE 0.378. Repeating the final observed pose
+achieves 6.64 px, 7.21 px, 23.45 degrees, and 0.150 respectively.
+
+**Plain-language interpretation:** Single mouse is the best learned variant so
+far, but it is not yet a useful forecaster. A model that assumes the mouse never
+moves is still more accurate over this evaluation set.
+
+## Unsupported or Inconclusive Hypotheses
+
+- **“Removing cross-mouse edges improves ROE.”** Not supported. Both paired ROE
+  intervals include zero.
+- **“Better validation NLL guarantees a better rollout.”** Rejected for these
+  checkpoints. Within-mouse triplet has the best validation NLL but the worst
+  sampled trajectory and velocity errors.
+- **“Cross-mouse edges alone cause pose failure.”** Not established. They affect
+  BLE, but SOE, BHE, and ROE remain poor after removing them.
+- **“The flat architecture has no pose capacity.”** Too strong. Teacher-forced
+  predictions show useful one-step capacity; maintaining it during rollout is
+  the unresolved problem.
+
+## Limitations
+
+- Each model has one training run with seed 42.
+- The paired confidence intervals measure held-out-window variability, not
+  variation between retrained models.
+- The stochastic diagnostic uses one rollout seed.
+- Thirty source windows support diagnosis, not a universal architectural claim.
+- This checkpoint evaluates trajectory reconstruction, not whether the learned
+  representation supports downstream behavioral classification.
+
+## Next Controlled Experiments
+
+Run each intervention independently before combining them.
+
+### A. Auxiliary angle-loss ablation
+
+**Technical hypothesis:** Penalizing anatomical edge-angle error during training
+may improve SOE and BHE, and possibly ROE, without materially worsening
+trajectory accuracy.
+
+**Plain-language hypothesis:** The model currently gets punished when a point is
+far away, but not directly when the mouse is twisted. Add a penalty that tells
+it when connected body parts point in the wrong directions.
+
+Compare the matched single-mouse control against the same model with only the
+auxiliary angle loss changed. Success requires paired SOE or BHE improvement,
+with no material cADE, cFDE, BLE, or velocity regression.
+
+### B. Scheduled-sampling ablation
+
+**Technical hypothesis:** Gradually replacing ground-truth recurrent inputs with
+model-generated inputs during training may reduce exposure bias and the gap
+between teacher-forced and autoregressive metrics.
+
+**Plain-language hypothesis:** Let the model practice continuing from its own
+mistakes during training, instead of showing it a perfect previous frame every
+time.
+
+Keep the architecture and loss unchanged. Success requires a smaller
+teacher-forced-to-autoregressive gap and paired improvements in sampled rollout
+metrics.
+
+### C. Conditional combined experiment
+
+Run angle loss and scheduled sampling together only if at least one isolated
+ablation helps. This preserves attribution before testing whether their gains
+are complementary.
+
+**Plain-language plan:** First learn whether each idea works alone. Combine them
+only after we know which ingredient is useful.
+
+### D. Optional centroid–pose factorization
+
+**Technical hypothesis:** Predicting arena-space centroid motion separately from
+mouse-local keypoint offsets may disentangle translation from articulated pose.
+Reconstruct global keypoints from the predicted centroid, heading, and local
+pose.
+
+**Plain-language hypothesis:** Stop asking one output to answer “Where is the
+mouse?” and “What shape is its body?” simultaneously. Predict movement with one
+part and body arrangement with another, then put them back together.
+
+This is optional because it changes the representation and architecture more
+substantially than the first two ablations.
+
+## Artifact Lineage
+
+| Variant | Best checkpoint | Epoch | Validation NLL |
+| --- | --- | ---: | ---: |
+| Dense triplet | `checkpoints/flat_dense_triplet_5fps/flat_best.pt` | 34 | -6.7002 |
+| Matched single mouse | `checkpoints/flat_dense_single_mouse_matched_5fps/flat_best.pt` | 30 | -6.8910 |
+| Within-mouse triplet | `checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt` | 43 | -6.9970 |
+
+Primary diagnostic record:
+`outputs/evaluations/pose_diagnostics_5fps/results.jsonl`, timestamp
+`2026-09-17T16:56:28.502305+00:00`, window digest
+`36806111a06a2e1709ed456560cf3a9220548a437aa72b88c357caf90dec47fd`.
+
+## Reproduce the Diagnostic
+
+This reruns inference and appends a new result; it does not mutate this dated
+finding.
+
+```sh
+PYTHONPATH=src python -m diagnostics --config src/config/test__flat_pose_diagnostics_5fps.yml
+```
+
+## Verify the Recorded Snapshot
+
+```python {"interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python"}
+import json
+from pathlib import Path
+
+result_path = Path("outputs/evaluations/pose_diagnostics_5fps/results.jsonl")
+expected_timestamp = "2026-09-17T16:56:28.502305+00:00"
+record = next(
+    json.loads(line)
+    for line in result_path.read_text().splitlines()
+    if json.loads(line)["timestamp_utc"] == expected_timestamp
+)
+
+print(record["timestamp_utc"])
+print(record["window_contract"])
+print(record["lineage"])
+```

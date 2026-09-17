@@ -20,6 +20,8 @@ Use this directory tree as the intended project shape:
 │   ├── data/
 │   │   ├── data__preparation.runme
 │   │   └── data__visualize_mabe.runme
+│   ├── findings/
+│   │   └── findings__YYYY-MM-DD.runme
 │   └── social-attention.pdf
 ├── scripts/
 │   ├── train.py
@@ -63,6 +65,7 @@ Use this directory tree as the intended project shape:
 `scripts/` is the historical runnable implementation to audit and migrate. `src/` is the new first-party root for reusable research code. `socialAttention/` is the upstream reference submodule; keep it read-only unless intentionally updating the submodule pointer. Keep `scripts/` runnable while migrating logic into `src/`; over time, scripts should shrink to CLI adapters that parse arguments and call package interfaces.
 
 Use Runme-compatible notebooks for ADRs, PRDs, design-decision records, workflow docs, and data/model/train/test walkthroughs. Store them under `docs/{category}/` and name them `{category}__{task}.runme`, for example `docs/data/data__preparation.runme`.
+Store immutable research checkpoints under `docs/findings/` and name them `findings__YYYY-MM-DD.runme`.
 
 Create and manage project tickets in the relevant GitHub Project when available. Prefer high-level tickets with concrete subtasks and acceptance criteria over many granular tickets that duplicate one roadmap. Assign created tickets to `splion-360`; also assign to the acting agent only if a real GitHub identity is available. Update ticket checklists as work progresses so completed and remaining subtasks are visible. After completing implementation work for a ticket, move the project item to `In review`, not `Done`, so the user can review it. Move cancelled or superseded tickets to `Cancelled`, not `Done`; if the project has no `Cancelled` status, close them as not planned and report that the status column is missing.
 
