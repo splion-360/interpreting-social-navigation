@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Findings 2026-09-17</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Comic Sans MS", "Comic Sans", cursive;
+      font-size: 16px;
+      --background: #151515;
+      --surface: #222;
+      --surface-active: #343434;
+      --border: #555;
+      --text: #ededed;
+      --muted: #bdbdbd;
+      --link: #9ecbff;
+      --focus: #f0c674;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--background); color: var(--text); line-height: 1.55; }
+    main { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 4rem; }
+    h1 { margin: 0 0 .35rem; font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.15rem; }
+    p, li, td, th, button, code { font-size: 1rem; }
+    header > p, .muted { color: var(--muted); }
+    a { color: var(--link); }
+    a:focus, button:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: .4rem; border-bottom: 1px solid var(--border); margin: 1rem 0; }
+    .tab-list button { border: 1px solid var(--border); border-bottom: 0; background: var(--surface); color: inherit; padding: .65rem .85rem; font: inherit; cursor: pointer; }
+    .tab-list button[aria-selected="true"] { background: var(--surface-active); }
+    .subtabs { margin-top: 1.25rem; }
+    [role="tabpanel"] { padding: .5rem 0; }
+    [hidden] { display: none !important; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { border: 1px solid var(--border); padding: .55rem; text-align: left; vertical-align: top; }
+    th { background: #292929; }
+    code, pre { background: #272727; }
+    code { padding: .1rem .25rem; }
+    pre { border: 1px solid var(--border); padding: .75rem; overflow-x: auto; }
+    .plain-language { border-left: 3px solid #8ab4f8; padding-left: .8rem; }
+    .result { background: var(--surface); border: 1px solid var(--border); padding: .8rem 1rem; margin: 1rem 0; }
+    .glossary-entry { border-bottom: 1px solid #444; padding: .5rem 0 1rem; }
+    .glossary-entry:last-child { border-bottom: 0; }
+    .status { display: inline-block; border: 1px solid var(--border); padding: .2rem .5rem; color: var(--muted); }
+    @media (max-width: 720px) {
+      main { width: min(100% - 1rem, 1120px); }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Research Findings</h1>
+    <p>Flat Social Attention pose capacity at 5 FPS</p>
+    <p><span class="status">Immutable snapshot</span> 2026-09-17</p>
+  </header>
+
+  <nav class="tab-list" role="tablist" aria-label="Report sections" data-tab-group="main">
+    <button role="tab" aria-selected="true" aria-controls="overview" id="tab-overview" tabindex="0">Overview</button>
+    <button role="tab" aria-selected="false" aria-controls="evidence" id="tab-evidence" tabindex="-1">Evidence</button>
+    <button role="tab" aria-selected="false" aria-controls="findings" id="tab-findings" tabindex="-1">Findings</button>
+    <button role="tab" aria-selected="false" aria-controls="next-experiments" id="tab-next" tabindex="-1">Next experiments</button>
+    <button role="tab" aria-selected="false" aria-controls="glossary" id="tab-glossary" tabindex="-1">Glossary</button>
+    <button role="tab" aria-selected="false" aria-controls="lineage" id="tab-lineage" tabindex="-1">Lineage</button>
+  </nav>
+
+  <section id="overview" role="tabpanel" aria-labelledby="tab-overview">
+    <h2>Overview</h2>
+    <h3>Research question</h3>
+    <p>How much mouse trajectory and pose structure can the flat <a id="use-social-attention" href="#term-social-attention" data-open-tabs="glossary">Social Attention</a> architecture preserve under controlled 5 FPS prediction?</p>
+
+    <h3>Conclusion</h3>
+    <p>Flat Social Attention learns useful one-step mouse geometry. Complete pose degrades during long <a id="use-autoregressive" href="#term-autoregressive" data-open-tabs="glossary">sampled autoregressive rollout</a>.</p>
+    <p>The matched single-mouse model improves body scale and mouse-local keypoint position. Reliable improvements were absent for orientation, heading, and relative ordering.</p>
+    <p>Every learned variant performs worse than <a id="use-persistence" href="#term-persistence" data-open-tabs="glossary">persistence</a> on its held-out benchmark.</p>
+
+    <div class="plain-language">
+      <h3>Plain-language conclusion</h3>
+      <p>The model predicts a reasonable next pose when it receives correct previous poses. Errors accumulate when it continues from its own predictions.</p>
+      <p>Using one mouse reduces body distortion. Repeating the final observed pose still gives more accurate future predictions.</p>
+    </div>
+
+    <h3>Facts to carry forward</h3>
+    <ul>
+      <li>Single-mouse training gives the strongest learned body-scale result.</li>
+      <li>Lower body-scale error does not imply correct orientation or keypoint order.</li>
+      <li>The main measured failure occurs during autoregressive rollout.</li>
+      <li>Predicted Gaussian uncertainty has poor coverage.</li>
+      <li>Results cover one training seed and one rollout seed.</li>
+    </ul>
+  </section>
+
+  <section id="evidence" role="tabpanel" aria-labelledby="tab-evidence" hidden>
+    <h2>Evidence</h2>
+    <nav class="tab-list subtabs" role="tablist" aria-label="Evidence sections" data-tab-group="evidence">
+      <button role="tab" aria-selected="true" aria-controls="evidence-contract" id="tab-evidence-contract" tabindex="0">Contract</button>
+      <button role="tab" aria-selected="false" aria-controls="evidence-results" id="tab-evidence-results" tabindex="-1">Primary results</button>
+      <button role="tab" aria-selected="false" aria-controls="evidence-paired" id="tab-evidence-paired" tabindex="-1">Paired evidence</button>
+      <button role="tab" aria-selected="false" aria-controls="evidence-baselines" id="tab-evidence-baselines" tabindex="-1">Baselines</button>
+    </nav>
+
+    <section id="evidence-contract" role="tabpanel" aria-labelledby="tab-evidence-contract">
+      <h3>Experiment contract</h3>
+      <table>
+        <tbody>
+          <tr><th>Dataset</th><td>Held-out MABe mouse-triplet trajectories</td></tr>
+          <tr><th>Rate</th><td>5 FPS, sampled every sixth source frame</td></tr>
+          <tr><th>Window</th><td>16 observed frames and 24 predicted frames</td></tr>
+          <tr><th>Duration</th><td>3.2 seconds observed and 4.8 seconds predicted</td></tr>
+          <tr><th>Training data</th><td>800 source windows with 20%, 40%, and 40% low, medium, and high motion</td></tr>
+          <tr><th>Training</th><td>50 epochs, seed 42, matched optimizer-update budget</td></tr>
+          <tr><th>Paired diagnostic</th><td>30 source triplet windows and 90 mouse cases</td></tr>
+          <tr><th>Primary mode</th><td>Sampled autoregressive rollout</td></tr>
+          <tr><th>Bootstrap</th><td>10,000 source-window resamples</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Variants</h3>
+      <table>
+        <thead><tr><th>Variant</th><th>Graph context</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>Dense triplet</td><td>All keypoints from all three mice interact</td><td>Flat baseline</td></tr>
+          <tr><td>Within-mouse triplet</td><td>Three mice remain, with no <a id="use-cross-edges" href="#term-cross-edges" data-open-tabs="glossary">cross-mouse edges</a></td><td>Cross-edge ablation</td></tr>
+          <tr><td>Matched single mouse</td><td>One mouse and 12 keypoints per example</td><td>Reduced actor and graph complexity</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="evidence-results" role="tabpanel" aria-labelledby="tab-evidence-results" hidden>
+      <h3>Primary sampled results</h3>
+      <p>Values are P50 errors over the prediction horizon. Lower values are better.</p>
+      <table>
+        <thead><tr><th>Model</th><th><a id="use-cade" href="#term-cade" data-open-tabs="glossary">cADE</a> px</th><th><a id="use-cfde" href="#term-cfde" data-open-tabs="glossary">cFDE</a> px</th><th><a id="use-ble" href="#term-ble" data-open-tabs="glossary">BLE</a> px</th><th><a id="use-soe" href="#term-soe" data-open-tabs="glossary">SOE</a> deg</th><th><a id="use-bhe" href="#term-bhe" data-open-tabs="glossary">BHE</a> deg</th><th><a id="use-roe" href="#term-roe" data-open-tabs="glossary">ROE</a></th></tr></thead>
+        <tbody>
+          <tr><td>Dense triplet</td><td>71.73</td><td>161.83</td><td>102.77</td><td>68.70</td><td>55.99</td><td>0.389</td></tr>
+          <tr><td>Within-mouse triplet</td><td>108.65</td><td>205.69</td><td>39.68</td><td>68.25</td><td>60.05</td><td>0.389</td></tr>
+          <tr><td>Matched single mouse</td><td><strong>41.68</strong></td><td><strong>75.42</strong></td><td><strong>26.68</strong></td><td><strong>67.90</strong></td><td>61.05</td><td>0.389</td></tr>
+        </tbody>
+      </table>
+      <p>Rounded ROE values appear equal. Paired ROE differences remain inconclusive.</p>
+    </section>
+
+    <section id="evidence-paired" role="tabpanel" aria-labelledby="tab-evidence-paired" hidden>
+      <h3>Paired comparison with dense triplet</h3>
+      <p>Differences equal comparison minus dense. Negative values indicate lower error. A <a id="use-ci" href="#term-ci" data-open-tabs="glossary">95% confidence interval</a> that excludes zero supports a measured difference across these windows.</p>
+      <table>
+        <thead><tr><th>Comparison</th><th>Metric</th><th>Mean difference</th><th>95% CI</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Single mouse</td><td>BLE</td><td>-87.85 px</td><td>[-101.02, -74.27]</td><td>Improvement in every paired case</td></tr>
+          <tr><td>Single mouse</td><td><a id="use-bfk" href="#term-bfk" data-open-tabs="glossary">BFK-ADE</a></td><td>-35.16 px</td><td>[-45.53, -25.02]</td><td>Improvement</td></tr>
+          <tr><td>Single mouse</td><td>BFK-FDE</td><td>-68.62 px</td><td>[-97.72, -40.78]</td><td>Improvement</td></tr>
+          <tr><td>Single mouse</td><td>cADE</td><td>-3.74 px</td><td>[-16.28, 8.32]</td><td>Inconclusive</td></tr>
+          <tr><td>Single mouse</td><td>SOE</td><td>-0.98 deg</td><td>[-3.14, 1.15]</td><td>Inconclusive</td></tr>
+          <tr><td>Single mouse</td><td>BHE</td><td>-1.90 deg</td><td>[-8.56, 4.83]</td><td>Inconclusive</td></tr>
+          <tr><td>Single mouse</td><td>ROE</td><td>-0.0059</td><td>[-0.0186, 0.0072]</td><td>Inconclusive</td></tr>
+          <tr><td>Within-mouse triplet</td><td>BLE</td><td>-77.44 px</td><td>[-90.79, -63.82]</td><td>Improvement</td></tr>
+          <tr><td>Within-mouse triplet</td><td>cADE</td><td>+30.79 px</td><td>[15.17, 46.53]</td><td>Regression</td></tr>
+          <tr><td>Within-mouse triplet</td><td><a id="use-cve" href="#term-cve" data-open-tabs="glossary">CVE</a></td><td>+24.54 px/s</td><td>[18.30, 31.13]</td><td>Regression</td></tr>
+          <tr><td>Within-mouse triplet</td><td><a id="use-kve" href="#term-kve" data-open-tabs="glossary">KVE</a></td><td>+57.74 px/s</td><td>[48.31, 67.68]</td><td>Regression</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Single mouse compared with within-mouse triplet</h3>
+      <table>
+        <thead><tr><th>Metric</th><th>Single minus within-mouse</th><th>95% CI</th></tr></thead>
+        <tbody>
+          <tr><td>cADE</td><td>-34.53 px</td><td>[-49.96, -18.12]</td></tr>
+          <tr><td>cFDE</td><td>-81.82 px</td><td>[-112.51, -51.29]</td></tr>
+          <tr><td>CVE</td><td>-24.59 px/s</td><td>[-31.24, -17.91]</td></tr>
+          <tr><td>KVE</td><td>-57.25 px/s</td><td>[-67.44, -47.11]</td></tr>
+          <tr><td>BLE</td><td>-10.41 px</td><td>[-13.67, -7.21]</td></tr>
+          <tr><td>BFK-ADE</td><td>-33.49 px</td><td>[-48.43, -17.72]</td></tr>
+          <tr><td>BFK-FDE</td><td>-80.05 px</td><td>[-109.65, -50.63]</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="evidence-baselines" role="tabpanel" aria-labelledby="tab-evidence-baselines" hidden>
+      <h3>Persistence baseline</h3>
+      <p>The original 30 FPS, 8-to-12-frame experiment covered less than one second. Persistence performed well because many windows contained little movement. This motivated the 5 FPS protocol.</p>
+      <p>The matched single-mouse benchmark contains 1,000 windows. Its learned model remains worse than persistence.</p>
+      <table>
+        <thead><tr><th>Method</th><th>cADE px</th><th>BLE px</th><th>SOE deg</th><th>ROE</th></tr></thead>
+        <tbody>
+          <tr><td>Persistence</td><td>6.64</td><td>7.21</td><td>23.45</td><td>0.150</td></tr>
+          <tr><td>Matched single mouse</td><td>34.36</td><td>27.12</td><td>66.98</td><td>0.378</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </section>
+
+  <section id="findings" role="tabpanel" aria-labelledby="tab-findings" hidden>
+    <h2>Findings</h2>
+    <nav class="tab-list subtabs" role="tablist" aria-label="Individual findings" data-tab-group="findings">
+      <button role="tab" aria-selected="true" aria-controls="finding-scale" id="tab-finding-scale" tabindex="0">Body scale</button>
+      <button role="tab" aria-selected="false" aria-controls="finding-pose" id="tab-finding-pose" tabindex="-1">Complete pose</button>
+      <button role="tab" aria-selected="false" aria-controls="finding-complexity" id="tab-finding-complexity" tabindex="-1">Graph complexity</button>
+      <button role="tab" aria-selected="false" aria-controls="finding-rollout" id="tab-finding-rollout" tabindex="-1">Rollout</button>
+      <button role="tab" aria-selected="false" aria-controls="finding-calibration" id="tab-finding-calibration" tabindex="-1">Calibration</button>
+      <button role="tab" aria-selected="false" aria-controls="finding-unsupported" id="tab-finding-unsupported" tabindex="-1">Unresolved</button>
+    </nav>
+
+    <section id="finding-scale" role="tabpanel" aria-labelledby="tab-finding-scale">
+      <h3>Body scale improves without cross-mouse edges</h3>
+      <p>Both variants without cross-mouse edges have lower BLE than the dense graph. Single mouse also improves body-frame keypoint displacement.</p>
+      <p class="plain-language"><strong>Plain language:</strong> The dense model stretches and collapses the mouse more often. Reducing interaction with other mice helps preserve body-part distances.</p>
+      <p class="muted">Scope: one training seed. The BLE interval excludes zero for both comparisons.</p>
+    </section>
+
+    <section id="finding-pose" role="tabpanel" aria-labelledby="tab-finding-pose" hidden>
+      <h3>Body scale does not establish complete pose quality</h3>
+      <p>SOE, BHE, and ROE show no reliable improvement for either no-cross-mouse-edge variant.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Body parts can remain the right distance apart while the mouse faces the wrong way or uses the wrong keypoint order.</p>
+      <p class="muted">Scope: each paired confidence interval includes zero.</p>
+    </section>
+
+    <section id="finding-complexity" role="tabpanel" aria-labelledby="tab-finding-complexity" hidden>
+      <h3>Actor count affects the result</h3>
+      <p>Within-mouse triplet and single mouse both remove cross-mouse edges. Single mouse has lower paired trajectory, velocity, BLE, and body-frame displacement errors.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Managing three mice remains difficult even after removing their direct graph connections. One mouse gives the model a smaller recurrent problem.</p>
+      <p class="muted">Interpretation: the single-mouse gain cannot be assigned to cross-edge removal alone.</p>
+    </section>
+
+    <section id="finding-rollout" role="tabpanel" aria-labelledby="tab-finding-rollout" hidden>
+      <h3>Autoregressive rollout causes the largest degradation</h3>
+      <p><a id="use-teacher-forcing" href="#term-teacher-forcing" data-open-tabs="glossary">Teacher-forced</a> Gaussian-mean P50 errors remain near 4 px BLE, 9 degrees SOE, and 0.06 ROE. Errors rise sharply during sampled rollout.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Correct previous poses keep the model stable. Model-generated poses carry errors into the next step.</p>
+      <p class="muted">Interpretation: the architecture has useful one-step capacity. Long rollout stability remains weak.</p>
+    </section>
+
+    <section id="finding-calibration" role="tabpanel" aria-labelledby="tab-finding-calibration" hidden>
+      <h3>Uncertainty coverage is poor</h3>
+      <p>Final nominal 95% <a id="use-calibration" href="#term-calibration" data-open-tabs="glossary">coverage</a> is 5.2% for dense, 4.4% for within-mouse triplet, and 12.9% for single mouse.</p>
+      <p class="plain-language"><strong>Plain language:</strong> The model reports narrow uncertainty regions that rarely contain the real future keypoint.</p>
+      <p class="muted">Single mouse has the best coverage. Its 12.9% result remains far below 95%.</p>
+    </section>
+
+    <section id="finding-unsupported" role="tabpanel" aria-labelledby="tab-finding-unsupported" hidden>
+      <h3>Unsupported and inconclusive hypotheses</h3>
+      <ul>
+        <li><strong>Cross-edge removal improves ROE:</strong> inconclusive. Both ROE intervals include zero.</li>
+        <li><strong>Lower validation NLL predicts a better rollout:</strong> rejected for these checkpoints. Within-mouse triplet has the lowest <a id="use-nll" href="#term-nll" data-open-tabs="glossary">NLL</a> and the worst sampled trajectory metrics.</li>
+        <li><strong>Cross-mouse edges cause all pose failure:</strong> unsupported. BLE changes while SOE, BHE, and ROE remain poor.</li>
+        <li><strong>The flat model has no pose capacity:</strong> unsupported. Teacher-forced results show useful one-step capacity.</li>
+      </ul>
+    </section>
+  </section>
+
+  <section id="next-experiments" role="tabpanel" aria-labelledby="tab-next" hidden>
+    <h2>Next experiments</h2>
+    <p>Run each intervention independently against the matched single-mouse control.</p>
+    <nav class="tab-list subtabs" role="tablist" aria-label="Candidate experiments" data-tab-group="experiments">
+      <button role="tab" aria-selected="true" aria-controls="experiment-angle" id="tab-experiment-angle" tabindex="0">Angle loss</button>
+      <button role="tab" aria-selected="false" aria-controls="experiment-sampling" id="tab-experiment-sampling" tabindex="-1">Scheduled sampling</button>
+      <button role="tab" aria-selected="false" aria-controls="experiment-combined" id="tab-experiment-combined" tabindex="-1">Combined</button>
+      <button role="tab" aria-selected="false" aria-controls="experiment-factorized" id="tab-experiment-factorized" tabindex="-1">Centroid and pose</button>
+    </nav>
+
+    <section id="experiment-angle" role="tabpanel" aria-labelledby="tab-experiment-angle">
+      <h3>Auxiliary angle loss</h3>
+      <p><strong>Hypothesis:</strong> Penalizing anatomical edge-angle error may improve SOE and BHE, with a possible ROE benefit.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Add a penalty when connected body parts point in the wrong directions.</p>
+      <p><strong>Control:</strong> Keep data, graph, optimizer budget, Gaussian NLL, and seed fixed.</p>
+      <p><strong>Success:</strong> Paired SOE or BHE improvement with no material cADE, cFDE, BLE, CVE, or KVE regression.</p>
+    </section>
+
+    <section id="experiment-sampling" role="tabpanel" aria-labelledby="tab-experiment-sampling" hidden>
+      <h3>Scheduled sampling</h3>
+      <p><strong>Hypothesis:</strong> Training with an increasing share of model-generated recurrent inputs may reduce <a id="use-exposure-bias" href="#term-exposure-bias" data-open-tabs="glossary">exposure bias</a>.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Let the model practice continuing from its own mistakes during training.</p>
+      <p><strong>Control:</strong> Keep architecture, losses, data, optimizer budget, and seed fixed.</p>
+      <p><strong>Success:</strong> A smaller teacher-forced-to-autoregressive gap and paired sampled-rollout improvements.</p>
+    </section>
+
+    <section id="experiment-combined" role="tabpanel" aria-labelledby="tab-experiment-combined" hidden>
+      <h3>Conditional combined experiment</h3>
+      <p>Combine angle loss and scheduled sampling after at least one isolated ablation improves its target metrics.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Measure each idea alone before testing them together.</p>
+      <p><strong>Success:</strong> Preserve the isolated gains without adding regressions in the other metric group.</p>
+    </section>
+
+    <section id="experiment-factorized" role="tabpanel" aria-labelledby="tab-experiment-factorized" hidden>
+      <h3>Optional centroid-pose factorization</h3>
+      <p><strong>Hypothesis:</strong> Separate arena-space centroid motion from mouse-local keypoint offsets, then reconstruct global keypoints from centroid, heading, and local pose.</p>
+      <p class="plain-language"><strong>Plain language:</strong> Predict where the mouse moves separately from how its body is arranged.</p>
+      <p><strong>Reason for deferral:</strong> This changes the representation and architecture more than the first two ablations.</p>
+    </section>
+  </section>
+
+  <section id="glossary" role="tabpanel" aria-labelledby="tab-glossary" hidden>
+    <h2>Glossary</h2>
+    <div class="glossary-entry" id="term-social-attention"><h3>Social Attention</h3><p>A Structural RNN that models node motion and graph-edge interactions. This report evaluates its flat keypoint version.</p><a class="glossary-backlink" href="#use-social-attention" data-open-tabs="overview">Back to first use</a></div>
+    <div class="glossary-entry" id="term-autoregressive"><h3>Autoregressive rollout</h3><p>A prediction process where each generated frame becomes input to the next step. Errors can accumulate across the future horizon.</p><a class="glossary-backlink" href="#use-autoregressive" data-open-tabs="overview">Back to first use</a></div>
+    <div class="glossary-entry" id="term-persistence"><h3>Persistence</h3><p>A non-trained baseline that repeats the final observed pose for every future frame.</p><a class="glossary-backlink" href="#use-persistence" data-open-tabs="overview">Back to first use</a></div>
+    <div class="glossary-entry" id="term-cross-edges"><h3>Cross-mouse edges</h3><p>Graph connections between keypoints that belong to different mice.</p><a class="glossary-backlink" href="#use-cross-edges" data-open-tabs="evidence,evidence-contract">Back to first use</a></div>
+    <div class="glossary-entry" id="term-cade"><h3>cADE</h3><p>Mean centroid displacement error over future frames. It measures whether the mouse occupies the correct area over time.</p><a class="glossary-backlink" href="#use-cade" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-cfde"><h3>cFDE</h3><p>Centroid displacement error at the final predicted frame. It measures the final whole-mouse location error.</p><a class="glossary-backlink" href="#use-cfde" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-cve"><h3>CVE</h3><p>Centroid velocity error. It measures whole-mouse speed and direction error between frames.</p><a class="glossary-backlink" href="#use-cve" data-open-tabs="evidence,evidence-paired">Back to first use</a></div>
+    <div class="glossary-entry" id="term-kve"><h3>KVE</h3><p>Keypoint velocity error. It measures motion error for individual body points.</p><a class="glossary-backlink" href="#use-kve" data-open-tabs="evidence,evidence-paired">Back to first use</a></div>
+    <div class="glossary-entry" id="term-ble"><h3>BLE</h3><p>Bone-length error across anatomical edges. It measures body stretching and collapse.</p><a class="glossary-backlink" href="#use-ble" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-soe"><h3>SOE</h3><p>Skeleton orientation error across connected keypoints. It measures incorrect segment direction.</p><a class="glossary-backlink" href="#use-soe" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-bhe"><h3>BHE</h3><p>Body-heading error. It measures the difference between predicted and actual whole-mouse facing direction.</p><a class="glossary-backlink" href="#use-bhe" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-roe"><h3>ROE</h3><p>Relative-ordering error. It measures keypoint order disagreements in the actual mouse coordinate frame.</p><a class="glossary-backlink" href="#use-roe" data-open-tabs="evidence,evidence-results">Back to first use</a></div>
+    <div class="glossary-entry" id="term-bfk"><h3>BFK-ADE and BFK-FDE</h3><p>Body-frame keypoint displacement errors after accounting for whole-mouse position and orientation. They measure mouse-local point placement.</p><a class="glossary-backlink" href="#use-bfk" data-open-tabs="evidence,evidence-paired">Back to first use</a></div>
+    <div class="glossary-entry" id="term-ci"><h3>Confidence interval</h3><p>A range produced by resampling source windows. An interval that crosses zero cannot identify which compared model has lower error in this evaluation.</p><a class="glossary-backlink" href="#use-ci" data-open-tabs="evidence,evidence-paired">Back to first use</a></div>
+    <div class="glossary-entry" id="term-teacher-forcing"><h3>Teacher forcing</h3><p>Evaluation or training where the correct previous frame is supplied before each next-step prediction.</p><a class="glossary-backlink" href="#use-teacher-forcing" data-open-tabs="findings,finding-rollout">Back to first use</a></div>
+    <div class="glossary-entry" id="term-calibration"><h3>Calibration and coverage</h3><p>Calibration compares predicted uncertainty with observed error. A nominal 95% region should contain about 95% of actual targets.</p><a class="glossary-backlink" href="#use-calibration" data-open-tabs="findings,finding-calibration">Back to first use</a></div>
+    <div class="glossary-entry" id="term-nll"><h3>NLL</h3><p>Negative log-likelihood, the Gaussian training and validation objective. Lower NLL rewards probability assigned to the next true keypoint.</p><a class="glossary-backlink" href="#use-nll" data-open-tabs="findings,finding-unsupported">Back to first use</a></div>
+    <div class="glossary-entry" id="term-exposure-bias"><h3>Exposure bias</h3><p>The mismatch between training on correct previous frames and inference on model-generated previous frames.</p><a class="glossary-backlink" href="#use-exposure-bias" data-open-tabs="next-experiments,experiment-sampling">Back to first use</a></div>
+  </section>
+
+  <section id="lineage" role="tabpanel" aria-labelledby="tab-lineage" hidden>
+    <h2>Lineage</h2>
+    <h3>Model checkpoints</h3>
+    <table>
+      <thead><tr><th>Variant</th><th>Checkpoint</th><th>Epoch</th><th>Validation NLL</th></tr></thead>
+      <tbody>
+        <tr><td>Dense triplet</td><td><code>checkpoints/flat_dense_triplet_5fps/flat_best.pt</code></td><td>34</td><td>-6.7002</td></tr>
+        <tr><td>Matched single mouse</td><td><code>checkpoints/flat_dense_single_mouse_matched_5fps/flat_best.pt</code></td><td>30</td><td>-6.8910</td></tr>
+        <tr><td>Within-mouse triplet</td><td><code>checkpoints/flat_within_mouse_triplet_5fps/flat_best.pt</code></td><td>43</td><td>-6.9970</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Diagnostic artifact</h3>
+    <p><code>outputs/evaluations/pose_diagnostics_5fps/results.jsonl</code></p>
+    <ul>
+      <li>Timestamp: <code>2026-09-17T16:56:28.502305+00:00</code></li>
+      <li>Window digest: <code>36806111a06a2e1709ed456560cf3a9220548a437aa72b88c357caf90dec47fd</code></li>
+      <li>Test config: <code>src/config/test__flat_pose_diagnostics_5fps.yml</code></li>
+    </ul>
+
+    <h3>Reproduction command</h3>
+    <pre><code>PYTHONPATH=src python -m diagnostics --config src/config/test__flat_pose_diagnostics_5fps.yml</code></pre>
+
+    <h3>Limitations</h3>
+    <ul>
+      <li>Each model has one training run with seed 42.</li>
+      <li>The stochastic diagnostic has one rollout seed.</li>
+      <li>Confidence intervals measure held-out-window variation.</li>
+      <li>The paired diagnostic contains 30 source windows.</li>
+      <li>Downstream behavior classification remains unevaluated.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+  const activateTab = (tab, focus = true) => {
+    const tabList = tab.closest('[role="tablist"]');
+    const tabs = [...tabList.querySelectorAll(':scope > [role="tab"]')];
+    tabs.forEach((item) => {
+      const selected = item === tab;
+      item.setAttribute('aria-selected', String(selected));
+      item.tabIndex = selected ? 0 : -1;
+      document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+    });
+    if (focus) tab.focus();
+  };
+
+  document.querySelectorAll('[role="tablist"]').forEach((tabList) => {
+    const tabs = [...tabList.querySelectorAll(':scope > [role="tab"]')];
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activateTab(tab, false));
+      tab.addEventListener('keydown', (event) => {
+        let next = index;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        activateTab(tabs[next]);
+      });
+    });
+  });
+
+  document.querySelectorAll('a[data-open-tabs]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      link.dataset.openTabs.split(',').forEach((panelId) => {
+        const tab = document.querySelector(`[role="tab"][aria-controls="${panelId}"]`);
+        if (tab) activateTab(tab, false);
+      });
+      const target = document.querySelector(link.getAttribute('href'));
+      if (target) {
+        history.replaceState(null, '', link.getAttribute('href'));
+        target.scrollIntoView({ block: 'start' });
+      }
+    });
+  });
+</script>
+</body>
+</html>
