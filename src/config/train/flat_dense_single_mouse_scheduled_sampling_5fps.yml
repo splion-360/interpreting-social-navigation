@@ -33,7 +33,7 @@ device: cuda
 wandb: false
 wandb_project: interpreting-social-navigation
 wandb_run_name: single-mouse-scheduled-sampling-linear-p50
-wandb_group: social-attention-scheduled-sampling-5fps
+wandb_group: social-attention-scheduled-sampling
 wandb_job_type: training
 wandb_tags:
   - single-mouse
