@@ -26,13 +26,14 @@ scheduled_sampling:
   enabled: true
   start_epoch: 6
   end_epoch: 40
-  max_feedback_probability: 0.5
+  max_feedback_probability: 1.0
+  schedule: cosine
   feedback: sample
 seed: 42
 device: cuda
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name: single-mouse-scheduled-sampling-linear-p50
+wandb_run_name: single-mouse-5fps-scheduled-sampling-cosine-p100
 wandb_group: social-attention-scheduled-sampling
 wandb_job_type: training
 wandb_tags:

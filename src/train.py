@@ -1,6 +1,7 @@
 """File description: Training entry point for trajectory model experiments."""
 
 import argparse
+import math
 import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
@@ -147,9 +148,10 @@ class ScheduledSamplingConfig:
 
     Attributes:
         enabled: Whether scheduled sampling is active during training.
-        start_epoch: First epoch in the linear probability ramp.
+        start_epoch: First epoch in the probability ramp.
         end_epoch: Epoch at which the ramp reaches its maximum.
         max_feedback_probability: Maximum probability of feeding back a sample.
+        schedule: Probability schedule applied between the start and end epochs.
         feedback: Prediction statistic used as recurrent input.
     """
 
@@ -157,6 +159,7 @@ class ScheduledSamplingConfig:
     start_epoch: int = 1
     end_epoch: int = 2
     max_feedback_probability: float = 0.0
+    schedule: str = "cosine"
     feedback: str = "sample"
 
     def __post_init__(self) -> None:
@@ -175,6 +178,8 @@ class ScheduledSamplingConfig:
             raise ValueError(
                 "scheduled sampling max_feedback_probability must be in [0, 1]"
             )
+        if self.schedule != "cosine":
+            raise ValueError("scheduled sampling schedule must be cosine")
         if self.feedback != "sample":
             raise ValueError("scheduled sampling feedback must be sample")
 
@@ -199,7 +204,8 @@ def scheduled_sampling_probability(
     if epoch >= config.end_epoch:
         return config.max_feedback_probability
     progress = (epoch - config.start_epoch) / (config.end_epoch - config.start_epoch)
-    return config.max_feedback_probability * progress
+    cosine_progress = (1.0 - math.cos(math.pi * progress)) / 2.0
+    return config.max_feedback_probability * cosine_progress
 
 
 @dataclass(frozen=True)

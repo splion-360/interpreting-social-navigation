@@ -100,19 +100,23 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
     assert np.isfinite(result.final_validation_loss)
 
 
-def test_scheduled_sampling_probability_follows_linear_epoch_schedule() -> None:
+def test_scheduled_sampling_probability_follows_cosine_epoch_schedule() -> None:
     config = ScheduledSamplingConfig(
         enabled=True,
         start_epoch=6,
         end_epoch=40,
-        max_feedback_probability=0.5,
+        max_feedback_probability=1.0,
+        schedule="cosine",
     )
 
     assert scheduled_sampling_probability(config, epoch=1) == 0.0
     assert scheduled_sampling_probability(config, epoch=6) == 0.0
-    assert scheduled_sampling_probability(config, epoch=23) == 0.25
-    assert scheduled_sampling_probability(config, epoch=40) == 0.5
-    assert scheduled_sampling_probability(config, epoch=50) == 0.5
+    assert scheduled_sampling_probability(config, epoch=10) == pytest.approx(
+        0.0337638853
+    )
+    assert scheduled_sampling_probability(config, epoch=23) == pytest.approx(0.5)
+    assert scheduled_sampling_probability(config, epoch=40) == 1.0
+    assert scheduled_sampling_probability(config, epoch=50) == 1.0
 
 
 def test_disabled_scheduled_sampling_always_uses_ground_truth() -> None:
@@ -497,10 +501,12 @@ def test_scheduled_sampling_config_preserves_matched_single_mouse_contract() -> 
         enabled=True,
         start_epoch=6,
         end_epoch=40,
-        max_feedback_probability=0.5,
+        max_feedback_probability=1.0,
+        schedule="cosine",
         feedback="sample",
     )
     assert config.wandb_group == "social-attention-scheduled-sampling"
+    assert config.wandb_run_name == ("single-mouse-5fps-scheduled-sampling-cosine-p100")
     assert config.wandb_job_type == "training"
     assert config.wandb_tags == (
         "single-mouse",
@@ -545,9 +551,10 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
                 enabled=True,
                 start_epoch=6,
                 end_epoch=40,
-                max_feedback_probability=0.5,
+                max_feedback_probability=1.0,
+                schedule="cosine",
             ),
-            wandb_group="social-attention-scheduled-sampling-5fps",
+            wandb_group="social-attention-scheduled-sampling",
             save_checkpoints=False,
         )
     )
@@ -566,8 +573,9 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "device: cpu" in output
     assert "checkpoint_frequency: null" in output
     assert "scheduled_sampling:" in output
-    assert "max_feedback_probability: 0.5" in output
-    assert "group: social-attention-scheduled-sampling-5fps" in output
+    assert "max_feedback_probability: 1.0" in output
+    assert "schedule: cosine" in output
+    assert "group: social-attention-scheduled-sampling" in output
 
 
 def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) -> None:
