@@ -25,7 +25,7 @@ seed: 42
 device: cuda
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name: flat-within-mouse-triplet-5fps
+wandb_run_name: flat-within-mouse-triplet-teacher-forcing-5fps
 checkpoint_dir: checkpoints/flat_within_mouse_triplet_5fps
 save_checkpoints: true
 checkpoint_frequency: 10

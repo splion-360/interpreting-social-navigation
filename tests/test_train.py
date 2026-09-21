@@ -506,7 +506,9 @@ def test_scheduled_sampling_config_preserves_matched_single_mouse_contract() -> 
         feedback="sample",
     )
     assert config.wandb_group == "social-attention-scheduled-sampling"
-    assert config.wandb_run_name == ("single-mouse-5fps-scheduled-sampling-cosine-p100")
+    assert config.wandb_run_name == (
+        "flat-dense-single-mouse-matched-scheduled-sampling-cosine-p100-5fps"
+    )
     assert config.wandb_job_type == "training"
     assert config.wandb_tags == (
         "single-mouse",

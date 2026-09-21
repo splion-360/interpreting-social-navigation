@@ -25,7 +25,7 @@ seed: 42
 device: cpu
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name: flat-mouse-level-30fps-baseline
+wandb_run_name: flat-mouse-level-triplet-teacher-forcing-30fps
 checkpoint_dir: checkpoints/flat_mouse_level_30fps
 save_checkpoints: true
 checkpoint_frequency: 10

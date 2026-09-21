@@ -137,6 +137,8 @@ The scripts expect log/save directories to exist. Submodule tests are legacy scr
 
 Training commands should run locally with visible CLI progress. Load default training parameters from variant-specific YAML files under `src/config/train/`, named `{variant}_{fps}fps.yml` when frame rate matters, then use argparse only for `--config`, `--show-config`, and explicit overrides. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
 
+Name W&B runs `{architecture}-{connectivity}-{subject-scope}-{training-schema}-{rate}`. Include only experiment-defining axes, for example `flat-dense-single-mouse-matched-scheduled-sampling-cosine-p100-5fps`. Keep batch size, epoch count, learning rate, window count, seed, horizon lengths, and checkpoint frequency in the logged configuration rather than the run name.
+
 ## Coding Style & Naming Conventions
 
 Use four-space indentation and PEP 8: `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep `src/config/` YAML-only; MABe schema constants belong in `src/data/schema.py`, not mixed into data/model/loss implementations. Group standard-library, third-party, then local imports. Document non-obvious tensor shapes such as `[batch, time, mice, keypoints, coordinates]`.

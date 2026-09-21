@@ -25,7 +25,7 @@ seed: 42
 device: cuda
 wandb: false
 wandb_project: interpreting-social-navigation
-wandb_run_name: flat-dense-triplet-30fps-baseline
+wandb_run_name: flat-dense-triplet-teacher-forcing-30fps
 checkpoint_dir: checkpoints/flat_dense_triplet_30fps
 save_checkpoints: true
 checkpoint_frequency: 20
