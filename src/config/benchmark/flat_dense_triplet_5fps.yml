@@ -1,6 +1,6 @@
-train_config_path: src/config/train__flat_dense_triplet_5fps.yml
-test_config_path: src/config/test__mabe.yml
-baseline_config_path: src/config/benchmark__motion_baselines_5fps_pred24.yml
+train_config_path: src/config/train/flat_dense_triplet_5fps.yml
+test_config_path: src/config/test/mabe.yml
+baseline_config_path: src/config/benchmark/motion_baselines_5fps_pred24.yml
 checkpoint_path: checkpoints/flat_dense_triplet_5fps/flat_best.pt
 results_path: outputs/evaluations/flat_dense_triplet_5fps/benchmark_16_24/results.jsonl
 model_name: social_attention_flat_dense_triplet_5fps

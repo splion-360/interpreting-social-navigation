@@ -11,7 +11,7 @@ new notebook sections.
 The workflow follows the repo naming convention:
 
 ```text
-src/config/train__{EXPERIMENT}.yml
+src/config/train/{EXPERIMENT}.yml
 checkpoints/{EXPERIMENT}/flat_best.pt
 outputs/visualizations/{EXPERIMENT}/{seq_id}__{timestamp}.mp4
 ```
@@ -46,11 +46,11 @@ from evaluate import load_test_config
 from train import load_flat_fit_config
 
 EXPERIMENT = "flat_dense_single_mouse_5fps"
-TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+TEST_CONFIG = repo_root / "src/config/test/mabe.yml"
 SEQ_ID_OR_INDEX = 20
 DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 
-train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+train_config = load_flat_fit_config(repo_root / f"src/config/train/{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -68,7 +68,7 @@ sequence_id = (
 sequence = next(sequence for sequence in sequences if sequence.sequence_id == sequence_id)
 
 print("experiment:", EXPERIMENT)
-print("train_config:", repo_root / f"src/config/train__{EXPERIMENT}.yml")
+print("train_config:", repo_root / f"src/config/train/{EXPERIMENT}.yml")
 print("checkpoint:", repo_root / f"checkpoints/{EXPERIMENT}/flat_best.pt")
 print("sequence_id:", sequence_id)
 print("keypoints:", sequence.keypoints.shape)
@@ -104,14 +104,14 @@ from evaluate import load_test_config, save_test_prediction_video
 from train import load_flat_fit_config
 
 EXPERIMENT = "flat_dense_single_mouse_5fps"
-TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+TEST_CONFIG = repo_root / "src/config/test/mabe.yml"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
 DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+train_config = load_flat_fit_config(repo_root / f"src/config/train/{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -162,7 +162,7 @@ from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
 EXPERIMENT = "flat_dense_single_mouse_5fps"
-TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+TEST_CONFIG = repo_root / "src/config/test/mabe.yml"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 MOUSE_INDEX = 0
@@ -170,7 +170,7 @@ SEED = 42
 DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+train_config = load_flat_fit_config(repo_root / f"src/config/train/{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -221,14 +221,14 @@ from evaluate import load_test_config, save_single_mouse_prediction_video
 from train import load_flat_fit_config
 
 EXPERIMENT = "flat_dense_single_mouse_5fps"
-TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+TEST_CONFIG = repo_root / "src/config/test/mabe.yml"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
 DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+train_config = load_flat_fit_config(repo_root / f"src/config/train/{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)
@@ -283,13 +283,13 @@ from metrics import compute_pixel_metrics
 from train import load_flat_fit_config
 
 EXPERIMENT = "flat_dense_single_mouse_5fps"
-TEST_CONFIG = repo_root / "src/config/test__mabe.yml"
+TEST_CONFIG = repo_root / "src/config/test/mabe.yml"
 SEQ_ID = "07FMZMD2TNPY7W3W48KA"
 WINDOW_INDEX = 0
 SEED = 42
 DEVICE = "cuda"  # set to "cpu", "cuda", or None to use the train YAML device
 
-train_config = load_flat_fit_config(repo_root / f"src/config/train__{EXPERIMENT}.yml")
+train_config = load_flat_fit_config(repo_root / f"src/config/train/{EXPERIMENT}.yml")
 if DEVICE is not None:
     train_config = replace(train_config, device=DEVICE)
 test_config = load_test_config(TEST_CONFIG)

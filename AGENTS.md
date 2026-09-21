@@ -33,6 +33,9 @@ Use this directory tree as the intended project shape:
 │   └── utils.py
 ├── src/
 │   ├── config/
+│   │   ├── train/
+│   │   ├── benchmark/
+│   │   └── test/
 │   ├── baselines.py
 │   ├── benchmark.py
 │   ├── benchmark_report.py
@@ -99,7 +102,7 @@ Use folders only when a concern has multiple files or a stable internal API. Sta
 
 Use these current modules:
 
-- `src/config/`: YAML experiment, training, benchmark, and evaluation configuration. Name files `{train/test/benchmark}__{descriptive_name}.yml`, for example `train__flat_dense_triplet_30fps.yml`, `test__mabe.yml`, and `benchmark__flat_dense_triplet_5fps.yml`.
+- `src/config/`: YAML configuration grouped by purpose. Store training, benchmark, and test files under `train/`, `benchmark/`, and `test/`, respectively. Use descriptive filenames without repeating the directory name, for example `train/flat_dense_triplet_30fps.yml`, `test/mabe.yml`, and `benchmark/flat_dense_triplet_5fps.yml`.
 - `src/data/`: MABe loading, splits, window sampling, masking, and normalization. Return tensors shaped `[batch, time, mice, keypoints, coordinates]`.
 - `src/st_graph.py`: graph dataclasses and flat/mouse-level graph builders with explicit node/edge-count contracts.
 - `src/models/`: flat model now, hierarchical mouse/keypoint models next.
@@ -125,14 +128,14 @@ Use Python 3.10+ in an isolated environment. Install the package in editable mod
 - `cd scripts && python train.py --wandb` also logs the run to Weights & Biases.
 - `cd scripts && python sample.py --epoch 199` evaluates checkpoint epoch 199 from `scripts/save/save_attention/`.
 - `python src/train.py warmup --data data/mabe/raw/mouse_triplet_train.npy --device cpu --steps 5` runs a short training smoke test.
-- `python src/train.py fit --show-config` prints the resolved training setup from `src/config/train__flat_dense_triplet_30fps.yml` without training.
-- `python src/train.py fit --wandb` runs flat-model training with W&B logging using `src/config/train__flat_dense_triplet_30fps.yml`.
+- `python src/train.py fit --show-config` prints the resolved training setup from `src/config/train/flat_dense_triplet_30fps.yml` without training.
+- `python src/train.py fit --wandb` runs flat-model training with W&B logging using `src/config/train/flat_dense_triplet_30fps.yml`.
 - `python src/train.py fit --wandb --resume-wandb-artifact flat-best-checkpoint:best` resumes from the best W&B model artifact.
 - `python -m pytest tests` runs new first-party tests once pytest is installed.
 
 The scripts expect log/save directories to exist. Submodule tests are legacy scripts with Python 2 syntax and dataset/GPU assumptions, not a reliable root suite.
 
-Training commands should run locally with visible CLI progress. Load default training parameters from variant-specific YAML files under `src/config/`, named `train__{variant}_{fps}fps.yml` when frame rate matters, then use argparse only for `--config`, `--show-config`, and explicit overrides. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
+Training commands should run locally with visible CLI progress. Load default training parameters from variant-specific YAML files under `src/config/train/`, named `{variant}_{fps}fps.yml` when frame rate matters, then use argparse only for `--config`, `--show-config`, and explicit overrides. Use `tqdm` for batch progress and print epoch-level train/validation losses. W&B is the monitoring platform, but it must remain opt-in through a `--wandb` boolean flag; never require W&B for tests, warm-up runs, or local debugging. When W&B logging and checkpointing are enabled, upload the best checkpoint as a W&B model artifact so model versions are preserved outside the local workspace.
 
 ## Coding Style & Naming Conventions
 

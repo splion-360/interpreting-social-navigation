@@ -61,9 +61,9 @@ KEYPOINT_GRAPH_VARIANTS = {
     "single_mouse_dense_keypoint",
     "within_mouse_dense_keypoint",
 }
-DEFAULT_TEST_CONFIG_PATH = Path("src/config/test__mabe.yml")
+DEFAULT_TEST_CONFIG_PATH = Path("src/config/test/mabe.yml")
 DEFAULT_BASELINE_CONFIG_PATH = Path(
-    "src/config/benchmark__motion_baselines_30fps_pred12.yml"
+    "src/config/benchmark/motion_baselines_30fps_pred12.yml"
 )
 DEFAULT_RESULTS_ROOT = Path("outputs/evaluations")
 DEFAULT_RESULTS_PATH = (
@@ -1891,7 +1891,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/train__flat_dense_triplet_30fps.yml"),
+        default=Path("src/config/train/flat_dense_triplet_30fps.yml"),
     )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--baseline-config", type=Path)

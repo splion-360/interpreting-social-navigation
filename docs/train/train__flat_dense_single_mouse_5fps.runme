@@ -26,13 +26,13 @@ keypoint modeling rather than inter-mouse interaction.
 ## Inspect configuration
 
 ```sh {"id":"01M24SINGLEMOUSE5FPSCONFIG","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --show-config
+python src/train.py fit --config src/config/train/flat_dense_single_mouse_5fps.yml --show-config
 ```
 
 ## Train
 
 ```sh {"id":"01M24SINGLEMOUSE5FPSTRAIN","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/train.py fit --config src/config/train__flat_dense_single_mouse_5fps.yml --wandb
+python src/train.py fit --config src/config/train/flat_dense_single_mouse_5fps.yml --wandb
 ```
 
 ## Benchmark
@@ -41,7 +41,7 @@ Run this after training produces
 `checkpoints/flat_dense_single_mouse_5fps/flat_best.pt`.
 
 ```sh {"id":"01M24SINGLEMOUSE5FPSBENCH","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_5fps.yml
+python src/benchmark.py --config src/config/benchmark/flat_dense_single_mouse_5fps.yml
 ```
 
 ## Results

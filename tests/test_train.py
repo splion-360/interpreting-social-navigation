@@ -382,7 +382,7 @@ def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
 def test_variant_train_configs_load_from_src_config() -> None:
     variants = {
         "flat_dense_triplet_30fps": (
-            Path("src/config/train__flat_dense_triplet_30fps.yml"),
+            Path("src/config/train/flat_dense_triplet_30fps.yml"),
             "dense_keypoint",
             20,
             20,
@@ -392,7 +392,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "flat_dense_triplet_5fps": (
-            Path("src/config/train__flat_dense_triplet_5fps.yml"),
+            Path("src/config/train/flat_dense_triplet_5fps.yml"),
             "dense_keypoint",
             10,
             40,
@@ -402,7 +402,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "flat_dense_single_mouse_5fps": (
-            Path("src/config/train__flat_dense_single_mouse_5fps.yml"),
+            Path("src/config/train/flat_dense_single_mouse_5fps.yml"),
             "single_mouse_dense_keypoint",
             10,
             40,
@@ -412,7 +412,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "flat_within_mouse_triplet_5fps": (
-            Path("src/config/train__flat_within_mouse_triplet_5fps.yml"),
+            Path("src/config/train/flat_within_mouse_triplet_5fps.yml"),
             "within_mouse_dense_keypoint",
             10,
             40,
@@ -422,7 +422,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             4,
         ),
         "flat_sparse_triplet_30fps": (
-            Path("src/config/train__flat_sparse_triplet_30fps.yml"),
+            Path("src/config/train/flat_sparse_triplet_30fps.yml"),
             "flat_sparse_keypoint",
             10,
             20,
@@ -432,7 +432,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
             0,
         ),
         "flat_mouse_level_30fps": (
-            Path("src/config/train__flat_mouse_level_30fps.yml"),
+            Path("src/config/train/flat_mouse_level_30fps.yml"),
             "mouse_level",
             10,
             20,
@@ -473,7 +473,7 @@ def test_variant_train_configs_load_from_src_config() -> None:
 
 def test_matched_single_mouse_config_matches_dense_update_budget() -> None:
     config = train.load_flat_fit_config(
-        Path("src/config/train__flat_dense_single_mouse_matched_5fps.yml")
+        Path("src/config/train/flat_dense_single_mouse_matched_5fps.yml")
     )
 
     assert config.graph_variant == "single_mouse_dense_keypoint"
@@ -486,7 +486,7 @@ def test_matched_single_mouse_config_matches_dense_update_budget() -> None:
 
 def test_scheduled_sampling_config_preserves_matched_single_mouse_contract() -> None:
     config = train.load_flat_fit_config(
-        Path("src/config/train__flat_dense_single_mouse_scheduled_sampling_5fps.yml")
+        Path("src/config/train/flat_dense_single_mouse_scheduled_sampling_5fps.yml")
     )
 
     assert config.graph_variant == "single_mouse_dense_keypoint"
@@ -511,10 +511,10 @@ def test_scheduled_sampling_config_preserves_matched_single_mouse_contract() -> 
 
 def test_within_mouse_config_matches_dense_optimizer_budget() -> None:
     dense = train.load_flat_fit_config(
-        Path("src/config/train__flat_dense_triplet_5fps.yml")
+        Path("src/config/train/flat_dense_triplet_5fps.yml")
     )
     within_mouse = train.load_flat_fit_config(
-        Path("src/config/train__flat_within_mouse_triplet_5fps.yml")
+        Path("src/config/train/flat_within_mouse_triplet_5fps.yml")
     )
 
     assert within_mouse.batch_size == dense.batch_size == 2

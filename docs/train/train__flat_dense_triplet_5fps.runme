@@ -32,7 +32,7 @@ selected train-window counts, validation-window counts, graph shape, device, and
 checkpoint settings without starting optimization.
 
 ```sh
-python src/train.py fit --config src/config/train__flat_dense_triplet_5fps.yml --show-config
+python src/train.py fit --config src/config/train/flat_dense_triplet_5fps.yml --show-config
 ```
 
 ## Start Training
@@ -41,7 +41,7 @@ Use W&B for this experiment so the checkpoint, losses, validation metrics, and
 motion-group tables are versioned outside the local workspace.
 
 ```sh
-python src/train.py fit --config src/config/train__flat_dense_triplet_5fps.yml --wandb
+python src/train.py fit --config src/config/train/flat_dense_triplet_5fps.yml --wandb
 ```
 
 The CLI prints epoch loss plus a compact validation metric line:
@@ -65,7 +65,7 @@ Run this after training creates
 `checkpoints/flat_dense_triplet_5fps/flat_best.pt`.
 
 ```sh
-python src/benchmark.py --config src/config/benchmark__flat_dense_triplet_5fps.yml
+python src/benchmark.py --config src/config/benchmark/flat_dense_triplet_5fps.yml
 ```
 
 The comparison writes:

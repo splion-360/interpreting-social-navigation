@@ -99,5 +99,5 @@ print_benchmark_tables(record)
 Use this to append a fresh benchmark record with mean, p50, and p99 summaries.
 
 ```sh
-python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_5fps.yml
+python src/benchmark.py --config src/config/benchmark/flat_dense_single_mouse_5fps.yml
 ```

@@ -113,5 +113,5 @@ print_benchmark_tables(record)
 ## Re-run the benchmark
 
 ```sh
-python src/benchmark.py --config src/config/benchmark__flat_within_mouse_triplet_5fps.yml
+python src/benchmark.py --config src/config/benchmark/flat_within_mouse_triplet_5fps.yml
 ```

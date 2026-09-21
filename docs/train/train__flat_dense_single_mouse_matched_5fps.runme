@@ -29,7 +29,7 @@ historical independently sampled checkpoint remains unchanged.
 ## Inspect Configuration
 
 ```sh {"id":"01M26SINGLEMOUSEMATCHEDCONFIG","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/train.py fit --config src/config/train__flat_dense_single_mouse_matched_5fps.yml --show-config
+python src/train.py fit --config src/config/train/flat_dense_single_mouse_matched_5fps.yml --show-config
 ```
 
 Expected data counts are `train_windows: 2400` and
@@ -38,7 +38,7 @@ Expected data counts are `train_windows: 2400` and
 ## Train
 
 ```sh {"id":"01M26SINGLEMOUSEMATCHEDTRAIN","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/train.py fit --config src/config/train__flat_dense_single_mouse_matched_5fps.yml --wandb
+python src/train.py fit --config src/config/train/flat_dense_single_mouse_matched_5fps.yml --wandb
 ```
 
 The best checkpoint is written to
@@ -50,7 +50,7 @@ the W&B artifact `flat-dense-single-mouse-matched-5fps-best-checkpoint`.
 Run this after training finishes.
 
 ```sh {"id":"01M26SINGLEMOUSEMATCHEDBENCH","interpreter":"/home/splion/Desktop/personal/interpreting-social-navigation/.venv/bin/python3.13"}
-python src/benchmark.py --config src/config/benchmark__flat_dense_single_mouse_matched_5fps.yml
+python src/benchmark.py --config src/config/benchmark/flat_dense_single_mouse_matched_5fps.yml
 ```
 
 Results are stored under

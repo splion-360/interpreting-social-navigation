@@ -54,7 +54,7 @@ from st_graph import (
 )
 
 
-DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/train__flat_dense_triplet_30fps.yml")
+DEFAULT_TRAIN_CONFIG_PATH = Path("src/config/train/flat_dense_triplet_30fps.yml")
 PATH_CONFIG_FIELDS = {
     "data_path",
     "checkpoint_dir",

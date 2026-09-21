@@ -356,7 +356,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("src/config/test__flat_pose_diagnostics_5fps.yml"),
+        default=Path("src/config/test/flat_pose_diagnostics_5fps.yml"),
     )
     parser.add_argument("--device")
     parser.add_argument("--max-triplet-windows", type=int)

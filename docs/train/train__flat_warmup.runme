@@ -29,7 +29,7 @@ final_loss=<finite number>
 
 ## Run Flat Training
 
-Training defaults are loaded from `src/config/train__flat_dense_triplet_30fps.yml`.
+Training defaults are loaded from `src/config/train/flat_dense_triplet_30fps.yml`.
 
 Inspect the resolved setup without training:
 
@@ -50,7 +50,7 @@ the `flat-best-checkpoint:best` W&B model artifact.
 Override YAML values only when needed:
 
 ```sh
-python src/train.py fit --config src/config/train__flat_dense_triplet_30fps.yml --device cpu --epochs 5 --batch-size 8 --wandb
+python src/train.py fit --config src/config/train/flat_dense_triplet_30fps.yml --device cpu --epochs 5 --batch-size 8 --wandb
 ```
 
 Resume from the local best checkpoint:

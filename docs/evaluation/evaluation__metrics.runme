@@ -136,8 +136,8 @@ for name, short_name, value_range, better, unit in metric_contract:
 
 ```bash {"interpreter":"/bin/bash"}
 python src/evaluate.py \
-  --config src/config/train__flat_dense_triplet_5fps.yml \
-  --test-config src/config/test__mabe.yml \
+  --config src/config/train/flat_dense_triplet_5fps.yml \
+  --test-config src/config/test/mabe.yml \
   --checkpoint checkpoints/flat_dense_triplet_5fps/flat_best.pt \
   --split test
 ```
