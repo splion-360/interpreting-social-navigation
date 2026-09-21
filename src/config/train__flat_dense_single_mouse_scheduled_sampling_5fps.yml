@@ -1,0 +1,48 @@
+model: flat
+data_path: data/mabe/raw/mouse_triplet_train.npy
+epochs: 50
+batch_size: 6
+window_length: 40
+observation_length: 16
+prediction_length: 24
+graph_variant: single_mouse_dense_keypoint
+single_mouse_window_source: triplet
+stride: 20
+frame_step: 6
+source_fps: 30.0
+max_train_windows: 800
+max_validation_windows: 200
+validation_fraction: 0.2
+motion_sampling: true
+motion_score: mean_keypoint_speed_px_s
+workers: 4
+motion_group_mix:
+  low: 0.2
+  medium: 0.4
+  high: 0.4
+learning_rate: 0.001
+grad_clip: 10.0
+scheduled_sampling:
+  enabled: true
+  start_epoch: 6
+  end_epoch: 40
+  max_feedback_probability: 0.5
+  feedback: sample
+seed: 42
+device: cuda
+wandb: false
+wandb_project: interpreting-social-navigation
+wandb_run_name: single-mouse-scheduled-sampling-linear-p50
+wandb_group: social-attention-scheduled-sampling-5fps
+wandb_job_type: training
+wandb_tags:
+  - single-mouse
+  - 5fps
+  - scheduled-sampling
+checkpoint_dir: checkpoints/flat_dense_single_mouse_scheduled_sampling_5fps
+save_checkpoints: true
+checkpoint_frequency: 10
+wandb_artifact_name: flat-dense-single-mouse-scheduled-sampling-5fps-best-checkpoint
+resume_checkpoint: null
+resume_wandb_artifact: null
+resume_download_dir: checkpoints/wandb

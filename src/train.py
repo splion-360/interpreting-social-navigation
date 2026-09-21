@@ -35,7 +35,11 @@ from data import (
     window_motion_scores_px_s,
 )
 from data.schema import DEFAULT_SOURCE_FPS
-from inference import rollout_flat_keypoint_model
+from inference import (
+    flat_nodes_to_keypoints,
+    rollout_flat_keypoint_model,
+    sample_bivariate_gaussian,
+)
 from logging_utils import configure_cli_logging, get_logger
 from loss import bivariate_gaussian_horizon_nll, bivariate_gaussian_nll
 from metrics import compute_pixel_metrics
@@ -138,6 +142,67 @@ class FlatWarmupResult:
 
 
 @dataclass(frozen=True)
+class ScheduledSamplingConfig:
+    """Configuration for feeding model predictions back during training.
+
+    Attributes:
+        enabled: Whether scheduled sampling is active during training.
+        start_epoch: First epoch in the linear probability ramp.
+        end_epoch: Epoch at which the ramp reaches its maximum.
+        max_feedback_probability: Maximum probability of feeding back a sample.
+        feedback: Prediction statistic used as recurrent input.
+    """
+
+    enabled: bool = False
+    start_epoch: int = 1
+    end_epoch: int = 2
+    max_feedback_probability: float = 0.0
+    feedback: str = "sample"
+
+    def __post_init__(self) -> None:
+        """Validate the scheduled-sampling contract.
+
+        Raises:
+            ValueError: If epoch bounds, feedback probability, or feedback mode
+                are outside the supported scheduled-sampling contract.
+        """
+
+        if self.start_epoch < 1:
+            raise ValueError("scheduled sampling start_epoch must be at least 1")
+        if self.end_epoch <= self.start_epoch:
+            raise ValueError("scheduled sampling end_epoch must exceed start_epoch")
+        if not 0.0 <= self.max_feedback_probability <= 1.0:
+            raise ValueError(
+                "scheduled sampling max_feedback_probability must be in [0, 1]"
+            )
+        if self.feedback != "sample":
+            raise ValueError("scheduled sampling feedback must be sample")
+
+
+def scheduled_sampling_probability(
+    config: ScheduledSamplingConfig,
+    *,
+    epoch: int,
+) -> float:
+    """Return the configured model-feedback probability for an epoch.
+
+    Args:
+        config: Scheduled-sampling policy.
+        epoch: One-indexed training epoch.
+
+    Returns:
+        Probability of using a sampled prediction as the next input.
+    """
+
+    if not config.enabled or epoch <= config.start_epoch:
+        return 0.0
+    if epoch >= config.end_epoch:
+        return config.max_feedback_probability
+    progress = (epoch - config.start_epoch) / (config.end_epoch - config.start_epoch)
+    return config.max_feedback_probability * progress
+
+
+@dataclass(frozen=True)
 class FlatFitConfig:
     """Configuration for flat-model training.
 
@@ -164,11 +229,15 @@ class FlatFitConfig:
         workers: Number of CPU worker processes used for data-prep scoring.
         learning_rate: Adam learning rate.
         grad_clip: Gradient clipping threshold.
+        scheduled_sampling: Policy for using sampled model feedback during training.
         seed: Random seed for deterministic splits and model initialization.
         device: Requested device, such as `cpu`, `cuda`, or `auto`.
         wandb: Whether to log metrics to Weights & Biases.
         wandb_project: Weights & Biases project name.
         wandb_run_name: Optional Weights & Biases run name.
+        wandb_group: Optional W&B experiment group.
+        wandb_job_type: W&B run role within the group.
+        wandb_tags: W&B labels used for filtering runs.
         checkpoint_dir: Directory for best-checkpoint files.
         save_checkpoints: Whether to save the best validation checkpoint.
         checkpoint_frequency: Optional interval for saving epoch checkpoints.
@@ -201,11 +270,17 @@ class FlatFitConfig:
     workers: int = 0
     learning_rate: float = 1e-3
     grad_clip: float = 10.0
+    scheduled_sampling: ScheduledSamplingConfig = field(
+        default_factory=ScheduledSamplingConfig
+    )
     seed: int = 42
     device: str = "auto"
     wandb: bool = False
     wandb_project: str = "interpreting-social-navigation"
     wandb_run_name: str | None = None
+    wandb_group: str | None = None
+    wandb_job_type: str = "training"
+    wandb_tags: tuple[str, ...] = ()
     checkpoint_dir: Path = Path("checkpoints/flat")
     save_checkpoints: bool = True
     checkpoint_frequency: int | None = None
@@ -342,11 +417,15 @@ class EpochLossSummary:
         loss: Mean loss across the epoch.
         loss_by_motion: Mean validation loss per motion stratum.
         counts_by_motion: Number of validation windows per motion stratum.
+        feedback_probability: Configured model-feedback probability.
+        realized_feedback_fraction: Fraction of eligible steps using feedback.
     """
 
     loss: float
     loss_by_motion: dict[MotionStratum, float]
     counts_by_motion: dict[MotionStratum, int]
+    feedback_probability: float = 0.0
+    realized_feedback_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -509,6 +588,12 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
             final_train_loss,
             final_validation_loss,
         )
+        if config.scheduled_sampling.enabled:
+            LOGGER.info(
+                "scheduled_sampling_probability=%.3f realized_feedback_fraction=%.3f",
+                train_summary.feedback_probability,
+                train_summary.realized_feedback_fraction,
+            )
         _print_validation_motion_losses(validation_summary)
         _print_validation_metrics(validation_metrics)
         _wandb_log(
@@ -517,6 +602,18 @@ def run_flat_fit(config: FlatFitConfig, *, show_progress: bool = True) -> FlatFi
                 "epoch": epoch,
                 "train/loss": final_train_loss,
                 "validation/loss": final_validation_loss,
+                **(
+                    {
+                        "train/scheduled_sampling/feedback_probability": (
+                            train_summary.feedback_probability
+                        ),
+                        "train/scheduled_sampling/realized_feedback_fraction": (
+                            train_summary.realized_feedback_fraction
+                        ),
+                    }
+                    if config.scheduled_sampling.enabled
+                    else {}
+                ),
                 **{
                     f"validation/{name}": value
                     for name, value in validation_metrics.metrics.items()
@@ -983,10 +1080,34 @@ def _run_epoch(
     show_progress: bool,
     motion_labels: tuple[MotionStratum, ...] | None = None,
 ) -> EpochLossSummary:
-    """Run one train or validation epoch."""
+    """Run one train or validation epoch.
+
+    Args:
+        model: Model being trained or validated.
+        windows: Normalized windows for the selected split.
+        optimizer: Training optimizer, or `None` for teacher-forced validation.
+        config: Resolved training configuration.
+        device: Device holding model state and tensors.
+        epoch: One-indexed epoch number.
+        split: Progress-bar label for the selected split.
+        show_progress: Whether to show batch progress.
+        motion_labels: Optional motion stratum for every window.
+
+    Returns:
+        Aggregate loss, motion-stratified losses, and scheduled-feedback usage.
+    """
 
     model.train(optimizer is not None)
     batch_losses = []
+    feedback_probability = (
+        scheduled_sampling_probability(config.scheduled_sampling, epoch=epoch)
+        if optimizer is not None
+        else 0.0
+    )
+    feedback_generator = torch.Generator(device=device)
+    feedback_generator.manual_seed(config.seed + epoch)
+    feedback_steps = 0
+    eligible_feedback_steps = 0
     motion_losses: dict[MotionStratum, list[float]] = {
         name: [] for name in MOTION_STRATA
     }
@@ -1000,13 +1121,20 @@ def _run_epoch(
     for start in progress:
         batch_indices = range(start, min(start + config.batch_size, len(windows)))
         with torch.set_grad_enabled(optimizer is not None):
-            loss, window_losses = _batch_loss(
+            loss, window_losses, batch_feedback, batch_eligible = _batch_loss(
                 model,
                 windows,
                 batch_indices,
                 config,
                 device,
+                feedback_probability=feedback_probability,
+                feedback_generator=feedback_generator,
+                scheduled_sampling_enabled=(
+                    optimizer is not None and config.scheduled_sampling.enabled
+                ),
             )
+            feedback_steps += batch_feedback
+            eligible_feedback_steps += batch_eligible
         if optimizer is not None:
             optimizer.zero_grad()
             loss.backward()
@@ -1031,6 +1159,12 @@ def _run_epoch(
         counts_by_motion={
             stratum: len(values) for stratum, values in motion_losses.items()
         },
+        feedback_probability=feedback_probability,
+        realized_feedback_fraction=(
+            feedback_steps / eligible_feedback_steps
+            if eligible_feedback_steps > 0
+            else 0.0
+        ),
     )
 
 
@@ -1040,14 +1174,49 @@ def _batch_loss(
     batch_indices: range,
     config: FlatFitConfig,
     device: torch.device,
-) -> tuple[Tensor, list[float]]:
-    """Compute mean prediction-horizon loss for a window batch."""
+    *,
+    feedback_probability: float,
+    feedback_generator: torch.Generator,
+    scheduled_sampling_enabled: bool,
+) -> tuple[Tensor, list[float], int, int]:
+    """Compute mean prediction-horizon loss for a window batch.
+
+    Args:
+        model: Model optimized by the training loop.
+        windows: Normalized trajectory windows.
+        batch_indices: Window indices included in this optimizer step.
+        config: Resolved training configuration.
+        device: Device holding the model and tensors.
+        feedback_probability: Probability of using sampled recurrent inputs.
+        feedback_generator: Seeded generator for gates and Gaussian samples.
+        scheduled_sampling_enabled: Whether to construct mixed recurrent inputs.
+
+    Returns:
+        Mean batch loss, per-window losses, used feedback-step count, and
+        eligible feedback-step count.
+    """
 
     build_graph = _graph_builder(config.graph_variant)
     losses = []
+    feedback_steps = 0
+    eligible_feedback_steps = 0
     for index in batch_indices:
         window = windows[index]
-        input_graph = build_graph(window.keypoints[:-1])
+        input_keypoints = window.keypoints
+        if scheduled_sampling_enabled:
+            input_keypoints, used_steps, eligible_steps = _scheduled_sampling_inputs(
+                model=model,
+                keypoints=window.keypoints,
+                observation_length=window.observation_length,
+                build_graph=build_graph,
+                device=device,
+                feedback_probability=feedback_probability,
+                generator=feedback_generator,
+            )
+            feedback_steps += used_steps
+            eligible_feedback_steps += eligible_steps
+
+        input_graph = build_graph(input_keypoints[:-1])
         target_graph = build_graph(window.keypoints[1:])
         nodes = torch.from_numpy(input_graph.nodes).to(device)
         edges = torch.from_numpy(input_graph.edge_features).to(device)
@@ -1076,7 +1245,96 @@ def _batch_loss(
             )
         )
     loss_values = [float(loss.detach().cpu()) for loss in losses]
-    return torch.stack(losses).mean(), loss_values
+    return (
+        torch.stack(losses).mean(),
+        loss_values,
+        feedback_steps,
+        eligible_feedback_steps,
+    )
+
+
+def _scheduled_sampling_inputs(
+    *,
+    model: FlatSocialAttentionModel,
+    keypoints: np.ndarray,
+    observation_length: int,
+    build_graph: Callable[[np.ndarray], GraphSequence],
+    device: torch.device,
+    feedback_probability: float,
+    generator: torch.Generator,
+) -> tuple[np.ndarray, int, int]:
+    """Construct recurrent inputs from coherent ground-truth or sampled poses.
+
+    One Bernoulli decision controls the complete mouse pose at each eligible
+    future step. Sampled coordinates are detached before the differentiable
+    training pass, while targets remain the original ground-truth keypoints.
+
+    Args:
+        model: Model providing Gaussian feedback samples.
+        keypoints: Normalized window shaped `[time, mice, keypoints, 2]`.
+        observation_length: Number of ground-truth conditioning frames.
+        build_graph: Graph builder for the configured variant.
+        device: Model device.
+        feedback_probability: Probability of feeding back a sampled pose.
+        generator: Seeded generator for decisions and Gaussian samples.
+
+    Returns:
+        Mixed input poses, used feedback-step count, and eligible-step count.
+    """
+
+    eligible_steps = max(keypoints.shape[0] - observation_length - 1, 0)
+    if feedback_probability <= 0.0 or eligible_steps == 0:
+        return keypoints, 0, eligible_steps
+
+    mixed_keypoints = keypoints.copy()
+    state = None
+    with torch.no_grad():
+        if observation_length > 1:
+            warm_graph = build_graph(mixed_keypoints[: observation_length - 1])
+            warm_result = model.forward_with_state(
+                nodes=torch.from_numpy(warm_graph.nodes).to(device),
+                edge_features=torch.from_numpy(warm_graph.edge_features).to(device),
+                edge_specs=warm_graph.edge_specs,
+                nodes_present=warm_graph.nodes_present,
+                edges_present=warm_graph.edges_present,
+                state=None,
+            )
+            state = warm_result.state
+
+        used_steps = 0
+        for target_frame in range(observation_length, keypoints.shape[0] - 1):
+            input_frame = target_frame - 1
+            graph = build_graph(mixed_keypoints[: input_frame + 1])
+            result = model.forward_with_state(
+                nodes=torch.from_numpy(graph.nodes[input_frame : input_frame + 1]).to(
+                    device
+                ),
+                edge_features=torch.from_numpy(
+                    graph.edge_features[input_frame : input_frame + 1]
+                ).to(device),
+                edge_specs=graph.edge_specs,
+                nodes_present=(graph.nodes_present[input_frame],),
+                edges_present=(graph.edges_present[input_frame],),
+                state=state,
+            )
+            state = result.state
+            use_feedback = bool(
+                torch.rand((), generator=generator, device=device)
+                < feedback_probability
+            )
+            if not use_feedback:
+                continue
+            sampled_nodes = sample_bivariate_gaussian(
+                result.outputs[0],
+                generator=generator,
+            )
+            mixed_keypoints[target_frame] = flat_nodes_to_keypoints(
+                sampled_nodes.cpu().numpy(),
+                pose_shape=keypoints.shape[1:],
+            )
+            used_steps += 1
+
+    return mixed_keypoints, used_steps, eligible_steps
 
 
 def _run_validation_metrics(
@@ -1285,6 +1543,9 @@ def _start_wandb(
     return wandb.init(
         project=config.wandb_project,
         name=config.wandb_run_name,
+        group=config.wandb_group,
+        job_type=config.wandb_job_type,
+        tags=config.wandb_tags,
         config={
             "model": "flat",
             "configured_model": config.model,
@@ -1309,6 +1570,7 @@ def _start_wandb(
             "validation_metric_aliases": VALIDATION_METRIC_ALIASES,
             "learning_rate": config.learning_rate,
             "grad_clip": config.grad_clip,
+            "scheduled_sampling": asdict(config.scheduled_sampling),
             "seed": config.seed,
             "device": config.device,
             "checkpoint_frequency": config.checkpoint_frequency,
@@ -1669,6 +1931,11 @@ def load_flat_fit_config(
             {key: value for key, value in overrides.items() if value is not None}
         )
 
+    values["scheduled_sampling"] = ScheduledSamplingConfig(
+        **values["scheduled_sampling"]
+    )
+    values["wandb_tags"] = tuple(values["wandb_tags"])
+
     for key in PATH_CONFIG_FIELDS:
         if values[key] is not None:
             values[key] = Path(values[key])
@@ -1782,6 +2049,7 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
             "grad_clip": config.grad_clip,
             "epochs": config.epochs,
             "batch_size": config.batch_size,
+            "scheduled_sampling": asdict(config.scheduled_sampling),
         },
         "checkpointing": {
             "enabled": config.save_checkpoints,
@@ -1802,6 +2070,9 @@ def show_flat_fit_setup(config: FlatFitConfig) -> None:
             "enabled": config.wandb,
             "project": config.wandb_project,
             "run_name": config.wandb_run_name,
+            "group": config.wandb_group,
+            "job_type": config.wandb_job_type,
+            "tags": list(config.wandb_tags),
             "artifact": (
                 f"{config.wandb_artifact_name}:best"
                 if config.wandb and config.save_checkpoints

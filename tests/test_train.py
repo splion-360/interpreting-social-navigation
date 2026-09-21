@@ -15,8 +15,10 @@ from train import (
     EpochLossSummary,
     FlatFitConfig,
     FlatWarmupConfig,
+    ScheduledSamplingConfig,
     run_flat_fit,
     run_flat_warmup,
+    scheduled_sampling_probability,
 )
 
 
@@ -98,6 +100,32 @@ def test_flat_fit_runs_one_epoch_without_wandb_or_checkpoints(tmp_path: Path) ->
     assert np.isfinite(result.final_validation_loss)
 
 
+def test_scheduled_sampling_probability_follows_linear_epoch_schedule() -> None:
+    config = ScheduledSamplingConfig(
+        enabled=True,
+        start_epoch=6,
+        end_epoch=40,
+        max_feedback_probability=0.5,
+    )
+
+    assert scheduled_sampling_probability(config, epoch=1) == 0.0
+    assert scheduled_sampling_probability(config, epoch=6) == 0.0
+    assert scheduled_sampling_probability(config, epoch=23) == 0.25
+    assert scheduled_sampling_probability(config, epoch=40) == 0.5
+    assert scheduled_sampling_probability(config, epoch=50) == 0.5
+
+
+def test_disabled_scheduled_sampling_always_uses_ground_truth() -> None:
+    config = ScheduledSamplingConfig(
+        enabled=False,
+        start_epoch=6,
+        end_epoch=40,
+        max_feedback_probability=0.5,
+    )
+
+    assert scheduled_sampling_probability(config, epoch=40) == 0.0
+
+
 def test_flat_fit_prints_resolved_device_info(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -129,6 +157,171 @@ def test_flat_fit_prints_resolved_device_info(
     assert "device: cpu" in output
     assert "torch_version:" not in output
     assert "cuda_available:" not in output
+
+
+def test_scheduled_sampling_fit_logs_realized_feedback(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_mabe_file(data_path)
+    logged_metrics: list[dict[str, float | int]] = []
+    finite_gradient_steps: list[bool] = []
+    original_step = torch.optim.Adam.step
+
+    class FakeRun:
+        def log(self, metrics: dict[str, float | int]) -> None:
+            logged_metrics.append(metrics)
+
+        def finish(self) -> None:
+            return None
+
+    monkeypatch.setattr(train, "_start_wandb", lambda *_args, **_kwargs: FakeRun())
+    monkeypatch.setattr(
+        train,
+        "_wandb_log_validation_motion_table",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def check_gradients(
+        optimizer: torch.optim.Adam,
+        closure: Any | None = None,
+    ) -> Any:
+        """Record gradient finiteness before applying an optimizer step.
+
+        Args:
+            optimizer: Adam optimizer created by the training entry point.
+            closure: Optional closure forwarded to the original optimizer step.
+
+        Returns:
+            Result returned by the original Adam step.
+        """
+
+        gradients = [
+            parameter.grad
+            for group in optimizer.param_groups
+            for parameter in group["params"]
+            if parameter.grad is not None
+        ]
+        finite_gradient_steps.append(
+            bool(gradients)
+            and all(bool(torch.isfinite(gradient).all()) for gradient in gradients)
+        )
+        return original_step(optimizer, closure)
+
+    monkeypatch.setattr(torch.optim.Adam, "step", check_gradients)
+    caplog.set_level("INFO", logger=train.__name__)
+
+    result = run_flat_fit(
+        FlatFitConfig(
+            data_path=data_path,
+            epochs=2,
+            batch_size=3,
+            window_length=5,
+            observation_length=3,
+            prediction_length=2,
+            graph_variant="single_mouse_dense_keypoint",
+            single_mouse_window_source="triplet",
+            stride=5,
+            max_train_windows=1,
+            max_validation_windows=1,
+            learning_rate=1e-3,
+            scheduled_sampling=ScheduledSamplingConfig(
+                enabled=True,
+                start_epoch=1,
+                end_epoch=2,
+                max_feedback_probability=1.0,
+            ),
+            device="cpu",
+            wandb=True,
+            save_checkpoints=False,
+        ),
+        show_progress=False,
+    )
+
+    assert np.isfinite(result.final_train_loss)
+    epoch_two = next(metrics for metrics in logged_metrics if metrics["epoch"] == 2)
+    assert epoch_two["train/scheduled_sampling/feedback_probability"] == 1.0
+    assert epoch_two["train/scheduled_sampling/realized_feedback_fraction"] == 1.0
+    assert finite_gradient_steps == [True, True]
+    assert "scheduled_sampling_probability=1.000" in caplog.text
+    assert "realized_feedback_fraction=1.000" in caplog.text
+
+
+def test_zero_probability_scheduled_sampling_matches_teacher_forcing(
+    tmp_path: Path,
+) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_mabe_file(data_path)
+    common = {
+        "data_path": data_path,
+        "epochs": 1,
+        "batch_size": 3,
+        "window_length": 5,
+        "observation_length": 3,
+        "prediction_length": 2,
+        "graph_variant": "single_mouse_dense_keypoint",
+        "single_mouse_window_source": "triplet",
+        "stride": 5,
+        "max_train_windows": 1,
+        "max_validation_windows": 1,
+        "device": "cpu",
+        "wandb": False,
+        "save_checkpoints": False,
+        "seed": 42,
+    }
+
+    control = run_flat_fit(FlatFitConfig(**common), show_progress=False)
+    scheduled = run_flat_fit(
+        FlatFitConfig(
+            **common,
+            scheduled_sampling=ScheduledSamplingConfig(
+                enabled=True,
+                start_epoch=1,
+                end_epoch=2,
+                max_feedback_probability=1.0,
+            ),
+        ),
+        show_progress=False,
+    )
+
+    assert scheduled.final_train_loss == control.final_train_loss
+    assert scheduled.final_validation_loss == control.final_validation_loss
+
+
+def test_scheduled_sampling_fit_is_deterministic_for_seed_42(tmp_path: Path) -> None:
+    data_path = tmp_path / "mouse_triplet_train.npy"
+    write_mabe_file(data_path)
+    config = FlatFitConfig(
+        data_path=data_path,
+        epochs=2,
+        batch_size=3,
+        window_length=5,
+        observation_length=3,
+        prediction_length=2,
+        graph_variant="single_mouse_dense_keypoint",
+        single_mouse_window_source="triplet",
+        stride=5,
+        max_train_windows=1,
+        max_validation_windows=1,
+        scheduled_sampling=ScheduledSamplingConfig(
+            enabled=True,
+            start_epoch=1,
+            end_epoch=2,
+            max_feedback_probability=1.0,
+        ),
+        device="cpu",
+        wandb=False,
+        save_checkpoints=False,
+        seed=42,
+    )
+
+    first = run_flat_fit(config, show_progress=False)
+    second = run_flat_fit(config, show_progress=False)
+
+    assert second.final_train_loss == first.final_train_loss
+    assert second.final_validation_loss == first.final_validation_loss
 
 
 def test_flat_fit_config_loads_yaml_with_cli_overrides(tmp_path: Path) -> None:
@@ -291,6 +484,31 @@ def test_matched_single_mouse_config_matches_dense_update_budget() -> None:
     assert config.seed == 42
 
 
+def test_scheduled_sampling_config_preserves_matched_single_mouse_contract() -> None:
+    config = train.load_flat_fit_config(
+        Path("src/config/train__flat_dense_single_mouse_scheduled_sampling_5fps.yml")
+    )
+
+    assert config.graph_variant == "single_mouse_dense_keypoint"
+    assert config.single_mouse_window_source == "triplet"
+    assert config.batch_size == 6
+    assert config.seed == 42
+    assert config.scheduled_sampling == ScheduledSamplingConfig(
+        enabled=True,
+        start_epoch=6,
+        end_epoch=40,
+        max_feedback_probability=0.5,
+        feedback="sample",
+    )
+    assert config.wandb_group == "social-attention-scheduled-sampling-5fps"
+    assert config.wandb_job_type == "training"
+    assert config.wandb_tags == (
+        "single-mouse",
+        "5fps",
+        "scheduled-sampling",
+    )
+
+
 def test_within_mouse_config_matches_dense_optimizer_budget() -> None:
     dense = train.load_flat_fit_config(
         Path("src/config/train__flat_dense_triplet_5fps.yml")
@@ -323,6 +541,13 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
             max_train_windows=2,
             max_validation_windows=1,
             device="cpu",
+            scheduled_sampling=ScheduledSamplingConfig(
+                enabled=True,
+                start_epoch=6,
+                end_epoch=40,
+                max_feedback_probability=0.5,
+            ),
+            wandb_group="social-attention-scheduled-sampling-5fps",
             save_checkpoints=False,
         )
     )
@@ -340,6 +565,9 @@ def test_show_flat_fit_setup_prints_data_and_training_metadata(
     assert "resume_wandb_artifact: null" in output
     assert "device: cpu" in output
     assert "checkpoint_frequency: null" in output
+    assert "scheduled_sampling:" in output
+    assert "max_feedback_probability: 0.5" in output
+    assert "group: social-attention-scheduled-sampling-5fps" in output
 
 
 def test_motion_sampling_selects_train_windows_after_grouping(tmp_path: Path) -> None:
@@ -586,6 +814,33 @@ def test_wandb_flag_requires_optional_dependency(
     device_info = train._device_info("cpu", torch.device("cpu"))
     with pytest.raises(RuntimeError, match="optional dependency"):
         train._start_wandb(FlatFitConfig(wandb=True), device_info)
+
+
+def test_wandb_run_uses_configured_group_job_type_and_tags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    init_arguments: dict[str, Any] = {}
+
+    def fake_init(**kwargs: Any) -> object:
+        init_arguments.update(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "wandb", SimpleNamespace(init=fake_init))
+    device_info = train._device_info("cpu", torch.device("cpu"))
+
+    train._start_wandb(
+        FlatFitConfig(
+            wandb=True,
+            wandb_group="social-attention-scheduled-sampling-5fps",
+            wandb_job_type="training",
+            wandb_tags=("single-mouse", "scheduled-sampling"),
+        ),
+        device_info,
+    )
+
+    assert init_arguments["group"] == "social-attention-scheduled-sampling-5fps"
+    assert init_arguments["job_type"] == "training"
+    assert init_arguments["tags"] == ("single-mouse", "scheduled-sampling")
 
 
 def test_wandb_checkpoint_logging_is_skipped_without_run(tmp_path: Path) -> None:
