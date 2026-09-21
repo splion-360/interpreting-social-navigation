@@ -1,7 +1,5 @@
 """File description: Shared autoregressive inference helpers for trajectory models."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal

@@ -1,7 +1,5 @@
 """File description: Visualization helpers for mouse-triplets pose sequences."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import matplotlib.pyplot as plt

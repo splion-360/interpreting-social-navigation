@@ -1,7 +1,5 @@
 """File description: Train and validation trajectory-distribution comparisons."""
 
-from __future__ import annotations
-
 import numpy as np
 from scipy.stats import ks_2samp
 

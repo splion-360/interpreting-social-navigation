@@ -1,7 +1,5 @@
 """File description: Orchestration for paired diagnostic workflows."""
 
-from __future__ import annotations
-
 import argparse
 from dataclasses import replace
 from pathlib import Path

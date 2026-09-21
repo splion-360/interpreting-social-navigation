@@ -1,7 +1,5 @@
 """File description: Shared logging setup for command-line experiment tools."""
 
-from __future__ import annotations
-
 import logging
 import sys
 

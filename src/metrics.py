@@ -1,7 +1,5 @@
 """File description: Pixel-space metrics for mouse trajectory predictions."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 

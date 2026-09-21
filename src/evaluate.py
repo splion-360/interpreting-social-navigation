@@ -1,7 +1,5 @@
 """File description: Autoregressive evaluation for trajectory checkpoints."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json

@@ -1,7 +1,5 @@
 """File description: Training entry point for trajectory model experiments."""
 
-from __future__ import annotations
-
 import argparse
 import sys
 from collections.abc import Callable
@@ -377,7 +375,7 @@ class ValidationMotionMetricTable:
     rows: list[tuple[float | int | str, ...]]
 
     @classmethod
-    def empty(cls) -> ValidationMotionMetricTable:
+    def empty(cls) -> "ValidationMotionMetricTable":
         """Create an empty cumulative table."""
 
         return cls(rows=[])

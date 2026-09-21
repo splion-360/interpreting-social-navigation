@@ -1,7 +1,5 @@
 """File description: MABe mouse-triplets data loading and window sampling."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +52,7 @@ class MabeDataset:
     vocabulary: tuple[str, ...]
 
     @classmethod
-    def from_file(cls, path: str | Path) -> MabeDataset:
+    def from_file(cls, path: str | Path) -> "MabeDataset":
         """Load a CaltechDATA/AIcrowd MABe `.npy` dictionary.
 
         Args:
@@ -68,7 +66,7 @@ class MabeDataset:
         return cls.from_dict(raw)
 
     @classmethod
-    def from_dict(cls, raw: dict) -> MabeDataset:
+    def from_dict(cls, raw: dict) -> "MabeDataset":
         """Create a dataset from an already-loaded MABe dictionary.
 
         Args:
@@ -339,7 +337,7 @@ class PoseNormalizer:
     scale: np.ndarray
 
     @classmethod
-    def fit(cls, sequences: Iterable[MabeSequence]) -> PoseNormalizer:
+    def fit(cls, sequences: Iterable[MabeSequence]) -> "PoseNormalizer":
         """Create the fixed MABe pixel-coordinate normalizer.
 
         Args:

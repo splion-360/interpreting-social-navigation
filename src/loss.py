@@ -1,7 +1,5 @@
 """File description: Bivariate Gaussian trajectory loss utilities."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import torch

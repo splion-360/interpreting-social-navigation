@@ -1,7 +1,5 @@
 """File description: Metric contracts and reports for predictor benchmarks."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite

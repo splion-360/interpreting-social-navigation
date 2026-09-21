@@ -1,7 +1,5 @@
 """File description: Motion scoring and stratified window sampling utilities."""
 
-from __future__ import annotations
-
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from collections.abc import Mapping, Sequence

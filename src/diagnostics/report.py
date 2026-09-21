@@ -1,7 +1,5 @@
 """File description: Rich table rendering for diagnostic summaries."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 

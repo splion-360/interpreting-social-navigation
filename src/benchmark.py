@@ -1,7 +1,5 @@
 """File description: CLI orchestration for fair trajectory predictor benchmarks."""
 
-from __future__ import annotations
-
 import argparse
 from dataclasses import dataclass
 from pathlib import Path

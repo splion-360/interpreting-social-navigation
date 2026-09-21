@@ -1,7 +1,5 @@
 """File description: Spatio-temporal graph builders for mouse trajectory modeling."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 

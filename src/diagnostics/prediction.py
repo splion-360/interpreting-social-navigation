@@ -1,7 +1,5 @@
 """File description: Prediction and scoring helpers for diagnostic workflows."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 

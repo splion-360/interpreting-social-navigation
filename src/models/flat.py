@@ -1,7 +1,5 @@
 """File description: SRNN-style flat model for trajectory Gaussian prediction."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 

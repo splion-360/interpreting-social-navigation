@@ -1,7 +1,5 @@
 """File description: Paired statistical summaries for diagnostic comparisons."""
 
-from __future__ import annotations
-
 import numpy as np
 
 
